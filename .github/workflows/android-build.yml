@@ -11,12 +11,28 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend/android
     steps:
       - name: Check out the repo
         uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build the web app
+        working-directory: frontend
+        run: npm run build
+
+      - name: Sync Capacitor Android project
+        working-directory: frontend
+        run: npx cap sync android
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -25,6 +41,7 @@ jobs:
           java-version: "21"
 
       - name: Build debug APK
+        working-directory: frontend/android
         run: bash gradlew assembleDebug --console=plain
 
       - name: Upload debug APK
@@ -35,6 +52,7 @@ jobs:
           if-no-files-found: error
 
       - name: Build release bundle (unsigned until Play App Signing is set up)
+        working-directory: frontend/android
         run: bash gradlew bundleRelease --console=plain
 
       - name: Upload release bundle
