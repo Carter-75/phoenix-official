@@ -1,0 +1,1 @@
+{"compilerOptions":{"skipLibCheck":true,"strict":true,"types":["react","react-native","expo"]},"extends":"expo/tsconfig.base","include":["**/*.ts","**/*.tsx",".expo/types/**/*.ts","expo-env.d.ts"]}
