@@ -225,6 +225,9 @@ router.post('/sync', passport.authenticate('jwt', { session: false }), async (re
       const json = JSON.stringify(b.worldUpgrades);
       if (json.length < 2_000_000) user.worldUpgrades = b.worldUpgrades;
     }
+    if (typeof b.modifiersVersion === 'number' && isFinite(b.modifiersVersion)) {
+      user.modifiersVersion = Math.max(user.modifiersVersion || 0, Math.floor(b.modifiersVersion));
+    }
     if (Array.isArray(b.trophies)) user.trophies = [...new Set([...(user.trophies || []), ...b.trophies.map(String).slice(0, 200)])];
     if (Array.isArray(b.unlockedEnemies)) user.unlockedEnemies = [...new Set([...(user.unlockedEnemies || []), ...b.unlockedEnemies.map(String).slice(0, 200)])];
 

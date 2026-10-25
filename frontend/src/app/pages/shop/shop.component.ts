@@ -344,11 +344,26 @@ import { CommonModule } from '@angular/common';
 
       <!-- Abilities Tab -->
       @if (activeTab() === 'abilities') {
+         <!-- Loadout: the four equip slots (spec Section 3.2). One move
+              per family; equipping happens on each move's card. The
+              double and triple pools arrive in later stages, so those
+              slots read Empty until their families ship. -->
+         <div class="w-full max-w-5xl mb-6 bg-white/5 border border-white/10 rounded-3xl p-4 animate-fade-in">
+            <div class="text-xs font-bold text-white/50 uppercase tracking-widest mb-3">Loadout</div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+               @for (slot of loadoutSlots; track slot.family) {
+                  <div class="bg-black/30 border border-white/10 rounded-2xl px-4 py-3">
+                     <div class="text-[10px] font-bold text-white/40 uppercase tracking-widest">{{ slot.label }}</div>
+                     <div class="text-white font-bold mt-1 truncate">{{ slot.name }}</div>
+                  </div>
+               }
+            </div>
+         </div>
          <div class="w-full max-w-5xl grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6 animate-fade-in pb-12">
             @for (ability of abilitiesList; track ability.id) {
                <div class="bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col hover:bg-white/10 transition shadow-lg relative">
                   <!-- Equipped Badge -->
-                  @if (gameState.currentStats().activeTapAbility === ability.id || gameState.currentStats().activeHoldAbility === ability.id) {
+                  @if (gameState.currentStats().activeTapAbility === ability.id || gameState.currentStats().activeHoldAbility === ability.id || gameState.currentStats().activeDoubleAbility === ability.id || gameState.currentStats().activeTripleAbility === ability.id) {
                      <div class="absolute -top-3 right-4 bg-cyan-500 text-black px-3 py-1 rounded-full text-xs font-bold uppercase shadow-lg">Equipped</div>
                   }
                   <div class="flex items-center gap-4 mb-4">
@@ -911,7 +926,7 @@ export class ShopComponent implements OnInit {
      }
   }
 
-  equipAbility(id: string, type: 'tap' | 'hold') {
+  equipAbility(id: string, type: 'tap' | 'double' | 'hold' | 'triple') {
       this.gameState.worldUpgrades.update(upgrades => {
           const worldId = this.gameState.selectedWorldIndex();
           const stats = upgrades[worldId];
@@ -920,10 +935,25 @@ export class ShopComponent implements OnInit {
               [worldId]: {
                   ...stats,
                   activeTapAbility: type === 'tap' ? id : stats.activeTapAbility,
-                  activeHoldAbility: type === 'hold' ? id : stats.activeHoldAbility
+                  activeHoldAbility: type === 'hold' ? id : stats.activeHoldAbility,
+                  activeDoubleAbility: type === 'double' ? id : stats.activeDoubleAbility,
+                  activeTripleAbility: type === 'triple' ? id : stats.activeTripleAbility
               }
           };
       });
+  }
+
+  // The four equip slots with their current occupants, for the
+  // loadout strip (spec Section 3.2).
+  get loadoutSlots() {
+      const stats = this.gameState.currentStats();
+      const nameOf = (id: string | null) => id ? (ABILITIES[id]?.name || id) : 'Empty';
+      return [
+          { family: 'tap', label: 'Tap', name: nameOf(stats.activeTapAbility) },
+          { family: 'double', label: 'Double-Tap', name: nameOf(stats.activeDoubleAbility) },
+          { family: 'hold', label: 'Hold', name: nameOf(stats.activeHoldAbility) },
+          { family: 'triple', label: 'Triple-Tap (Ultimate)', name: nameOf(stats.activeTripleAbility) }
+      ];
   }
 
   getCost(stat: keyof WorldStats, baseCost: number, step: number, offset: number): number {

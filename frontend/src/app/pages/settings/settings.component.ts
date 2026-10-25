@@ -2,6 +2,7 @@ import { Component, Output, EventEmitter, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { AudioService } from '../../services/audio.service';
 import { MlAiService } from '../../services/ml-ai.service';
+import { GameStateService } from '../../services/game-state.service';
 
 @Component({
   selector: 'app-settings',
@@ -107,6 +108,43 @@ import { MlAiService } from '../../services/ml-ai.service';
                            [value]="audio.intenseVolume()" 
                            (input)="updateVolume('intenseVolume', $event)" 
                            class="w-full intense-slider">
+                </div>
+
+                <!-- Gameplay feel and information layers (systems S1).
+                     All three are local preferences, stored on this
+                     device only, never in the synced save. -->
+                <div class="separator"></div>
+                <div class="slider-group">
+                    <div class="flex justify-between items-center">
+                        <label>Touch Offset</label>
+                        <button (click)="gameState.setTouchOffsetEnabled(!gameState.touchOffsetEnabled())"
+                                class="px-3 py-1 rounded bg-white/10 border border-white/20 text-white/90 font-bold text-sm hover:bg-white/20 transition">
+                            {{ gameState.touchOffsetEnabled() ? 'On' : 'Off' }}
+                        </button>
+                    </div>
+                    <p class="text-white/40 text-xs mt-1">Steering target sits above your fingertip on touch screens so the phoenix is not hidden under your thumb.</p>
+                </div>
+
+                <div class="slider-group">
+                    <div class="flex justify-between items-center">
+                        <label>Screen Shake</label>
+                        <button (click)="cycleShake()"
+                                class="px-3 py-1 rounded bg-white/10 border border-white/20 text-white/90 font-bold text-sm hover:bg-white/20 transition">
+                            {{ gameState.screenShakeSetting() === 'on' ? 'On' : gameState.screenShakeSetting() === 'reduced' ? 'Reduced' : 'Off' }}
+                        </button>
+                    </div>
+                    <p class="text-white/40 text-xs mt-1">A short shake on boss deaths, ultimate casts, and boss contact hits. Nothing else shakes.</p>
+                </div>
+
+                <div class="slider-group">
+                    <div class="flex justify-between items-center">
+                        <label>Damage Numbers</label>
+                        <button (click)="gameState.setDamageNumbersEnabled(!gameState.damageNumbersEnabled())"
+                                class="px-3 py-1 rounded bg-white/10 border border-white/20 text-white/90 font-bold text-sm hover:bg-white/20 transition">
+                            {{ gameState.damageNumbersEnabled() ? 'On' : 'Off' }}
+                        </button>
+                    </div>
+                    <p class="text-white/40 text-xs mt-1">Floating numbers for the damage you deal. Enemy damage is never numbered.</p>
                 </div>
 
                 <!-- Reset AI Brain (hold 3s) -->
@@ -261,8 +299,14 @@ import { MlAiService } from '../../services/ml-ai.service';
 })
 export class SettingsComponent {
   public audio = inject(AudioService);
+  public gameState = inject(GameStateService);
   private mlAi = inject(MlAiService);
   @Output() close = new EventEmitter<void>();
+
+  cycleShake() {
+      const cur = this.gameState.screenShakeSetting();
+      this.gameState.setScreenShakeSetting(cur === 'on' ? 'reduced' : cur === 'reduced' ? 'off' : 'on');
+  }
 
   // Reset AI hold state
   resetHoldProgress = signal(0);

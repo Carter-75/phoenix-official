@@ -14,6 +14,11 @@ const userSchema = new mongoose.Schema({
   gems: { type: Number, default: 0 },
   unlockedWorlds: { type: [Number], default: [0] },
   worldUpgrades: { type: mongoose.Schema.Types.Mixed, default: {} },
+  // Systems S1: version flag for the deterministic ability-modifier
+  // migration. The client recomputes stored modifiers from stored
+  // levels only while this is below its current version, so the flag
+  // has to round-trip through sync like the save itself does.
+  modifiersVersion: { type: Number, default: 0 },
   trophies: { type: [String], default: [] },
   unlockedEnemies: { type: [String], default: [] },
   

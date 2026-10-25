@@ -16,6 +16,12 @@ export interface WorldStats {
   unlockedAbilities: Record<string, AbilityData>;
   activeTapAbility: string | null;
   activeHoldAbility: string | null;
+  // Systems S1 (spec Section 3.2): the double-tap and triple-tap equip
+  // slots beside the existing tap and hold slots. Added through the same
+  // defaulting the record already uses (BASE_STATS carries nulls and
+  // currentStats merges it), so pre-S1 saves load with empty slots.
+  activeDoubleAbility: string | null;
+  activeTripleAbility: string | null;
 }
 
 export interface PhysicsEntity {

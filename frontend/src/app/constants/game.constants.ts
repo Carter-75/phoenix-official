@@ -157,7 +157,7 @@ export const WORLDS: World[] = [
     } },
 ];
 
-export const ABILITIES: Record<string, { id: string, type: 'tap' | 'hold', name: string, desc: string, icon: string, unlockCost: number, upgradeCost: number, baseCooldown: number }> = {
+export const ABILITIES: Record<string, { id: string, type: 'tap' | 'double' | 'hold' | 'triple', name: string, desc: string, icon: string, unlockCost: number, upgradeCost: number, baseCooldown: number }> = {
   'drill_attack': { id: 'drill_attack', type: 'tap', name: 'Drill Attack', desc: 'Spin dash through enemies', icon: '🌪️', unlockCost: 500, upgradeCost: 200, baseCooldown: 20 },
   'fire_breath': { id: 'fire_breath', type: 'tap', name: 'Fire Breath', desc: 'Continuous short-range flame', icon: '🔥', unlockCost: 500, upgradeCost: 200, baseCooldown: 8 },
   'burst': { id: 'burst', type: 'tap', name: 'Burst', desc: 'Explosive radial attack', icon: '💥', unlockCost: 0, upgradeCost: 350, baseCooldown: 5 },
@@ -171,22 +171,6 @@ export const REALM_ABILITIES: Record<number, string[]> = {
   0: ['drill_attack', 'fire_breath', 'burst', 'phoenix_turret', 'rebirth', 'aura']
 };
 
-export const BASE_STATS: WorldStats = { 
-  maxHealth: 100, speed: 2.0, magnetism: 1.0, damage: 10, attackSpeed: 1.0, 
-  burstDamage: 20, auraRadius: 250, homingLevel: 0, attackRange: 400,
-  unlockedAbilities: {}, 
-  activeTapAbility: null, activeHoldAbility: null
-};
-
-export const WORLD_0_STATS: WorldStats = { 
-  ...BASE_STATS,
-  unlockedAbilities: { 
-    'burst': { level: 1, modifiers: { cooldown: 1.0, damage: 1.0, radius: 1.0 } }, 
-    'aura': { level: 1, modifiers: { damage: 1.0, radius: 1.0 } } 
-  }, 
-  activeTapAbility: 'burst', activeHoldAbility: 'aura'
-};
-
 export const ABILITY_UPGRADE_TARGETS: Record<string, { targetLevel: number, stats: Record<string, number> }> = {
   drill_attack: { targetLevel: 30, stats: { cooldown: 0.25, speed: 3.0, duration: 5.0 } },
   burst: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0, radius: 3.0 } },
@@ -194,4 +178,39 @@ export const ABILITY_UPGRADE_TARGETS: Record<string, { targetLevel: number, stat
   fire_breath: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0, range: 3.0, ammo: 3.0 } },
   aura: { targetLevel: 30, stats: { damage: 5.0, radius: 3.0 } },
   rebirth: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } }
+};
+
+// Deterministic ability upgrades (systems spec Section 3.5, stage S1).
+// The old system rolled one random stat increment per level toward these
+// targets, so two players at the same level owned different moves and no
+// balance number was auditable. Now every level moves every modifier
+// exactly 1/targetLevel of the distance from 1.0 toward its target, so
+// level L means the same build for everyone and level 30 lands exactly
+// on the old system's endpoints. Expected power per level matches the
+// old system's average by construction.
+export function deterministicAbilityModifiers(abilityId: string, level: number): Record<string, number> {
+  const config = ABILITY_UPGRADE_TARGETS[abilityId] || { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } };
+  const frac = Math.max(0, Math.min(level, config.targetLevel)) / config.targetLevel;
+  const mods: Record<string, number> = {};
+  Object.keys(config.stats).forEach(stat => {
+    mods[stat] = 1.0 + (config.stats[stat] - 1.0) * frac;
+  });
+  return mods;
+}
+
+export const BASE_STATS: WorldStats = {
+  maxHealth: 100, speed: 2.0, magnetism: 1.0, damage: 10, attackSpeed: 1.0,
+  burstDamage: 20, auraRadius: 250, homingLevel: 0, attackRange: 400,
+  unlockedAbilities: {},
+  activeTapAbility: null, activeHoldAbility: null,
+  activeDoubleAbility: null, activeTripleAbility: null
+};
+
+export const WORLD_0_STATS: WorldStats = {
+  ...BASE_STATS,
+  unlockedAbilities: {
+    'burst': { level: 1, modifiers: deterministicAbilityModifiers('burst', 1) },
+    'aura': { level: 1, modifiers: deterministicAbilityModifiers('aura', 1) }
+  },
+  activeTapAbility: 'burst', activeHoldAbility: 'aura'
 };

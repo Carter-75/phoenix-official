@@ -1,6 +1,7 @@
 import { Component, ElementRef, OnInit, OnDestroy, ViewChild, inject, NgZone, signal, computed, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { GameStateService } from '../../services/game-state.service';
+import { GameStateService, STAMINA, createMovementState } from '../../services/game-state.service';
+import { phoenixSkinById } from '../../components/particle-bg/particle-bg.component';
 import { PhysicsEntity, WorldStats } from '../../models/game.models';
 import { ABILITIES, BASE_STATS, REALM_ABILITIES } from '../../constants/game.constants';
 import { AudioService } from '../../services/audio.service';
@@ -32,7 +33,7 @@ interface EnemyData {
   standalone: true,
   imports: [CommonModule, SettingsComponent],
   template: `
-    <div class="fixed inset-0 z-10 w-full h-full pointer-events-none">
+    <div class="fixed inset-0 z-10 w-full h-full pointer-events-none" [style.transform]="shakeTransform()">
       
       <!-- Progress Bar Overlay -->
       <div class="absolute top-8 left-1/2 -translate-x-1/2 w-[80%] max-w-2xl flex flex-col items-center gap-2 pointer-events-auto">
@@ -104,7 +105,34 @@ interface EnemyData {
                 [style.width]="(currentHealth() / maxHealth()) * 100 + '%'"></div>
         </div>
         <span class="text-red-400 font-bold text-sm">{{ currentHealth() }} / {{ maxHealth() }}</span>
+        <!-- Stamina arc (spec Section 2.5): a slim ring under the HP
+             bar in the skin's mid color, emptying toward the hostile
+             color as it drains. No numbers, no popups. It glows while
+             gliding (Section 2.6). -->
+        @if (gameState.currentGameMode() !== 'ai_vs_ai') {
+          <div class="w-10 h-10 rounded-full flex items-center justify-center transition-shadow duration-300"
+               [style.background]="staminaArcBackground()"
+               [style.box-shadow]="gameState.playerMovement.gliding ? '0 0 14px rgba(255,255,255,0.55)' : '0 0 6px rgba(0,0,0,0.5)'"
+               title="Stamina">
+            <div class="w-7 h-7 rounded-full bg-black/70"></div>
+          </div>
+        }
       </div>
+
+      <!-- Damage numbers layer (spec Section 4.4): player-dealt damage
+           only, merged per enemy, pooled sprites, off means absent. -->
+      @if (gameState.damageNumbersEnabled()) {
+        @for (n of damageSprites(); track n.id) {
+          <div class="fixed pointer-events-none z-30 font-black select-none"
+               [style.left.px]="n.x" [style.top.px]="damageSpriteTop(n)"
+               [style.opacity]="damageSpriteOpacity(n)"
+               [style.font-size.px]="n.size"
+               [style.color]="n.color"
+               style="transform: translate(-50%, -100%); text-shadow: -1px -1px 0 rgba(0,0,0,0.85), 1px -1px 0 rgba(0,0,0,0.85), -1px 1px 0 rgba(0,0,0,0.85), 1px 1px 0 rgba(0,0,0,0.85);">
+            {{ n.amount }}
+          </div>
+        }
+      }
 
       <!-- Cooldown UI -->
       <div class="absolute bottom-8 right-4 md:right-8 flex gap-2 md:gap-4 pointer-events-auto">
@@ -126,6 +154,34 @@ interface EnemyData {
           }
           @if (holdChargeProgress() > 0 && holdCooldown() <= 0) {
             <div class="absolute bottom-0 left-0 w-full bg-cyan-400/40" [style.height]="holdChargeProgress() * 100 + '%'"></div>
+          }
+        </div>
+        <!-- Double-tap slot (spec Section 3.2): parsed and equippable
+             from S1; its move pool ships in S2, so an empty slot shows
+             the family mark instead of an icon. -->
+        <div class="relative w-14 h-14 md:w-16 md:h-16 bg-black/50 border border-white/20 rounded-2xl overflow-hidden flex items-center justify-center backdrop-blur-sm shadow-[0_0_15px_rgba(150,100,255,0.2)]">
+          @if (gameState.currentStats().activeDoubleAbility) {
+            <span class="text-3xl z-10" [class.opacity-50]="doubleCooldown() > 0">{{ getDoubleIcon() }}</span>
+          } @else {
+            <span class="text-lg font-black text-white/40 z-10">2x</span>
+          }
+          <span class="absolute bottom-1 right-1.5 z-20 text-[9px] font-bold text-white/50 uppercase tracking-wider">Dbl</span>
+          @if (doubleCooldown() > 0) {
+            <div class="absolute bottom-0 left-0 w-full bg-violet-600/50 transition-all" [style.height]="(doubleCooldown() / getDoubleMaxCooldown()) * 100 + '%'"></div>
+            <span class="absolute z-20 text-white font-bold drop-shadow-md">{{ doubleCooldown().toFixed(1) }}</span>
+          }
+        </div>
+        <!-- Triple-tap slot (the ultimate slot, spec Section 3.2). -->
+        <div class="relative w-14 h-14 md:w-16 md:h-16 bg-black/50 border border-white/20 rounded-2xl overflow-hidden flex items-center justify-center backdrop-blur-sm shadow-[0_0_15px_rgba(255,200,0,0.2)]">
+          @if (gameState.currentStats().activeTripleAbility) {
+            <span class="text-3xl z-10" [class.opacity-50]="tripleCooldown() > 0">{{ getTripleIcon() }}</span>
+          } @else {
+            <span class="text-lg font-black text-white/40 z-10">3x</span>
+          }
+          <span class="absolute bottom-1 right-1.5 z-20 text-[9px] font-bold text-white/50 uppercase tracking-wider">Ult</span>
+          @if (tripleCooldown() > 0) {
+            <div class="absolute bottom-0 left-0 w-full bg-amber-600/50 transition-all" [style.height]="(tripleCooldown() / getTripleMaxCooldown()) * 100 + '%'"></div>
+            <span class="absolute z-20 text-white font-bold drop-shadow-md">{{ tripleCooldown().toFixed(1) }}</span>
           }
         </div>
       </div>
@@ -462,9 +518,61 @@ export class GameComponent implements OnInit, OnDestroy {
 
   public holdCooldown = signal<number>(0);
 
+  // Double and triple slot cooldowns (spec Section 3.2). The slots and
+  // parser are live from S1; their move pools ship in S2 and S4.
+  public doubleCooldown = signal<number>(0);
+
+  public tripleCooldown = signal<number>(0);
+
   public hasRebirthed = false;
 
   private lastClickTime = 0;
+
+  // Tap-chain parser state (spec Section 3.2): taps landing within
+  // 300 ms of the previous tap extend the chain. Count 2 fires the tap
+  // slot (exactly the pre-S1 behavior), 3 fires the double slot, 4
+  // fires the triple slot and ends the chain.
+  private tapChainCount = 0;
+  private tapChainLastTime = 0;
+
+  // Flick Dash gesture tracking (spec Section 2.2): press point and
+  // time for the steering finger or mouse; a release within 120 ms
+  // after at least 12 percent of min-dimension travel is a flick.
+  private pressX = 0;
+  private pressY = 0;
+  private pressT = 0;
+
+  // Second-finger state (spec Sections 2.3 and 2.4): while a second
+  // finger is down the Feather Brake is held; a quick second-finger
+  // tap (under 250 ms) is an Air Roll instead. rawBrakeHeld also
+  // covers the mouse brake inputs (Space, right mouse button).
+  private secondFingerStartT = 0;
+  private rawBrakeHeld = false;
+
+  // Damage numbers (spec Section 4.4): per-enemy merged totals waiting
+  // out their 100 ms merge window, then a pooled sprite layer of at
+  // most 20 live numbers.
+  private dmgPending = new Map<string, { total: number, x: number, y: number, lastAdd: number, isBoss: boolean }>();
+  public damageSprites = signal<Array<{ id: number, x: number, y: number, amount: number, born: number, size: number, color: string }>>([]);
+  private dmgSpriteSeq = 0;
+  // Effects clock: bumped every physics frame so the sprite layer and
+  // the stamina arc re-render; also carries the shake transform.
+  public fxNow = signal<number>(0);
+  public shakeTransform = signal<string>('');
+  // Every shake that actually fired, with its trigger. The allowed
+  // list is SHAKE_ALLOWED_TRIGGERS; the harness asserts on this log.
+  public shakeEvents: Array<{ trigger: string, at: number }> = [];
+  private shakeStartPerf = 0;
+  private shakeDurMs = 0;
+  private shakeAmpPx = 0;
+  private shakeDirX = 0;
+  private shakeDirY = 0;
+  // Per-frame impact-spark throttle (spec Section 4.6): spark spawns
+  // beyond the per-frame allowance are dropped, oldest first, so a
+  // 12-enemy death frame can never hitch the game.
+  private sparkFrameStart = 0;
+  private sparkFrameCount = 0;
+  private static readonly SPARK_PER_FRAME_BUDGET = 90;
 
   private pauseClickCount = 0;
 
@@ -474,6 +582,10 @@ export class GameComponent implements OnInit, OnDestroy {
   private tapAbilityEndTime = 0;
 
   private holdAbilityEndTime = 0;
+
+  private doubleAbilityEndTime = 0;
+
+  private tripleAbilityEndTime = 0;
 
   
   // Input Tracking
@@ -521,6 +633,10 @@ export class GameComponent implements OnInit, OnDestroy {
 
   // Listeners bound
   private boundKeyDown = this.onKeyDown.bind(this);
+
+  private boundKeyUp = this.onKeyUp.bind(this);
+
+  private boundContextMenu = (event: Event) => event.preventDefault();
 
   private boundVisibility = this.onVisibilityChange.bind(this);
 
@@ -611,7 +727,40 @@ export class GameComponent implements OnInit, OnDestroy {
     window.addEventListener('touchend', this.boundTouchEnd);
     
     window.addEventListener('keydown', this.boundKeyDown);
+    window.addEventListener('keyup', this.boundKeyUp);
+    window.addEventListener('contextmenu', this.boundContextMenu);
     document.addEventListener('visibilitychange', this.boundVisibility);
+
+    // Fresh stamina pools for the new run (spec Section 2.5: stamina
+    // is run-local).
+    this.gameState.playerMovement = createMovementState();
+    this.gameState.aiMovement = createMovementState();
+    this.gameState.ai2Movement = createMovementState();
+    this.rawBrakeHeld = false;
+    this.tapChainCount = 0;
+    this.tapChainLastTime = 0;
+
+    // Test hooks for the playtest harness. Attached only when the
+    // harness sets the localStorage flag before load; absent in
+    // normal play, and nothing in the game reads them.
+    try {
+        if (window.localStorage.getItem('phoenix_debug_hooks') === '1') {
+            (window as any).__phoenixS1 = {
+                gameState: this.gameState,
+                game: this,
+                spawnEnemyProjectile: (x: number, y: number, vxPerStep: number, vyPerStep: number, damage: number = 10) => {
+                    const proj = Matter.Bodies.circle(x, y, 8, {
+                        label: 'projectile', isSensor: true,
+                        plugin: { data: { id: 'debug_' + Math.random().toString(36).slice(2), type: 'projectile_enemy', health: 1, maxHealth: 1, owner: 'enemy', burstDamage: damage } as EnemyData }
+                    });
+                    Matter.Body.setVelocity(proj, { x: vxPerStep, y: vyPerStep });
+                    Matter.Composite.add(this.engine.world, proj);
+                    setTimeout(() => { if (proj.parent) Matter.Composite.remove(this.engine.world, proj); }, 2500);
+                    return proj;
+                }
+            };
+        }
+    } catch (e) { /* storage unavailable: no hooks, no harm */ }
   }
 
 
@@ -743,8 +892,136 @@ export class GameComponent implements OnInit, OnDestroy {
       }
       // Under heavy lag, drop the backlog instead of spiralling.
       if (steps === 3) this.physicsAccumulator = 0;
+      this.updateFx(now);
     };
     this.physicsRafId = requestAnimationFrame(tick);
+  }
+
+  // --- Effects systems (spec Section 4): damage numbers and shake ---
+
+  private static readonly SHAKE_ALLOWED_TRIGGERS = ['boss_death', 'ultimate_cast', 'boss_contact', 'false_rebirth', 'singularity_detonation'];
+
+  // Fire a screen shake. The trigger list in Section 4.3 is
+  // exhaustive: boss death, an ultimate cast, the player taking a
+  // boss-contact hit, and the two boss-stage set pieces (Phoenix King
+  // False Rebirth and Eternal Phoenix Singularity, which land with
+  // the boss stages and call this same method). Amplitude caps at 6
+  // reference px, duration at 250 ms, linear decay, no rotation.
+  // Reduced applies at the setting and automatically while the
+  // Feather Brake is held.
+  public triggerShake(trigger: string) {
+    if (!GameComponent.SHAKE_ALLOWED_TRIGGERS.includes(trigger)) return;
+    const setting = this.gameState.screenShakeSetting();
+    if (setting === 'off') return;
+    let amp = 6 * this.speedScale;
+    if (setting === 'reduced') amp *= 0.4;
+    if (this.gameState.playerMovement.braking) amp *= 0.4;
+    this.shakeAmpPx = amp;
+    this.shakeDurMs = 250;
+    this.shakeStartPerf = performance.now();
+    const a = Math.random() * Math.PI * 2;
+    this.shakeDirX = Math.cos(a);
+    this.shakeDirY = Math.sin(a);
+    this.shakeEvents.push({ trigger, at: Date.now() });
+    if (this.shakeEvents.length > 200) this.shakeEvents.splice(0, this.shakeEvents.length - 200);
+  }
+
+  // Per-frame effects update, driven from the physics rAF: advances
+  // the damage number merge window and sprite lifetimes, and the
+  // shake decay.
+  private updateFx(nowPerf: number) {
+    this.fxNow.set(nowPerf);
+    // Damage numbers: entries whose merge window (100 ms since the
+    // last hit on that enemy) has closed become sprites.
+    if (this.gameState.damageNumbersEnabled() && this.dmgPending.size > 0) {
+      const now = Date.now();
+      const sprites = [...this.damageSprites()];
+      this.dmgPending.forEach((entry, key) => {
+        if (now - entry.lastAdd < 100) return;
+        this.dmgPending.delete(key);
+        const amount = Math.max(1, Math.round(entry.total));
+        // Pool cap 20: when full, the smallest pending number is
+        // dropped, never the largest (spec Section 4.4).
+        if (sprites.length >= 20) {
+          let smallestIdx = -1;
+          let smallestVal = amount;
+          sprites.forEach((s, i) => { if (s.amount < smallestVal) { smallestVal = s.amount; smallestIdx = i; } });
+          if (smallestIdx === -1) return; // the new number is the smallest: drop it
+          sprites.splice(smallestIdx, 1);
+        }
+        const skin = phoenixSkinById(this.gameState.selectedSkinId());
+        const bright = skin.bright;
+        const size = Math.round(Math.max(10, Math.min(18, 13 * this.speedScale)) * (entry.isBoss ? 1.3 : 1));
+        sprites.push({
+          id: ++this.dmgSpriteSeq, x: entry.x, y: entry.y, amount,
+          born: nowPerf, size,
+          color: `rgb(${Math.round(bright[0] * 255)}, ${Math.round(bright[1] * 255)}, ${Math.round(bright[2] * 255)})`
+        });
+      });
+      this.damageSprites.set(sprites);
+    } else if (this.dmgPending.size > 0) {
+      this.dmgPending.clear();
+    }
+    // Sprite lifetimes: rise and fade over 0.6 s (positions computed
+    // in the template helpers from the sprite's birth time).
+    const live = this.damageSprites();
+    if (live.length > 0 && nowPerf - live[0].born > 650) {
+      this.damageSprites.set(live.filter(s => nowPerf - s.born <= 650));
+    }
+    // Shake decay.
+    if (this.shakeDurMs > 0) {
+      const p = (nowPerf - this.shakeStartPerf) / this.shakeDurMs;
+      if (p >= 1) {
+        this.shakeDurMs = 0;
+        if (this.shakeTransform() !== '') this.shakeTransform.set('');
+      } else {
+        const mag = this.shakeAmpPx * (1 - p);
+        this.shakeTransform.set(`translate(${ (this.shakeDirX * mag).toFixed(1) }px, ${ (this.shakeDirY * mag).toFixed(1) }px)`);
+      }
+    }
+  }
+
+  public damageSpriteTop(n: { y: number, born: number }): number {
+    const age = Math.min(600, Math.max(0, this.fxNow() - n.born));
+    return n.y - (age / 600) * 42 * this.speedScale;
+  }
+
+  public damageSpriteOpacity(n: { born: number }): number {
+    const age = Math.min(600, Math.max(0, this.fxNow() - n.born));
+    return 1 - (age / 600);
+  }
+
+  // Stamina arc background: a conic ring filled to the pool fraction
+  // in the skin's mid color, shifting to the hostile color as the
+  // pool drains (spec Section 2.5).
+  public staminaArcBackground(): string {
+    void this.fxNow();
+    const frac = Math.max(0, Math.min(1, this.gameState.playerMovement.stamina / STAMINA.max));
+    const skin = phoenixSkinById(this.gameState.selectedSkinId());
+    const mid = skin.mid;
+    const midCss = `rgb(${Math.round(mid[0] * 255)}, ${Math.round(mid[1] * 255)}, ${Math.round(mid[2] * 255)})`;
+    const color = frac > 0.35 ? midCss : 'rgb(255, 46, 107)';
+    return `conic-gradient(${color} ${frac * 360}deg, rgba(255,255,255,0.12) 0deg)`;
+  }
+
+  // Record player-dealt damage for the number layer: totals merge per
+  // enemy inside a 100 ms window (spec Section 4.4), which keeps Aura,
+  // beams, and breath readable.
+  private recordDamageNumber(enemyId: string, x: number, y: number, amount: number, isBoss: boolean) {
+    if (!this.gameState.damageNumbersEnabled() || amount <= 0) return;
+    // Spec Section 4.4 numbers the damage the PLAYER deals. In AI vs
+    // AI there is no player at the controls, and the hits landing there
+    // are the second AI's, so the layer stays silent in that mode.
+    if (this.gameState.currentGameMode() === 'ai_vs_ai') return;
+    const existing = this.dmgPending.get(enemyId);
+    if (existing && Date.now() - existing.lastAdd < 100) {
+      existing.total += amount;
+      existing.x = x;
+      existing.y = y;
+      existing.lastAdd = Date.now();
+    } else {
+      this.dmgPending.set(enemyId, { total: amount, x, y, lastAdd: Date.now(), isBoss });
+    }
   }
 
   // Stop the fixed-step physics driver (pause, death, teardown).
@@ -820,7 +1097,8 @@ export class GameComponent implements OnInit, OnDestroy {
                 this.triggerImpactEffect(otherBody.position.x, otherBody.position.y, false);
                 continue; // Skip player taking damage while drilling
             }
-            this.takeDamage(data.type === 'boss' || data.type === 'enemy_phoenix' ? 50 : 10);
+            this.takeDamage(data.type === 'boss' || data.type === 'enemy_phoenix' ? 50 : 10,
+                data.type === 'boss' || data.type === 'enemy_phoenix' ? 'boss_contact' : undefined);
             
             // Knockback logic: an explicit velocity kick instead of a
             // force impulse, so the knockback is the same on every
@@ -1049,6 +1327,18 @@ export class GameComponent implements OnInit, OnDestroy {
       if (now > this.holdAbilityEndTime) {
           this.holdCooldown.update(c => Math.max(0, c - delta));
       }
+      if (now > this.doubleAbilityEndTime) {
+          this.doubleCooldown.update(c => Math.max(0, c - delta));
+      }
+      if (now > this.tripleAbilityEndTime) {
+          this.tripleCooldown.update(c => Math.max(0, c - delta));
+      }
+
+      // Feather Brake state (spec Section 2.4): the raw brake input
+      // (second finger, Space, right mouse) drives the renderer state,
+      // except while a hold charge is in progress: charge takes
+      // precedence once started, and the two are mutually exclusive.
+      this.gameState.playerMovement.braking = this.rawBrakeHeld && this.holdTimer <= 0 && !this.isDead();
 
       // 1. Sync hitbox to EXACT visual 3D position of Phoenix.
       // During the battle entrance the player body is driven by the entrance override instead,
@@ -1066,6 +1356,7 @@ export class GameComponent implements OnInit, OnDestroy {
           
           let threatX = 0, threatY = 0;
           let minDist = Infinity;
+          let threatBody: Matter.Body | null = null;
           const allBodies = Matter.Composite.allBodies(this.engine.world);
           for (let b of allBodies) {
               if (b.label === 'projectile' && b.plugin['data']?.type === 'projectile_enemy') {
@@ -1074,6 +1365,32 @@ export class GameComponent implements OnInit, OnDestroy {
                       minDist = distToProj;
                       threatX = b.position.x;
                       threatY = b.position.y;
+                      threatBody = b;
+                  }
+              }
+          }
+
+          // Movement verbs for the second AI (spec Sections 2 and
+          // 7.2): the same stamina pool and costs as the player. It
+          // brakes while its threat ray is live, dashes on a stamina
+          // spend when a ray predicts a hit, and rolls only in the
+          // annihilation phase.
+          const ai2Move = this.gameState.ai2Movement;
+          ai2Move.braking = minDist < 320 * this.speedScale;
+          if (threatBody && minDist < 260 * this.speedScale) {
+              const tv = Matter.Body.getVelocity(threatBody);
+              const toBird = Matter.Vector.sub(this.playerBody.position, threatBody.position);
+              const distT = Math.max(1, Matter.Vector.magnitude(toBird));
+              const closing = (tv.x * toBird.x + tv.y * toBird.y) / distT;
+              if (closing > 1) {
+                  if (this.annihilationModeActive()) {
+                      this.gameState.requestRoll(ai2Move);
+                  } else {
+                      let px = -tv.y, py = tv.x;
+                      const pl = Math.hypot(px, py) || 1;
+                      px /= pl; py /= pl;
+                      if (px * toBird.x + py * toBird.y < 0) { px = -px; py = -py; }
+                      this.gameState.requestDash(ai2Move, px, py);
                   }
               }
           }
@@ -1207,7 +1524,10 @@ export class GameComponent implements OnInit, OnDestroy {
       if (this.isMouseHeld && !this.isDead() && !this.gameState.isPaused() && !this.gameState.isRebirthing()) {
         const dist = Math.hypot(this.mouseX - this.holdStartX, this.mouseY - this.holdStartY);
         const holdAbility = this.gameState.currentStats().activeHoldAbility;
-        if (dist > 10 || !holdAbility || this.holdCooldown() > 0) {
+        // Brake and charge are mutually exclusive (spec Section 2.4):
+        // holding the brake before a charge starts blocks the charge;
+        // a charge already in progress takes precedence.
+        if (dist > 10 || !holdAbility || this.holdCooldown() > 0 || (this.rawBrakeHeld && this.holdTimer <= 0)) {
             // Finger moved (normal flight) OR no hold ability OR on cooldown -> no charge.
             this.holdStartX = this.mouseX;
             this.holdStartY = this.mouseY;
@@ -1299,6 +1619,7 @@ export class GameComponent implements OnInit, OnDestroy {
             let threatX = 0, threatY = 0;
             let minDist = Infinity;
             let inDanger = false;
+            let threatBody: Matter.Body | null = null;
             const allBodies = Matter.Composite.allBodies(this.engine.world);
             for (let b of allBodies) {
                 if (b.label === 'projectile' && b.plugin['data']?.type === 'projectile_player') {
@@ -1307,13 +1628,39 @@ export class GameComponent implements OnInit, OnDestroy {
                         minDist = distToProj;
                         threatX = b.position.x;
                         threatY = b.position.y;
+                        threatBody = b;
                     }
                     if (distToProj < 120) {
                         inDanger = true;
                     }
                 }
             }
-            
+
+            // Movement verbs for the rival (spec Sections 2 and 7.2):
+            // the same stamina pool and verb costs as the player. It
+            // brakes under its threat-ray dodge, dashes on a stamina
+            // spend when a ray predicts a hit, and rolls only in the
+            // annihilation phase.
+            const aiMove = this.gameState.aiMovement;
+            aiMove.braking = minDist < 320 * this.speedScale;
+            if (threatBody && minDist < 260 * this.speedScale) {
+                const tv = Matter.Body.getVelocity(threatBody);
+                const toBird = Matter.Vector.sub(enemy.position, threatBody.position);
+                const distT = Math.max(1, Matter.Vector.magnitude(toBird));
+                const closing = (tv.x * toBird.x + tv.y * toBird.y) / distT;
+                if (closing > 1) {
+                    if (this.annihilationModeActive()) {
+                        this.gameState.requestRoll(aiMove);
+                    } else {
+                        let px = -tv.y, py = tv.x;
+                        const pl = Math.hypot(px, py) || 1;
+                        px /= pl; py /= pl;
+                        if (px * toBird.x + py * toBird.y < 0) { px = -px; py = -py; }
+                        this.gameState.requestDash(aiMove, px, py);
+                    }
+                }
+            }
+
             if (this.gameState.currentGameMode() === 'ai_vs_ai') {
                 const eAny = enemy as any;
                 if (eAny.lastDangerState && !inDanger) {
@@ -1494,9 +1841,8 @@ export class GameComponent implements OnInit, OnDestroy {
          } else if (data) {
              // Normal Magnetism
              const isXpOrb = data.type === 'xp_orb';
-             const activeRadius = (isXpOrb ? 300 : 150) * this.speedScale * this.gameState.currentStats().magnetism;
              let targetPos = this.playerBody.position;
-             
+
              if (this.gameState.currentGameMode() === 'ai_vs_ai') {
                  const enemyPhoenix = this.enemies.find(e => e.plugin['data']?.type === 'enemy_phoenix');
                  if (enemyPhoenix) {
@@ -1505,7 +1851,12 @@ export class GameComponent implements OnInit, OnDestroy {
                      if (distToEnemy < distToPlayer) targetPos = enemyPhoenix.position;
                  }
              }
-             
+
+             // Glide (spec Section 2.6): while the collecting bird is
+             // gliding, its magnetism is x1.25.
+             const glideFactor = (targetPos === this.playerBody.position && this.gameState.playerMovement.gliding) ? 1.25 : 1;
+             const activeRadius = (isXpOrb ? 300 : 150) * this.speedScale * this.gameState.currentStats().magnetism * glideFactor;
+
              const force = Matter.Vector.sub(targetPos, item.position);
              const dist = Matter.Vector.magnitude(force);
              if (dist < activeRadius) {
@@ -1812,8 +2163,12 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       this.battleAi.ai2.lastHoldTime = 0;
       this.lastClickTime = 0;
       this.holdAbilityEndTime = 0;
+      this.doubleAbilityEndTime = 0;
+      this.tripleAbilityEndTime = 0;
       this.tapCooldown.set(0);
       this.holdCooldown.set(0);
+      this.doubleCooldown.set(0);
+      this.tripleCooldown.set(0);
       this.battleAi.ai2.tapCooldown = 0;
       this.battleAi.ai2.holdCooldown = 0;
   }
@@ -1829,6 +2184,21 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   getTapIcon() { return ABILITIES[this.gameState.currentStats().activeTapAbility || 'burst']?.icon || '💥'; }
 
   getHoldIcon() { return ABILITIES[this.gameState.currentStats().activeHoldAbility || 'aura']?.icon || '🌀'; }
+
+  getDoubleIcon() { const id = this.gameState.currentStats().activeDoubleAbility; return (id && ABILITIES[id]?.icon) || '⚡'; }
+
+  getTripleIcon() { const id = this.gameState.currentStats().activeTripleAbility; return (id && ABILITIES[id]?.icon) || '✨'; }
+
+  private slotMaxCooldown(id: string | null): number {
+      if (!id) return 1;
+      const abilityData = this.gameState.worldUpgrades()[this.gameState.selectedWorldIndex()]?.unlockedAbilities[id];
+      const mod = abilityData?.modifiers?.['cooldown'] || 1.0;
+      return (ABILITIES[id]?.baseCooldown || 1) * mod;
+  }
+
+  getDoubleMaxCooldown() { return this.slotMaxCooldown(this.gameState.currentStats().activeDoubleAbility); }
+
+  getTripleMaxCooldown() { return this.slotMaxCooldown(this.gameState.currentStats().activeTripleAbility); }
 
 
   getTapMaxCooldown() {
@@ -2071,7 +2441,10 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
     const data = enemy.plugin['data'] as EnemyData;
     if (data.immortalUntil && Date.now() < data.immortalUntil) return;
     data.health -= damage;
-    
+    // Damage numbers record player-dealt damage only; every path into
+    // this method is a player-side source (spec Section 4.4).
+    this.recordDamageNumber(data.id, enemy.position.x, enemy.position.y, damage, data.type === 'boss');
+
     if (data.type === 'boss') {
        this.bossHealth.set(Math.max(0, data.health));
     } else if (data.type === 'enemy_phoenix') {
@@ -2196,7 +2569,9 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       
       if (data.type === 'boss') {
         this.gameState.awardTrophy("Realm Conqueror");
-        
+        // Boss death is an allowed shake trigger (spec Section 4.3).
+        this.triggerShake('boss_death');
+
         // Setup Cinematic Defeat Sequence
         this.inBossDefeatSequence.set(true);
         this.bossDefeatTimestamp = Date.now();
@@ -2286,10 +2661,15 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
 
 
-  private takeDamage(amount: number) {
+  private takeDamage(amount: number, source?: 'boss_contact') {
     if (this.isDead() || this.gameEnded() || this.gameState.isRebirthing() || this.gameState.isPaused() || this.entranceActive()) return;
     if (Date.now() < this.gameState.immortalUntil) return;
-    
+
+    // Movement i-frames (spec Sections 2.2 and 2.3): a dash or roll
+    // in progress cannot be hit, and the dodge does not consume the
+    // Celestial Shield or any other defense.
+    if (this.gameState.movementIframesActive(this.gameState.playerMovement)) return;
+
     if (this.gameState.hasCelestialShield() && this.celestialShieldActive()) {
         this.celestialShieldActive.set(false);
         // Hit sound removed permanently
@@ -2300,6 +2680,13 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
     if (this.gameState.isDrilling()) {
         amount *= 0.1;
     }
+
+    // Taking a hit ends Glide (spec Section 2.6).
+    this.gameState.endGlide(this.gameState.playerMovement);
+
+    // Boss-contact hits are one of the four allowed shake triggers
+    // (spec Section 4.3).
+    if (source === 'boss_contact') this.triggerShake('boss_contact');
 
     // Hit sound removed permanently
     this.gameState.immortalUntil = Date.now() + 500; // 0.5s i-frames
@@ -2615,6 +3002,9 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       this.inBossDefeatSequence.set(false);
       this.animatingAscension.set(false);
       this.bossSpawned.set(false);
+      // A new realm is a new run: fresh stamina pool (Section 2.5).
+      this.gameState.playerMovement = createMovementState();
+      this.rawBrakeHeld = false;
       this.clearEnemies();
 
       // Start the new realm's world BGM NOW, not after the entrance
@@ -2678,7 +3068,36 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   }
 
 
-  private onKeyDown(event: KeyboardEvent) { if (event.key === 'Escape') this.togglePause(); }
+  private onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') { this.togglePause(); return; }
+      if (this.gameState.currentGameMode() === 'ai_vs_ai' || this.isDead() || this.gameEnded()) return;
+      // Desktop alternatives for the touch verbs (spec Sections 2.2
+      // to 2.4) and the slot keys (Section 3.2, desktop testing).
+      if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
+          // Shift dashes toward the current steering target.
+          const pos = this.gameState.phoenixScreenPos();
+          const dx = this.mouseX - pos.x;
+          const dy = this.mouseY - pos.y;
+          if (Math.hypot(dx, dy) > 10) {
+              this.gameState.requestDash(this.gameState.playerMovement, dx, dy);
+          }
+      } else if (event.code === 'KeyE') {
+          this.gameState.requestRoll(this.gameState.playerMovement);
+      } else if (event.code === 'Space') {
+          this.rawBrakeHeld = true;
+          event.preventDefault();
+      } else if (event.code === 'KeyQ') {
+          this.fireSlot('tap');
+      } else if (event.code === 'KeyW') {
+          this.fireSlot('double');
+      } else if (event.code === 'KeyR') {
+          this.fireSlot('triple');
+      }
+  }
+
+  private onKeyUp(event: KeyboardEvent) {
+      if (event.code === 'Space') this.rawBrakeHeld = false;
+  }
 
   private onVisibilityChange() { if (document.hidden && !this.gameState.isPaused() && !this.gameEnded() && !this.isDead()) this.togglePause(); }
 
@@ -2701,51 +3120,158 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   }
 
 
-  private onMouseMove(event: MouseEvent) { this.updateMouseInput(event.clientX, event.clientY); }
+  private onMouseMove(event: MouseEvent) { this.updateMouseInput(event.clientX, event.clientY, false); }
 
-  private onTouchMove(event: TouchEvent) { 
-      event.preventDefault(); 
-      if (event.touches.length > 0) this.updateMouseInput(event.touches[0].clientX, event.touches[0].clientY); 
+  private onTouchMove(event: TouchEvent) {
+      event.preventDefault();
+      if (event.touches.length > 0) this.updateMouseInput(event.touches[0].clientX, event.touches[0].clientY, true);
   }
 
-  
-  private updateMouseInput(x: number, y: number) {
+
+  private updateMouseInput(x: number, y: number, isTouch: boolean) {
       if (this.gameState.isPaused() || this.gameState.isDeadMenuOpen() || this.isDead()) return;
-      this.mouseX = x;
-      this.mouseY = y;
+      // Touch targets carry the finger offset, so ability aiming and
+      // the hold charge read the same point the bird steers to.
+      const adjusted = this.gameState.applyTouchOffset(x, y, isTouch);
+      this.mouseX = adjusted.x;
+      this.mouseY = adjusted.y;
   }
 
 
-  private onMouseDown(event: MouseEvent) { this.handleInputStart(event.clientX, event.clientY); }
+  private onMouseDown(event: MouseEvent) {
+      // Right mouse button is the Feather Brake (spec Section 2.4).
+      if (event.button === 2) { this.rawBrakeHeld = true; return; }
+      if (event.button !== 0) return;
+      this.pressX = event.clientX;
+      this.pressY = event.clientY;
+      this.pressT = Date.now();
+      this.handleInputStart(event.clientX, event.clientY, false);
+  }
 
-  private onTouchStart(event: TouchEvent) { 
+  private onTouchStart(event: TouchEvent) {
       // Do not prevent default here, as it blocks UI clicks (like the pause button)
-      if (event.touches.length > 0) this.handleInputStart(event.touches[0].clientX, event.touches[0].clientY); 
+      if (event.touches.length >= 2) {
+          // Second finger: Feather Brake while it is held; a quick
+          // release becomes an Air Roll in onTouchEnd (spec Sections
+          // 2.3 and 2.4). It never enters the tap chain.
+          this.secondFingerStartT = Date.now();
+          this.rawBrakeHeld = true;
+          return;
+      }
+      if (event.touches.length > 0) {
+          const t = event.touches[0];
+          this.pressX = t.clientX;
+          this.pressY = t.clientY;
+          this.pressT = Date.now();
+          this.handleInputStart(t.clientX, t.clientY, true);
+      }
   }
 
-  
-  private handleInputStart(x: number, y: number) {
+
+  private handleInputStart(x: number, y: number, isTouch: boolean) {
       if (this.gameState.currentGameMode() === 'ai_vs_ai') return;
+      const adjusted = this.gameState.applyTouchOffset(x, y, isTouch);
       this.isMouseHeld = true;
-      this.holdStartX = x;
-      this.holdStartY = y;
+      this.holdStartX = adjusted.x;
+      this.holdStartY = adjusted.y;
       this.holdTimer = 0;
 
       const now = Date.now();
-      if (now - this.lastClickTime < 300 && this.tapCooldown() <= 0 && !this.gameState.isPaused()) {
-          const ability = this.gameState.currentStats().activeTapAbility;
-          if (ability) {
-              const cd = this.triggerAbility(ability, this.playerBody, this.mouseX, this.mouseY, this.gameState.currentStats(), 'player');
-              if (cd > 0) this.tapCooldown.set(cd);
+      // Tap-chain parser (spec Section 3.2), additive over the pre-S1
+      // behavior: a press within 300 ms of the previous press extends
+      // the chain. The second press fires the tap slot, exactly the
+      // old single check; the third press fires the double slot
+      // additionally; the fourth fires the triple slot and ends the
+      // chain. First and second presses behave byte-for-byte as
+      // before; only the existence of a third press changes anything.
+      if (now - this.tapChainLastTime < 300) {
+          this.tapChainCount++;
+      } else {
+          this.tapChainCount = 1;
+      }
+      this.tapChainLastTime = now;
+      if (!this.gameState.isPaused()) {
+          if (this.tapChainCount === 2) {
+              this.fireSlot('tap');
+          } else if (this.tapChainCount === 3) {
+              this.fireSlot('double');
+          } else if (this.tapChainCount >= 4) {
+              this.fireSlot('triple');
+              this.tapChainCount = 0;
           }
       }
       this.lastClickTime = now;
   }
 
+  // Fire one equip slot's move, honoring its own cooldown. Shared by
+  // the tap-chain parser and the desktop slot keys.
+  private fireSlot(family: 'tap' | 'double' | 'triple') {
+      const stats = this.gameState.currentStats();
+      const ability = family === 'tap' ? stats.activeTapAbility
+          : family === 'double' ? stats.activeDoubleAbility
+          : stats.activeTripleAbility;
+      if (!ability) return;
+      const cooldown = family === 'tap' ? this.tapCooldown()
+          : family === 'double' ? this.doubleCooldown()
+          : this.tripleCooldown();
+      if (cooldown > 0) return;
+      const cd = this.triggerAbility(ability, this.playerBody, this.mouseX, this.mouseY, stats, 'player');
+      if (cd <= 0) return;
+      if (family === 'tap') {
+          this.tapCooldown.set(cd);
+      } else if (family === 'double') {
+          this.doubleCooldown.set(cd);
+      } else {
+          this.tripleCooldown.set(cd);
+          // An ultimate cast is an allowed shake trigger (Section 4.3).
+          this.triggerShake('ultimate_cast');
+      }
+  }
 
-  private onMouseUp() { this.isMouseHeld = false; }
+  // Flick Dash gesture (spec Section 2.2): a press released within
+  // 120 ms with at least 12 percent of min-dimension travel dashes in
+  // the flick's direction. Slow drags and plain taps never dash.
+  private evaluateFlick(x: number, y: number) {
+      if (this.gameState.currentGameMode() === 'ai_vs_ai') { this.pressT = 0; return; }
+      const dt = Date.now() - this.pressT;
+      const dx = x - this.pressX;
+      const dy = y - this.pressY;
+      const travel = Math.hypot(dx, dy);
+      const minTravel = 0.12 * Math.min(window.innerWidth, window.innerHeight);
+      if (this.pressT > 0 && dt <= 120 && travel >= minTravel) {
+          this.gameState.requestDash(this.gameState.playerMovement, dx, dy);
+      }
+      this.pressT = 0;
+  }
 
-  private onTouchEnd() { this.isMouseHeld = false; }
+
+  private onMouseUp(event: MouseEvent) {
+      if (event.button === 2) { this.rawBrakeHeld = false; return; }
+      if (event.button !== 0) return;
+      this.evaluateFlick(event.clientX, event.clientY);
+      this.isMouseHeld = false;
+  }
+
+  private onTouchEnd(event: TouchEvent) {
+      if (event.touches.length === 1) {
+          // The second finger lifted while the steering finger stays
+          // down: a quick second-finger tap is an Air Roll (Section
+          // 2.3); a held one was the Feather Brake, now released.
+          if (this.secondFingerStartT > 0 && Date.now() - this.secondFingerStartT < 250) {
+              this.gameState.requestRoll(this.gameState.playerMovement);
+          }
+          this.secondFingerStartT = 0;
+          this.rawBrakeHeld = false;
+          return;
+      }
+      if (event.touches.length === 0) {
+          this.secondFingerStartT = 0;
+          this.rawBrakeHeld = false;
+          const t = event.changedTouches[0];
+          if (t) this.evaluateFlick(t.clientX, t.clientY);
+          this.isMouseHeld = false;
+      }
+  }
 
 
   public formatTime(seconds: number): string {
@@ -2766,7 +3292,10 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       if (dist < minDist) { minDist = dist; nearest = e; }
     });
 
-    if (minDist > 500 * this.speedScale) return;
+    // Range gate wired to the attackRange stat (spec Sections 3.1
+    // and 5.1): the shop passive finally feeds the auto-fire it names.
+    // It used to read a hardcoded 500 while the stat sat at base 400.
+    if (minDist > this.gameState.currentStats().attackRange * this.speedScale) return;
 
     const dir = Matter.Vector.normalise(Matter.Vector.sub(nearest.position, this.playerBody.position));
 
@@ -3158,7 +3687,10 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       const baseCooldown = ABILITIES['burst']?.baseCooldown || 5;
       const cd = baseCooldown * mods['cooldown'];
       const damage = (stats.damage || 10) * 1.5 * mods['damage'];
-      const count = Math.max(1, Math.floor(3 * mods['count']));
+      // 'count' is not one of Burst's upgrade stats (its targets are
+      // cooldown, damage, radius), so the multiplier defaults to 1:
+      // reading it raw made the count NaN and the fan never fired.
+      const count = Math.max(1, Math.floor(3 * (mods['count'] ?? 1)));
       
       for(let i = 0; i < count; i++) {
           const angleOffset = (i - (count - 1)/2) * 0.15;
@@ -3183,15 +3715,23 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       const abilityData = stats.unlockedAbilities['aura'];
       const mods = abilityData?.modifiers || { cooldown: 1.0, duration: 1.0, radius: 1.0, damage: 1.0 };
       const baseCooldown = ABILITIES['aura']?.baseCooldown || 12;
-      const cd = baseCooldown * mods['cooldown'];
-      
-      const duration = 5000 * mods['duration'];
-      const radius = 150 * mods['radius'];
+      // Aura's upgrade targets define damage and radius only, so its
+      // cooldown and duration multipliers are absent from the record;
+      // an absent multiplier reads as 1.0 (the same convention as
+      // slotMaxCooldown). Reading them raw produced NaN: the cooldown
+      // never engaged and the zone's removal timer fired immediately.
+      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
+
+      const duration = 5000 * (mods['duration'] ?? 1.0);
+      // Radius wired to the auraRadius stat (spec Sections 3.1 and
+      // 5.1): it used to be a hardcoded 150 while the shop passive of
+      // the same name (base 250) fed a different path.
+      const radius = stats.auraRadius * mods['radius'];
       
       const aura = Matter.Bodies.circle(sourceBody.position.x, sourceBody.position.y, radius, {
           isSensor: true,
           label: 'projectile',
-          plugin: { data: { id: Math.random().toString(), type: 'aura', ownerId: ownerId, burstDamage: stats.damage * 0.5 * mods['damage'], health: 1, maxHealth: 1 } as EnemyData }
+          plugin: { data: { id: Math.random().toString(), type: 'aura', owner: ownerId, ownerId: ownerId, burstDamage: stats.damage * 0.5 * mods['damage'], health: 1, maxHealth: 1 } as EnemyData }
       });
       
       Matter.Composite.add(this.engine.world, aura);
@@ -3330,7 +3870,19 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
 
   private triggerImpactEffect(x: number, y: number, isBoss: boolean) {
-    const numParticles = isBoss ? 30 : 10;
+    // Per-frame spark throttle (spec Section 4.6): beyond the frame
+    // allowance, spawns are dropped (oldest first in effect, since the
+    // earliest calls in the frame win the budget).
+    const frameNow = performance.now();
+    if (frameNow - this.sparkFrameStart > 17) {
+        this.sparkFrameStart = frameNow;
+        this.sparkFrameCount = 0;
+    }
+    let numParticles = isBoss ? 30 : 10;
+    const allowance = GameComponent.SPARK_PER_FRAME_BUDGET - this.sparkFrameCount;
+    if (allowance <= 0) return;
+    numParticles = Math.min(numParticles, allowance);
+    this.sparkFrameCount += numParticles;
     const colors = ['#fbbf24', '#f97316', '#ffffff'];
     
     for (let i = 0; i < numParticles; i++) {
@@ -3379,6 +3931,8 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
     window.removeEventListener('touchmove', this.boundTouchMove);
     window.removeEventListener('touchend', this.boundTouchEnd);
     window.removeEventListener('keydown', this.boundKeyDown);
+    window.removeEventListener('keyup', this.boundKeyUp);
+    window.removeEventListener('contextmenu', this.boundContextMenu);
     document.removeEventListener('visibilitychange', this.boundVisibility);
     
     this.gameState.phoenixOverridePosition.set(null);

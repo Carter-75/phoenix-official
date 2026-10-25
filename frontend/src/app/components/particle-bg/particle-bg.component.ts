@@ -1,5 +1,5 @@
 import { Component, ElementRef, OnInit, OnDestroy, ViewChild, NgZone, effect, inject } from '@angular/core';
-import { GameStateService } from '../../services/game-state.service';
+import { GameStateService, STAMINA } from '../../services/game-state.service';
 import { WORLDS } from '../../constants/game.constants';
 import { PhysicsEntity } from '../../models/game.models';
 import * as THREE from 'three';
@@ -23,6 +23,11 @@ interface PhoenixState {
   skinId: string;
   flapRate: number;
   climbTime: number;
+  // Systems S1 steering feel (spec Section 2.1): reversal spool state.
+  // spoolT is seconds since the current reversal spool began, or -1
+  // when no spool is running. wasDashing edges the dash entry flash.
+  spoolT: number;
+  wasDashing: boolean;
   wasDrilling: boolean;
   flashUntil: number;
   reformUntil: number;
@@ -316,7 +321,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
 
   private onMouseMove(event: MouseEvent) {
     if (this.gameState.isPaused() || this.gameState.isDeadMenuOpen()) return;
-    this.updateMouseTarget(event.clientX, event.clientY);
+    this.updateMouseTarget(event.clientX, event.clientY, false);
   }
 
   private onTouchMove(event: TouchEvent) {
@@ -325,11 +330,17 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       // Prevent the WebView from scrolling / rubber-banding while the finger drives the Phoenix,
       // but only during gameplay so menu UI (buttons, scroll) still works.
       if (this.gameState.activeScreen() === 'game' && event.cancelable) event.preventDefault();
-      this.updateMouseTarget(event.touches[0].clientX, event.touches[0].clientY);
+      this.updateMouseTarget(event.touches[0].clientX, event.touches[0].clientY, true);
     }
   }
 
-  private updateMouseTarget(x: number, y: number) {
+  private updateMouseTarget(x: number, y: number, isTouch: boolean) {
+    // Touch finger offset (spec Section 2.1): the steering target is
+    // lifted above the fingertip on the game screen when the setting
+    // is on; mouse input is never offset.
+    const adjusted = this.gameState.applyTouchOffset(x, y, isTouch);
+    x = adjusted.x;
+    y = adjusted.y;
     const vec = new THREE.Vector3();
     const pos = new THREE.Vector3();
     vec.set((x / window.innerWidth) * 2 - 1, -(y / window.innerHeight) * 2 + 1, 0.5);
@@ -344,7 +355,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     return {
       theme, group: new THREE.Group(), particles: new THREE.Points(), fillParticles: null, core: null, glow: null, basePositions: new Float32Array(0),
       inFill: new Uint8Array(0), bufferIndex: new Uint16Array(0), pointRegion: new Uint8Array(0), sparkle: new Uint8Array(0), ashVec: new Float32Array(0),
-      skinId: 'ember', flapRate: 1, climbTime: 0, wasDrilling: false, flashUntil: 0, reformUntil: 0, glowSpanFactor: 1.35,
+      skinId: 'ember', flapRate: 1, climbTime: 0, spoolT: -1, wasDashing: false, wasDrilling: false, flashUntil: 0, reformUntil: 0, glowSpanFactor: 1.35,
       phoenixCount: 4000, currentBank: 0, flapTime: 0, position: new THREE.Vector3(0, -5, -15),
       velocity: new THREE.Vector3(0, 1, 0), previousVelocity: new THREE.Vector3(0, 1, 0),
       targetWaypoint: new THREE.Vector3(), historyPos: [], historyQuat: []
@@ -1353,25 +1364,145 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
               currentDir.z = 0;
               if (currentDir.lengthSq() < 1e-9) currentDir.set(0, cruiseSpeed, 0);
               currentDir.normalize();
-              let newDir = currentDir.clone();
-              if (distSqToTarget >= 0.1 && toTargetPlanar.lengthSq() > 1e-9) {
-                  const desiredDir = toTargetPlanar.normalize();
-                  const dot = Math.max(-1, Math.min(1, currentDir.dot(desiredDir)));
-                  if (dot < -0.999) {
-                      // Exactly opposite: escape sideways first.
-                      newDir.set(-currentDir.y, currentDir.x, 0).normalize();
+              const desiredDir = toTargetPlanar.lengthSq() > 1e-9
+                  ? toTargetPlanar.clone().normalize() : currentDir.clone();
+              if (Math.abs(desiredDir.x) > 0.2) {
+                  // Remembered for the Air Roll side choice (Section 2.3).
+                  const mv0 = isAi ? this.gameState.aiMovement
+                      : (this.gameState.activeScreen() === 'game' && this.gameState.currentGameMode() === 'ai_vs_ai')
+                          ? this.gameState.ai2Movement : this.gameState.playerMovement;
+                  mv0.lastLateralSign = Math.sign(desiredDir.x);
+              }
+
+              // --- Systems S1 movement kit (spec Section 2) ---
+              // Every bird flies on its own MovementState: the
+              // player's, the Battle rival's, or (for the main bird in
+              // AI vs AI) the second AI's. The game component requests
+              // verbs and reads i-frames; motion, glide tracking, and
+              // stamina regeneration live here. Nothing here changes
+              // the top speed: dash and roll are multiples of this same
+              // cruiseSpeed, and the brake only ever slows down.
+              const onGameScreen = this.gameState.activeScreen() === 'game';
+              const move = isAi ? this.gameState.aiMovement
+                  : (onGameScreen && this.gameState.currentGameMode() === 'ai_vs_ai')
+                      ? this.gameState.ai2Movement : this.gameState.playerMovement;
+              const moveNow = Date.now();
+              const brakingNow = onGameScreen && move.braking;
+              this.gameState.tickMovement(move, dt);
+
+              // Glide tracking (Section 2.6): heading change under
+              // 10 deg/s for 1.2 s builds Glide; a hard turn (over
+              // 25 deg/s), a dash, a roll, or a hit ends it.
+              const headingNow = Math.atan2(currentDir.y, currentDir.x);
+              if (move.lastHeading !== null && dt > 0) {
+                  let dA = headingNow - move.lastHeading;
+                  while (dA > Math.PI) dA -= Math.PI * 2;
+                  while (dA < -Math.PI) dA += Math.PI * 2;
+                  const rate = Math.abs(dA) / dt;
+                  if (move.gliding) {
+                      if (rate > 0.436) this.gameState.endGlide(move);
+                  } else if (rate < 0.1745) {
+                      move.straightTime += dt;
+                      if (move.straightTime >= 1.2) move.gliding = true;
                   } else {
-                      const alpha = 1 - Math.exp(-4.5 * dt);
-                      newDir = currentDir.clone().lerp(desiredDir, alpha).normalize();
-                      const angle = Math.acos(Math.max(-1, Math.min(1, currentDir.dot(newDir))));
-                      const maxAngle = 5.5 * dt;
-                      if (angle > maxAngle && angle > 1e-6) {
-                          newDir = currentDir.clone().lerp(newDir, maxAngle / angle).normalize();
-                      }
+                      move.straightTime = 0;
                   }
               }
-              // Top speed includes speedMult (stat upgrades, boosts).
-              bird.velocity.copy(newDir.multiplyScalar(cruiseSpeed));
+              move.lastHeading = headingNow;
+
+              const dashing = onGameScreen && moveNow < move.dashUntil;
+              if (dashing && !bird.wasDashing && !isAi) bird.flashUntil = performance.now() + 120;
+              bird.wasDashing = dashing;
+
+              // Air Roll consume (Section 2.3): the spend happens here
+              // because the lateral direction needs the live heading.
+              // The hop goes perpendicular to the heading, to the side
+              // away from the nearest edge when one side is closed,
+              // otherwise toward the last lateral steering input.
+              if (onGameScreen && move.rollRequestedAt > 0 && moveNow >= move.rollUntil) {
+                  move.rollRequestedAt = 0;
+                  if (this.gameState.spendStamina(move, STAMINA.rollCost)) {
+                      const candA = { x: -currentDir.y, y: currentDir.x };
+                      const useX = Math.abs(candA.x) >= Math.abs(candA.y);
+                      const bound = useX ? this.boundX : this.boundY;
+                      const posAlong = useX ? bird.position.x : bird.position.y;
+                      const compA = useX ? candA.x : candA.y;
+                      const roomA = compA >= 0 ? bound - posAlong : posAlong + bound;
+                      const roomB = (useX ? this.boundX * 2 : this.boundY * 2) - roomA;
+                      let sign = 1;
+                      if (roomA < bound * 0.35 && roomB >= bound * 0.35) {
+                          sign = -1;
+                      } else if (useX && roomA >= bound * 0.35 && roomB >= bound * 0.35) {
+                          if (Math.sign(compA) !== 0 && Math.sign(compA) !== move.lastLateralSign) sign = -1;
+                      }
+                      move.rollDirX = candA.x * sign;
+                      move.rollDirY = candA.y * sign;
+                      move.rollSide = (currentDir.x * move.rollDirY - currentDir.y * move.rollDirX) > 0 ? 1 : -1;
+                      move.rollUntil = moveNow + STAMINA.rollMs;
+                      move.gliding = false;
+                      move.straightTime = 0;
+                  }
+              }
+              const rolling = onGameScreen && moveNow < move.rollUntil;
+
+              // Dead-zone hover (Section 2.1): within 6 reference px of
+              // the target the bird holds position and idles its flap
+              // at 0.6 rate instead of orbiting the point. The capture
+              // band is wider than the hold radius on purpose: at
+              // cruise a single substep travels farther than the 6 px
+              // zone is wide, so a zone-only test is stepped over and
+              // the bird limit-cycles around the point forever. Inside
+              // the band the velocity decays hard enough to park.
+              const minDimPx = Math.min(window.innerWidth, window.innerHeight);
+              const deadZoneWorld = 6 * (minDimPx / 412) * ((this.boundX * 2) / Math.max(1, window.innerWidth));
+              const hovering = !dashing && !rolling && Math.sqrt(distSqToTarget) < deadZoneWorld * 2.5;
+
+              if (dashing) {
+                  // Dash direction is stored screen-space; world y flips.
+                  bird.velocity.set(move.dashDirX, -move.dashDirY, 0).multiplyScalar(cruiseSpeed * 2.2);
+              } else if (rolling) {
+                  bird.velocity.set(move.rollDirX, move.rollDirY, 0).multiplyScalar(cruiseSpeed * 1.4);
+              } else if (hovering) {
+                  bird.velocity.multiplyScalar(Math.exp(-14 * dt));
+                  if (!isAi) bird.flapRate = 0.6;
+              } else {
+                  let newDir = currentDir.clone();
+                  if (distSqToTarget >= 0.1 && toTargetPlanar.lengthSq() > 1e-9) {
+                      const dot = Math.max(-1, Math.min(1, currentDir.dot(desiredDir)));
+                      if (dot < -0.999) {
+                          // Exactly opposite: escape sideways first.
+                          newDir.set(-currentDir.y, currentDir.x, 0).normalize();
+                      } else {
+                          const alpha = 1 - Math.exp(-4.5 * dt);
+                          newDir = currentDir.clone().lerp(desiredDir, alpha).normalize();
+                          const angle = Math.acos(Math.max(-1, Math.min(1, currentDir.dot(newDir))));
+                          // Feather Brake raises the turn cap to 8 rad/s
+                          // (Section 2.4); normal flight keeps 5.5.
+                          const maxAngle = (brakingNow ? 8 : 5.5) * dt;
+                          if (angle > maxAngle && angle > 1e-6) {
+                              newDir = currentDir.clone().lerp(newDir, maxAngle / angle).normalize();
+                          }
+                      }
+                  }
+                  // Reversal spool (Section 2.1): after a direction
+                  // reversal over 90 degrees, speed spools back toward
+                  // cruise with about a 120 ms time constant, so
+                  // reversals carve a small arc instead of pivoting.
+                  // The spool only bites inside reversals; straight
+                  // flight and the 1.4 s crossing anchor are untouched.
+                  let speedFactor = brakingNow ? 0.35 : 1.0;
+                  if (currentDir.dot(desiredDir) < 0 && bird.spoolT < 0) bird.spoolT = 0;
+                  if (bird.spoolT >= 0) {
+                      bird.spoolT += dt;
+                      const spoolFactor = 1 - 0.65 * Math.exp(-bird.spoolT / 0.12);
+                      speedFactor *= spoolFactor;
+                      if (spoolFactor > 0.995) bird.spoolT = -1;
+                  }
+                  // Top speed includes speedMult (stat upgrades, boosts).
+                  bird.velocity.copy(newDir.multiplyScalar(cruiseSpeed * speedFactor));
+                  // Brake presentation: wings spread, flap rate down.
+                  if (brakingNow && !isAi) bird.flapRate = Math.min(bird.flapRate, 0.55);
+              }
               bird.velocity.z = 0;
 
               // Delta-time integration: this is the line that makes the
@@ -1423,8 +1554,22 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
         } else {
             bird.currentBank += (targetBank - bird.currentBank) * (1 - Math.pow(1 - 0.025, frameScale));
         }
-        
-        dummy.rotateZ(bird.currentBank);
+
+        // Air Roll visual (spec Section 2.3): one full barrel rotation
+        // across the hop, layered over the bank, turning toward the
+        // hop direction. The trail corkscrews on its own because the
+        // hop really moves the bird sideways through its history.
+        const rollMove = isAi ? this.gameState.aiMovement
+            : (this.gameState.activeScreen() === 'game' && this.gameState.currentGameMode() === 'ai_vs_ai')
+                ? this.gameState.ai2Movement : this.gameState.playerMovement;
+        let extraRoll = 0;
+        const rollNowMs = Date.now();
+        if (rollNowMs < rollMove.rollUntil) {
+            const p = 1 - (rollMove.rollUntil - rollNowMs) / STAMINA.rollMs;
+            extraRoll = p * Math.PI * 2 * rollMove.rollSide;
+        }
+
+        dummy.rotateZ(bird.currentBank + extraRoll);
         bird.previousVelocity.copy(bird.velocity);
 
         bird.historyPos.unshift(bird.position.clone());

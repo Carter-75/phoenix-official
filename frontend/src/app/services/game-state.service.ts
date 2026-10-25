@@ -7,7 +7,65 @@ import { AudioService } from './audio.service';
 import { AuthService, User } from './auth.service';
 import { StorageService } from './storage.service';
 import { WorldStats, PhysicsEntity, World, AbilityData } from '../models/game.models';
-import { WORLDS, ABILITIES, REALM_ABILITIES, BASE_STATS, WORLD_0_STATS, ABILITY_UPGRADE_TARGETS } from '../constants/game.constants';
+import { WORLDS, ABILITIES, REALM_ABILITIES, BASE_STATS, WORLD_0_STATS, deterministicAbilityModifiers } from '../constants/game.constants';
+
+// Systems S1 (spec Sections 2.5 and 3.5): save version for the
+// deterministic ability-modifier migration. Stored modifiers are
+// recomputed from stored levels only while a save's flag is below this
+// version; see migrateAbilityModifiers.
+export const MODIFIERS_VERSION = 1;
+
+// One-time backup key for the pre-migration guest save (spec Section
+// 7.3 mitigation). Written once, never overwritten, never synced.
+export const GUEST_SAVE_BACKUP_KEY = 'phoenix_guest_data_backup_pre_s1';
+
+// Movement resource and verb state for one bird (spec Section 2).
+// Run-local: never saved, never synced, never sold. The game component
+// requests verbs and reads i-frames; the particle renderer owns the
+// per-frame motion, glide tracking, and stamina regeneration, calling
+// tickMovement each substep. Directions: dashDir is a screen-space unit
+// vector (the renderer flips y into world space); rollDir is a
+// world-space unit vector the renderer computes from the bird heading.
+export interface MovementState {
+  stamina: number;
+  lastSpendAt: number; // Date.now() ms of the last stamina spend
+  dashUntil: number; // Date.now() ms; dash motion and i-frames derive from this
+  dashDirX: number;
+  dashDirY: number;
+  rollRequestedAt: number; // Date.now() ms; 0 when no roll is pending
+  rollUntil: number; // Date.now() ms; set by the renderer when a roll starts
+  rollDirX: number;
+  rollDirY: number;
+  rollSide: number; // visual roll direction: +1 or -1
+  braking: boolean;
+  gliding: boolean;
+  straightTime: number; // seconds of near-straight flight accumulated
+  lastHeading: number | null; // radians, renderer-tracked
+  lastLateralSign: number; // last steering direction sign, for roll side choice
+}
+
+export function createMovementState(): MovementState {
+  return {
+    stamina: 100, lastSpendAt: 0,
+    dashUntil: 0, dashDirX: 0, dashDirY: 0,
+    rollRequestedAt: 0, rollUntil: 0, rollDirX: 0, rollDirY: 0, rollSide: 1,
+    braking: false, gliding: false, straightTime: 0, lastHeading: null, lastLateralSign: 1
+  };
+}
+
+// Stamina tuning (spec Section 2.5): one shared 100 point pool, dash
+// 35, roll 50, regeneration 25 per second after a 0.6 s delay from the
+// last spend. Gliding doubles regeneration and halves the next spend.
+export const STAMINA = {
+  max: 100,
+  dashCost: 35,
+  rollCost: 50,
+  regenPerSecond: 25,
+  regenDelayMs: 600,
+  dashMs: 220,
+  dashIframeBonusMs: 50,
+  rollMs: 350
+};
 
 @Injectable({
   providedIn: 'root'
@@ -77,6 +135,21 @@ export class GameStateService {
   public toggleCosmicTrail = signal<boolean>(true);
   public toggleGoldenAura = signal<boolean>(true);
   public toggleCelestialShield = signal<boolean>(true);
+
+  // Local presentation and feel preferences (spec Sections 2.1, 4.3,
+  // 4.4). Stored with the other local preferences, NOT in the synced
+  // save: they describe this device, not the player's progression.
+  public touchOffsetEnabled = signal<boolean>(true);
+  public screenShakeSetting = signal<'on' | 'reduced' | 'off'>('on');
+  public damageNumbersEnabled = signal<boolean>(true);
+
+  // Movement state per bird (spec Section 2.5): the player, the Battle
+  // rival (ai1), and the second AI in AI vs AI (ai2, which flies the
+  // main bird). The AI birds spend from the same pool at the same costs
+  // as the player; parity is a rule, not a hope (spec Section 7.2).
+  public playerMovement: MovementState = createMovementState();
+  public aiMovement: MovementState = createMovementState();
+  public ai2Movement: MovementState = createMovementState();
   // Equipped phoenix skin id (visual spec Section 2.4). Additive save
   // field: older saves have no selectedSkinId and fall back to the
   // default 'ember' skin. Skins are palette and glyph records only;
@@ -105,6 +178,15 @@ export class GameStateService {
   private router = inject(Router);
 
   constructor() {
+      // Local preferences first: the guest restore below and every
+      // settings consumer read them.
+      const prefOffset = this.storage.getItem('phoenix_pref_touch_offset');
+      if (prefOffset !== null) this.touchOffsetEnabled.set(prefOffset !== '0');
+      const prefShake = this.storage.getItem('phoenix_pref_screen_shake');
+      if (prefShake === 'reduced' || prefShake === 'off') this.screenShakeSetting.set(prefShake);
+      const prefDmg = this.storage.getItem('phoenix_pref_damage_numbers');
+      if (prefDmg !== null) this.damageNumbersEnabled.set(prefDmg !== '0');
+
       this.router.events.subscribe(event => {
           if (event instanceof NavigationEnd) {
               const path = event.urlAfterRedirects.slice(1);
@@ -130,6 +212,23 @@ export class GameStateService {
       if (localData) {
           try {
               const data = JSON.parse(localData);
+              // Deterministic-modifier migration (spec Sections 3.5
+              // and 7.3): before anything reads this save, keep a
+              // one-time backup of the untouched pre-migration bytes
+              // under a separate key, then recompute stored modifiers
+              // from stored levels if the version flag is absent.
+              const guestHasVersion = typeof data.modifiersVersion === 'number' && data.modifiersVersion >= MODIFIERS_VERSION;
+              if (!guestHasVersion && data.worldUpgrades) {
+                  if (!this.storage.getItem(GUEST_SAVE_BACKUP_KEY)) {
+                      this.storage.setItem(GUEST_SAVE_BACKUP_KEY, localData);
+                  }
+                  this.migrateAbilityModifiers(data.worldUpgrades, false);
+              }
+              // selectedSkinId was added one stage ago and never
+              // shipped; the skin is becoming world-determined, so the
+              // field is transient: drop it silently wherever a save
+              // still carries it (it is not restored and not re-saved).
+              delete data.selectedSkinId;
               this.level.set(data.level || 0);
               this.xp.set(data.xp || 0);
               this.trophies.set(data.trophies || []);
@@ -152,7 +251,6 @@ export class GameStateService {
 
               this.checkTemporaryMultipliers();
 
-              if (typeof data.selectedSkinId === 'string' && data.selectedSkinId) this.selectedSkinId.set(data.selectedSkinId);
               if (data.toggleCosmicTrail !== undefined) this.toggleCosmicTrail.set(data.toggleCosmicTrail);
               if (data.toggleGoldenAura !== undefined) this.toggleGoldenAura.set(data.toggleGoldenAura);
               if (data.toggleCelestialShield !== undefined) this.toggleCelestialShield.set(data.toggleCelestialShield);
@@ -216,7 +314,7 @@ export class GameStateService {
               toggleCosmicTrail: this.toggleCosmicTrail(),
               toggleGoldenAura: this.toggleGoldenAura(),
               toggleCelestialShield: this.toggleCelestialShield(),
-              selectedSkinId: this.selectedSkinId(),
+              modifiersVersion: MODIFIERS_VERSION,
               unlockedEnemies: this.unlockedEnemies()
           };
           if (!this.auth.currentUser() || this.auth.currentUser()?.isTemp) {
@@ -296,11 +394,132 @@ export class GameStateService {
   public aiPhoenixSpeed = signal<number>(1.2);
   public ai2PhoenixSpeed = signal<number>(1.2);
 
+  // Deterministic-modifier migration (spec Sections 3.5 and 7.3).
+  // Recomputes every stored ability's modifiers from its stored level
+  // when the save's version flag is absent; levels, unlocks, equip
+  // choices, and every other field are untouched. When the flag is
+  // present, stored modifiers are kept exactly as they are and only a
+  // missing modifiers record (a legacy shape the old loader filled with
+  // 1.0s) is filled, from the same deterministic curve. Recomputing is
+  // a pure function of level, so running it on an already-migrated
+  // record reproduces the identical values.
+  public migrateAbilityModifiers(worldUpgrades: Record<string, any>, hasVersionFlag: boolean): void {
+      if (!worldUpgrades || typeof worldUpgrades !== 'object') return;
+      Object.keys(worldUpgrades).forEach(key => {
+          const record = worldUpgrades[key];
+          if (!record || typeof record !== 'object') return;
+          if (record.activeDoubleAbility === undefined) record.activeDoubleAbility = null;
+          if (record.activeTripleAbility === undefined) record.activeTripleAbility = null;
+          const abilities = record.unlockedAbilities;
+          if (!abilities || typeof abilities !== 'object') return;
+          Object.keys(abilities).forEach(abKey => {
+              const ability = abilities[abKey];
+              if (!ability || typeof ability.level !== 'number') return;
+              if (!hasVersionFlag || !ability.modifiers) {
+                  ability.modifiers = deterministicAbilityModifiers(abKey, ability.level);
+              }
+          });
+      });
+  }
+
+  // --- Movement verbs and stamina (spec Section 2) ---
+
+  // Spend from a bird's pool. While gliding, the spend is halved (the
+  // glide discount of Section 2.6) and the glide ends on any verb.
+  // Returns false and spends nothing when the pool cannot pay.
+  public spendStamina(state: MovementState, baseCost: number): boolean {
+      const cost = state.gliding ? baseCost / 2 : baseCost;
+      if (state.stamina < cost) return false;
+      state.stamina -= cost;
+      state.lastSpendAt = Date.now();
+      return true;
+  }
+
+  // Flick Dash request (spec Section 2.2): direction is a screen-space
+  // unit vector. Spends synchronously so refusal is immediate; the
+  // renderer applies the motion while now < dashUntil.
+  public requestDash(state: MovementState, dirX: number, dirY: number): boolean {
+      const len = Math.hypot(dirX, dirY);
+      if (len < 1e-6) return false;
+      if (!this.spendStamina(state, STAMINA.dashCost)) return false;
+      const now = Date.now();
+      state.dashDirX = dirX / len;
+      state.dashDirY = dirY / len;
+      state.dashUntil = now + STAMINA.dashMs;
+      state.gliding = false;
+      state.straightTime = 0;
+      return true;
+  }
+
+  // Air Roll request (spec Section 2.3): the lateral direction depends
+  // on the bird's live heading, which only the renderer knows, so the
+  // spend happens there when it consumes the request (same frame in
+  // practice). A provisional i-frame window covers the consume gap so
+  // a roll pressed in good faith is never a free hit.
+  public requestRoll(state: MovementState): void {
+      if (Date.now() < state.rollUntil) return;
+      state.rollRequestedAt = Date.now();
+  }
+
+  // Per-substep stamina regeneration, called by the renderer for each
+  // bird it flies. 25 per second after the 0.6 s post-spend delay,
+  // doubled while gliding (spec Sections 2.5 and 2.6).
+  public tickMovement(state: MovementState, dtSeconds: number): void {
+      if (state.stamina >= STAMINA.max) return;
+      if (Date.now() - state.lastSpendAt < STAMINA.regenDelayMs) return;
+      const rate = STAMINA.regenPerSecond * (state.gliding ? 2 : 1);
+      state.stamina = Math.min(STAMINA.max, state.stamina + rate * dtSeconds);
+  }
+
+  // True while a bird cannot be hit: dash i-frames (dash plus 0.05 s),
+  // roll i-frames (the whole roll), or the provisional roll window.
+  public movementIframesActive(state: MovementState): boolean {
+      const now = Date.now();
+      if (now < state.dashUntil + STAMINA.dashIframeBonusMs) return true;
+      if (now < state.rollUntil) return true;
+      if (state.rollRequestedAt > 0 && now - state.rollRequestedAt < STAMINA.rollMs + 50) return true;
+      return false;
+  }
+
+  public endGlide(state: MovementState): void {
+      state.gliding = false;
+      state.straightTime = 0;
+  }
+
+  // --- Local preferences (persisted on this device only) ---
+
+  public setTouchOffsetEnabled(on: boolean) {
+      this.touchOffsetEnabled.set(on);
+      this.storage.setItem('phoenix_pref_touch_offset', on ? '1' : '0');
+  }
+
+  public setScreenShakeSetting(value: 'on' | 'reduced' | 'off') {
+      this.screenShakeSetting.set(value);
+      this.storage.setItem('phoenix_pref_screen_shake', value);
+  }
+
+  public setDamageNumbersEnabled(on: boolean) {
+      this.damageNumbersEnabled.set(on);
+      this.storage.setItem('phoenix_pref_damage_numbers', on ? '1' : '0');
+  }
+
+  // Touch steering offset (spec Section 2.1): on touch devices the
+  // steering target sits about 8 percent of the min dimension above
+  // the fingertip so the bird is not hidden under the thumb. Mouse
+  // input is never offset, and neither is anything off the game
+  // screen. Ability aiming uses the same adjusted point, so what the
+  // player sees is what fires.
+  public applyTouchOffset(x: number, y: number, isTouch: boolean): { x: number, y: number } {
+      if (!isTouch || !this.touchOffsetEnabled() || this.activeScreen() !== 'game') return { x, y };
+      return { x, y: y - 0.08 * Math.min(window.innerWidth, window.innerHeight) };
+  }
+
   // Sync with DB User
   syncWithUser(user: User) {
       if (!user) return;
-      const skinId = (user as any).selectedSkinId;
-      if (typeof skinId === 'string' && skinId) this.selectedSkinId.set(skinId);
+      // selectedSkinId is transient (see the guest restore): a server
+      // record may still carry it; it is dropped silently, not applied.
+      delete (user as any).selectedSkinId;
       this.level.set(user.level || 1);
       this.xp.set(user.xp || 0);
       this.trophies.set(user.trophies || []);
@@ -328,7 +547,9 @@ export class GameStateService {
               if (!upgrades[key as any].unlockedAbilities) upgrades[key as any].unlockedAbilities = {};
               if (upgrades[key as any].activeTapAbility === undefined) upgrades[key as any].activeTapAbility = null;
               if (upgrades[key as any].activeHoldAbility === undefined) upgrades[key as any].activeHoldAbility = null;
-              
+              if (upgrades[key as any].activeDoubleAbility === undefined) upgrades[key as any].activeDoubleAbility = null;
+              if (upgrades[key as any].activeTripleAbility === undefined) upgrades[key as any].activeTripleAbility = null;
+
               // Auto-heal NaN
               Object.keys(upgrades[key as any]).forEach(statKey => {
                   if (statKey === 'unlockedAbilities') {
@@ -347,6 +568,11 @@ export class GameStateService {
                   }
               });
           });
+          // Deterministic-modifier migration for server saves (spec
+          // Sections 3.5 and 7.3): recompute from levels only when
+          // the record's version flag is absent.
+          const serverHasVersion = typeof (user as any).modifiersVersion === 'number' && (user as any).modifiersVersion >= MODIFIERS_VERSION;
+          this.migrateAbilityModifiers(upgrades, serverHasVersion);
           this.worldUpgrades.set(upgrades);
       }
   }
@@ -373,67 +599,14 @@ export class GameStateService {
       this.audio.playSFX('heal'); // Level up sound
   }
 
+  // Deterministic upgrades (spec Section 3.5): the modifiers for a
+  // level are a pure function of the level, identical for every
+  // player and for the Battle AI (which calls this same method, so
+  // parity holds by construction). The old random cone-weighted roll
+  // is gone; currentModifiers is accepted for call-site compatibility
+  // and ignored.
   public generateAbilityUpgrade(abilityId: string, currentLevel: number, currentModifiers: Record<string, number>): Record<string, number> {
-      const config = ABILITY_UPGRADE_TARGETS[abilityId] || { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } };
-      const newModifiers = { ...currentModifiers };
-      
-      const statsKeys = Object.keys(config.stats);
-
-      // Ensure stats exist
-      statsKeys.forEach(stat => {
-          if (newModifiers[stat] === undefined) {
-              newModifiers[stat] = 1.0;
-          }
-      });
-
-      const expectedProgress = currentLevel / config.targetLevel; 
-      
-      let weights = statsKeys.map(stat => {
-          const targetVal = config.stats[stat];
-          const currentVal = newModifiers[stat];
-          const isReduction = targetVal < 1.0; 
-          
-          let progress = 0;
-          if (isReduction) {
-              progress = (1.0 - currentVal) / (1.0 - targetVal);
-          } else {
-              progress = (currentVal - 1.0) / (targetVal - 1.0);
-          }
-          
-          // The "Cone Idea": Heavily weight stats that fall behind
-          let deficit = expectedProgress - progress;
-          let weight = Math.max(0.01, 1.0 + (deficit * 10)); 
-          return { stat, weight };
-      });
-      
-      const totalWeight = weights.reduce((sum, w) => sum + w.weight, 0);
-      let rand = Math.random() * totalWeight;
-      let chosenStat = statsKeys[0];
-      for (let i = 0; i < weights.length; i++) {
-          const w = weights[i];
-          rand -= w.weight;
-          if (rand <= 0) {
-              chosenStat = w.stat;
-              break;
-          }
-      }
-      
-      // Apply buff
-      const targetVal = config.stats[chosenStat];
-      const isReduction = targetVal < 1.0;
-      const totalDelta = Math.abs(targetVal - 1.0);
-      const avgDeltaPerLevel = totalDelta / config.targetLevel;
-      
-      // Randomize between 0.5x and 1.5x of the average step
-      const buffAmount = avgDeltaPerLevel * (0.5 + Math.random());
-      
-      if (isReduction) {
-          newModifiers[chosenStat] = Math.max(0.05, newModifiers[chosenStat] - buffAmount);
-      } else {
-          newModifiers[chosenStat] += buffAmount;
-      }
-      
-      return newModifiers;
+      return deterministicAbilityModifiers(abilityId, currentLevel);
   }
 
   // Helper for XP math
@@ -511,6 +684,7 @@ export class GameStateService {
           gems: this.gems(),
           unlockedWorlds: this.unlockedWorlds(),
           worldUpgrades: this.worldUpgrades(),
+          modifiersVersion: MODIFIERS_VERSION,
           hasPurchasedGems: this.hasPurchasedGems(),
           acceptedLegalPolicies: this.acceptedLegalPolicies(),
           reviveTokens: this.reviveTokens(),
