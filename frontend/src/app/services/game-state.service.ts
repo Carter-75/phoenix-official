@@ -77,6 +77,11 @@ export class GameStateService {
   public toggleCosmicTrail = signal<boolean>(true);
   public toggleGoldenAura = signal<boolean>(true);
   public toggleCelestialShield = signal<boolean>(true);
+  // Equipped phoenix skin id (visual spec Section 2.4). Additive save
+  // field: older saves have no selectedSkinId and fall back to the
+  // default 'ember' skin. Skins are palette and glyph records only;
+  // this value never affects stats, collision, or economy.
+  public selectedSkinId = signal<string>('ember');
   public speedBoostUntil = 0;
   public immortalUntil = 0;
   
@@ -147,6 +152,7 @@ export class GameStateService {
 
               this.checkTemporaryMultipliers();
 
+              if (typeof data.selectedSkinId === 'string' && data.selectedSkinId) this.selectedSkinId.set(data.selectedSkinId);
               if (data.toggleCosmicTrail !== undefined) this.toggleCosmicTrail.set(data.toggleCosmicTrail);
               if (data.toggleGoldenAura !== undefined) this.toggleGoldenAura.set(data.toggleGoldenAura);
               if (data.toggleCelestialShield !== undefined) this.toggleCelestialShield.set(data.toggleCelestialShield);
@@ -210,6 +216,7 @@ export class GameStateService {
               toggleCosmicTrail: this.toggleCosmicTrail(),
               toggleGoldenAura: this.toggleGoldenAura(),
               toggleCelestialShield: this.toggleCelestialShield(),
+              selectedSkinId: this.selectedSkinId(),
               unlockedEnemies: this.unlockedEnemies()
           };
           if (!this.auth.currentUser() || this.auth.currentUser()?.isTemp) {
@@ -292,6 +299,8 @@ export class GameStateService {
   // Sync with DB User
   syncWithUser(user: User) {
       if (!user) return;
+      const skinId = (user as any).selectedSkinId;
+      if (typeof skinId === 'string' && skinId) this.selectedSkinId.set(skinId);
       this.level.set(user.level || 1);
       this.xp.set(user.xp || 0);
       this.trophies.set(user.trophies || []);
