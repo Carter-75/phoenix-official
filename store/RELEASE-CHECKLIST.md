@@ -8,8 +8,8 @@ Do not upload a production build until every required gate is checked from evide
 - [x] `dist/frontend/browser` remains present after the build.
 - [x] Capacitor Android sync passes and registers the AdMob plugin.
 - [x] Backend smoke test passes against a disposable MongoDB database.
-- [ ] Native Android release build succeeds in Android Studio or the chosen build environment.
-- [ ] Release AAB uses package name `com.phoenix.fall`.
+- [x] Native Android builds succeed in the chosen build environment (GitHub Actions, run #2, October 25, 2026: debug APK and unsigned release bundle artifacts verified).
+- [ ] Release AAB uses package name `com.phoenix.fall` (compiled in from the Capacitor config; confirm again on the signed upload build).
 - [ ] Release signing uses Play App Signing and the upload key is stored outside the repo.
 - [ ] Version code is higher than every previously uploaded build.
 - [ ] The release build is installed and played on a physical Android device.

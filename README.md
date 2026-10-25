@@ -76,10 +76,11 @@ Verified October 25, 2026:
 - Angular production build passed.
 - Capacitor Android sync passed and registered `@capacitor-community/admob`.
 - Backend smoke test passed 24 checks against a disposable local MongoDB database, covering pending signup, username completion, login, sync caps, premium grant blocking, fail-closed billing, invalid AdMob SSV rejection, and account deletion.
+- Native Android build passed in GitHub Actions (`.github/workflows/android-build.yml`, run #2, commit `a403050`): `app-debug-apk` (96,531,609 bytes) and `app-release-bundle` (93,782,047 bytes) artifacts produced. The local sandbox cannot complete Gradle builds because its network permission layer cuts the Gradle daemon loopback connection; CI is the build path.
 
 Not yet verified:
 
-- Native signed Android build. The current environment has no Java or Android build toolchain.
+- Signed Android release build. The CI release bundle is unsigned; Play upload needs Play App Signing and an upload key after the Play developer account exists.
 - Real Google Play purchase verification. This needs Carter's Play service account and a license tester.
 - Real AdMob delivery and SSV callback. This needs Carter's AdMob app and ad units.
 - Google Play availability. The game is not live on Google Play yet.

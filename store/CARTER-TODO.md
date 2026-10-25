@@ -2,13 +2,9 @@
 
 Complete these steps in order. Send Muse only public IDs and URLs. Never send passwords, secret keys, service account JSON, signing keys, or verification codes in chat.
 
-## 1. Create the GitHub repo
+## 1. Create the GitHub repo - DONE October 25, 2026
 
-1. In GitHub under `Carter-75`, create a public repository named exactly `phoenix-official`.
-2. Do not add a README, .gitignore, or license. It must start empty so the local official history can be pushed cleanly.
-3. Tell Muse in this chat: `phoenix-official repo created`.
-
-Muse will then add the remote, fetch, check for divergence, and push `main`. The preserved `expo-prototype` branch is not the official release path.
+The public repo exists at https://github.com/Carter-75/phoenix-official and both branches are pushed and verified: `main` and the preserved `expo-prototype` branch (not the official release path). The repo also carries the GitHub Actions Android build workflow; run #2 on October 25, 2026 produced a verified debug APK and release bundle.
 
 ## 2. Publish the two public policy pages
 
@@ -47,7 +43,9 @@ After saving, redeploy and open:
 
 It should report `database: Connected`. If you used a different backend host, check the same path on that host.
 
-## 4. Create and verify the Play developer account
+## 4. Create and verify the Play developer account - IN PROGRESS October 25, 2026
+
+Status: Carter chose a fresh developer account under hello@phoenixwebsites.ai, account type "Yourself" (Phoenix Websites AI has no LLC yet), developer name Phoenix Websites AI. 2-Step Verification is on. Registration is complete through the Terms step using his existing Carter Moyer individual payments profile (Google would not allow a second individual US profile). The first $25 fee payment was declined for insufficient funds on the Bilt Mastercard ending 9856. Carter paused payment work until Tuesday, October 27, 2026, when a scheduled run retries the $25 fee around noon CT on the X Money Visa ending 2746. Google warned identity verification with a valid ID may still be required after payment, and the fee is nonrefundable if identity cannot be verified.
 
 1. Create or sign in to the Google Play Console developer account.
 2. Pay the one-time developer fee if Google asks for it.
