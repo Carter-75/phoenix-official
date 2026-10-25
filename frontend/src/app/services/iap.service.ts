@@ -1,4 +1,6 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { GameStateService } from './game-state.service';
 import { Capacitor } from '@capacitor/core';
@@ -13,12 +15,12 @@ export class IapService {
   public storeReady = signal<boolean>(false);
   public isProcessing = signal<boolean>(false);
   public isSubscribed = signal<boolean>(false);
-  
-  // Keep track of pending reward amount so we know what to grant when approved
+
+  // Gems to grant for the in-flight gem-pack purchase (the amount the store
+  // displayed, which already includes the first-purchase double bonus).
   private pendingRewardGems = 0;
-  
-  // Track subscription purchases
-  private pendingSubscription = false;
+
+  private http = inject(HttpClient);
 
   constructor(private gameState: GameStateService) {
     if (Capacitor.isNativePlatform()) {
@@ -39,41 +41,20 @@ export class IapService {
 
     store.verbosity = LogLevel.INFO;
 
-    // Register our 4 fixed SKUs
+    // Register EVERY product the shop can sell (audit bug 11: the temp
+    // multipliers were sellable but never registered). One subscription
+    // only; the premium tier and whale SKU were deleted with the dark
+    // patterns (audit bug 37).
     store.register([
-      {
-        id: environment.googlePlay.skuTier1,
-        type: ProductType.CONSUMABLE,
-        platform: Platform.GOOGLE_PLAY,
-      },
-      {
-        id: environment.googlePlay.skuTier2,
-        type: ProductType.CONSUMABLE,
-        platform: Platform.GOOGLE_PLAY,
-      },
-      {
-        id: environment.googlePlay.skuTier3,
-        type: ProductType.CONSUMABLE,
-        platform: Platform.GOOGLE_PLAY,
-      },
-      {
-        id: environment.googlePlay.skuWhale,
-        type: ProductType.CONSUMABLE,
-        platform: Platform.GOOGLE_PLAY,
-      },
-      {
-        id: environment.googlePlay.subMonthlyStandard,
-        type: ProductType.PAID_SUBSCRIPTION,
-        platform: Platform.GOOGLE_PLAY,
-      },
-      {
-        id: environment.googlePlay.subMonthlyPremium,
-        type: ProductType.PAID_SUBSCRIPTION,
-        platform: Platform.GOOGLE_PLAY,
-      }
+      { id: environment.googlePlay.skuTier1, type: ProductType.CONSUMABLE, platform: Platform.GOOGLE_PLAY },
+      { id: environment.googlePlay.skuTier2, type: ProductType.CONSUMABLE, platform: Platform.GOOGLE_PLAY },
+      { id: environment.googlePlay.skuTier3, type: ProductType.CONSUMABLE, platform: Platform.GOOGLE_PLAY },
+      { id: environment.googlePlay.skuTempMultiplierX2, type: ProductType.CONSUMABLE, platform: Platform.GOOGLE_PLAY },
+      { id: environment.googlePlay.skuTempMultiplierX10, type: ProductType.CONSUMABLE, platform: Platform.GOOGLE_PLAY },
+      { id: environment.googlePlay.skuRemoveAds, type: ProductType.NON_CONSUMABLE, platform: Platform.GOOGLE_PLAY },
+      { id: environment.googlePlay.subMonthlyStandard, type: ProductType.PAID_SUBSCRIPTION, platform: Platform.GOOGLE_PLAY },
     ]);
 
-    // Setup Listeners
     store.when().approved((transaction: any) => {
       console.log('IAP Approved:', transaction);
       transaction.verify();
@@ -84,38 +65,44 @@ export class IapService {
       receipt.finish();
     });
 
-    store.when().finished((transaction: any) => {
+    store.when().finished(async (transaction: any) => {
       console.log('IAP Finished:', transaction);
       this.isProcessing.set(false);
-      
+
       const productId = transaction.products[0]?.id;
-      if (productId === environment.googlePlay.subMonthlyStandard || productId === environment.googlePlay.subMonthlyPremium) {
-         this.isSubscribed.set(true);
-         this.gameState.checkMonthlyCrateEligibility(true);
-      } else if (productId === environment.googlePlay.skuWhale) {
-         // Whale trap handled in component? Wait, we should give gems.
-         this.grantGems(75);
-      } else if (productId === environment.googlePlay.skuTempMultiplierX2) {
-         this.gameState.grantTemporaryMultiplier('coin', 2, 1);
-         this.gameState.grantTemporaryMultiplier('xp', 2, 1);
-      } else if (productId === environment.googlePlay.skuTempMultiplierX10) {
-         this.gameState.grantTemporaryMultiplier('coin', 10, 5);
-         this.gameState.grantTemporaryMultiplier('xp', 10, 5);
-      } else if (this.pendingRewardGems > 0) {
-        this.grantGems(this.pendingRewardGems);
-        this.pendingRewardGems = 0;
+      if (!productId) return;
+
+      // Server-side receipt verification first (audit bug 19): the backend
+      // checks the purchase with Google and grants the entitlement itself.
+      const verified = await this.verifyWithServer(productId, transaction);
+      if (verified === 'granted') {
+        if (productId === environment.googlePlay.subMonthlyStandard) {
+          this.isSubscribed.set(true);
+          this.gameState.checkMonthlyCrateEligibility(true);
+        }
+        return; // server state was adopted in verifyWithServer
       }
+      if (verified === 'rejected') {
+        console.error('Purchase could not be verified by the server; nothing granted.');
+        return;
+      }
+      // 'unconfigured': verification backend not set up yet (Carter's Play
+      // service account step). Fall back to the local grant so the game
+      // stays testable; /auth/sync still cannot mint these server-side.
+      this.applyLocalGrant(productId);
     });
 
     // Check existing purchases on startup
     store.when().receiptUpdated((receipt: any) => {
-       const isSubbed = store.get(environment.googlePlay.subMonthlyStandard)?.owned || store.get(environment.googlePlay.subMonthlyPremium)?.owned;
+       const isSubbed = store.get(environment.googlePlay.subMonthlyStandard)?.owned;
        if (isSubbed) {
            this.isSubscribed.set(true);
            this.gameState.checkMonthlyCrateEligibility(true);
        } else {
            this.isSubscribed.set(false);
        }
+       const ownsRemoveAds = store.get(environment.googlePlay.skuRemoveAds)?.owned;
+       if (ownsRemoveAds) this.gameState.hasRemoveAds.set(true);
     });
 
     store.when().cancelled((transaction: any) => {
@@ -135,8 +122,62 @@ export class IapService {
       this.storeReady.set(true);
     });
 
-    // Initialize the store
     store.initialize([Platform.GOOGLE_PLAY]);
+  }
+
+  private extractPurchaseToken(transaction: any): string | null {
+    if (!transaction) return null;
+    if (transaction.purchaseToken) return transaction.purchaseToken;
+    if (transaction.nativePurchase?.purchaseToken) return transaction.nativePurchase.purchaseToken;
+    try {
+      const receipt = typeof transaction.receipt === 'string' ? JSON.parse(transaction.receipt) : transaction.receipt;
+      if (receipt?.purchaseToken) return receipt.purchaseToken;
+    } catch (e) { /* not JSON */ }
+    return transaction.transactionId || null;
+  }
+
+  // Returns 'granted' (server verified and state adopted), 'rejected'
+  // (server checked and refused), or 'unconfigured' (no service account on
+  // the backend yet, caller may fall back to a local grant for testing).
+  private async verifyWithServer(productId: string, transaction: any): Promise<'granted' | 'rejected' | 'unconfigured'> {
+    const token = localStorage.getItem('auth_token');
+    if (!token) return 'unconfigured'; // guests: nothing server-side to grant to
+    const purchaseToken = this.extractPurchaseToken(transaction);
+    if (!purchaseToken) return 'rejected';
+    try {
+      const res: any = await firstValueFrom(this.http.post(
+        environment.apiUrl + '/api/billing/verify',
+        { productId, purchaseToken }
+      ));
+      if (res?.ok) {
+        if (res.user) this.gameState.syncWithUser(res.user);
+        return 'granted';
+      }
+      return 'rejected';
+    } catch (err: any) {
+      if (err?.error?.code === 'BILLING_NOT_CONFIGURED' || err?.status === 503) return 'unconfigured';
+      console.error('Receipt verification failed', err);
+      return 'rejected';
+    }
+  }
+
+  private applyLocalGrant(productId: string) {
+    if (productId === environment.googlePlay.subMonthlyStandard) {
+       this.isSubscribed.set(true);
+       this.gameState.checkMonthlyCrateEligibility(true);
+    } else if (productId === environment.googlePlay.skuRemoveAds) {
+       this.gameState.hasRemoveAds.set(true);
+       this.gameState.syncProgressToServer();
+    } else if (productId === environment.googlePlay.skuTempMultiplierX2) {
+       this.gameState.grantTemporaryMultiplier('coin', 2, 1);
+       this.gameState.grantTemporaryMultiplier('xp', 2, 1);
+    } else if (productId === environment.googlePlay.skuTempMultiplierX10) {
+       this.gameState.grantTemporaryMultiplier('coin', 10, 5);
+       this.gameState.grantTemporaryMultiplier('xp', 10, 5);
+    } else if (this.pendingRewardGems > 0) {
+      this.grantGems(this.pendingRewardGems);
+      this.pendingRewardGems = 0;
+    }
   }
 
   public orderProduct(sku: string, gemsToReward: number = 0) {
@@ -144,17 +185,8 @@ export class IapService {
       console.log(`[SIMULATED] Ordering SKU: ${sku} for ${gemsToReward} gems.`);
       this.isProcessing.set(true);
       setTimeout(() => {
-        if (gemsToReward > 0) {
-          this.grantGems(gemsToReward);
-        } else if (sku === environment.googlePlay.skuWhale) {
-          this.grantGems(75);
-        } else if (sku === environment.googlePlay.skuTempMultiplierX2) {
-          this.gameState.grantTemporaryMultiplier('coin', 2, 1);
-          this.gameState.grantTemporaryMultiplier('xp', 2, 1);
-        } else if (sku === environment.googlePlay.skuTempMultiplierX10) {
-          this.gameState.grantTemporaryMultiplier('coin', 10, 5);
-          this.gameState.grantTemporaryMultiplier('xp', 10, 5);
-        }
+        this.pendingRewardGems = gemsToReward;
+        this.applyLocalGrant(sku);
         this.isProcessing.set(false);
       }, 1500);
       return;
@@ -199,18 +231,13 @@ export class IapService {
   }
 
   private grantGems(amount: number) {
-    const finalAmount = this.gameState.hasPurchasedGems() ? amount : amount * 2;
-    this.gameState.gems.update(g => g + finalAmount);
+    // The amount is final: the store display already includes the
+    // first-purchase double bonus, and the server applies the same rule on
+    // verified purchases. No silent doubling here, and nothing in this path
+    // may trigger a follow-up sales modal (the whale trap is deleted).
+    this.gameState.gems.update(g => g + amount);
     this.gameState.hasPurchasedGems.set(true);
-    
-    console.log(`Successfully rewarded ${finalAmount} Gems!`);
+    console.log(`Successfully rewarded ${amount} Gems!`);
     this.gameState.syncProgressToServer();
-
-    // Trigger Whale Trap if applicable
-    if (Math.random() < this.gameState.upsellChance()) {
-        localStorage.setItem('phoenix_trigger_whale', 'true');
-    } else {
-        this.gameState.upsellChance.set(0);
-    }
   }
 }

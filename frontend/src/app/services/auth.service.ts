@@ -18,6 +18,12 @@ export interface User {
   worldUpgrades?: Record<number, any>;
   isTemp?: boolean;
   acceptedLegalPolicies?: boolean;
+  hasRemoveAds?: boolean;
+  reviveTokens?: number;
+  boostExpiresAt?: number;
+  boostMultiplier?: number;
+  hasActiveSub?: boolean;
+  isSubscribed?: boolean;
   [key: string]: any;
 }
 
@@ -50,8 +56,14 @@ export class AuthService {
   private apiUrl = environment.apiUrl + '/auth';
 
   login(credentials: LoginCredentials): Observable<User> {
-    return this.http.post<User>(`${this.apiUrl}/login`, credentials).pipe(
-      tap(user => this.currentUser.set(user))
+    // The API returns { user, token }. Store the token or every later
+    // authenticated call fails (audit bug 5).
+    return this.http.post<{user: User, token: string}>(`${this.apiUrl}/login`, credentials).pipe(
+      tap(res => {
+        if (res.token) localStorage.setItem('auth_token', res.token);
+        this.currentUser.set(res.user);
+      }),
+      map(res => res.user)
     );
   }
 
@@ -109,8 +121,12 @@ export class AuthService {
         const googleUser = await GoogleAuth.signIn();
         const idToken = googleUser.authentication.idToken;
         
-        const req$ = this.http.post<User>(`${this.apiUrl}/google/native`, { idToken }).pipe(
-          tap(user => this.currentUser.set(user))
+        const req$ = this.http.post<{user: User, token: string}>(`${this.apiUrl}/google/native`, { idToken }).pipe(
+          tap(res => {
+            if (res.token) localStorage.setItem('auth_token', res.token);
+            this.currentUser.set(res.user);
+          }),
+          map(res => res.user)
         );
         return await import('rxjs').then(m => m.firstValueFrom(req$));
       } catch (err) {

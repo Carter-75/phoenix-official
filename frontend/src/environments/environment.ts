@@ -9,10 +9,11 @@ export const environment = {
     skuTier1: 'com.phoenix.gems.tier1',
     skuTier2: 'com.phoenix.gems.tier2',
     skuTier3: 'com.phoenix.gems.tier3',
-    skuWhale: 'com.phoenix.gems.whale',
+    // One subscription only (audit design lock). The old premium tier and
+    // the whale SKU are gone and must not be registered or sold.
     subMonthlyStandard: 'com.phoenix.sub.monthly',
-    subMonthlyPremium: 'com.phoenix.sub.premium',
     skuTempMultiplierX2: 'com.phoenix.temp.multiplier.x2',
-    skuTempMultiplierX10: 'com.phoenix.temp.multiplier.x10'
+    skuTempMultiplierX10: 'com.phoenix.temp.multiplier.x10',
+    skuRemoveAds: 'com.phoenix.removeads'
   }
 };

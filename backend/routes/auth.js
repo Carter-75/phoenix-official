@@ -1,231 +1,295 @@
 const express = require('express');
 const passport = require('passport');
 const router = express.Router();
-const User = require('../models/user');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const secret = process.env.SESSION_SECRET || 'secret';
+const { OAuth2Client } = require('google-auth-library');
+const User = require('../models/user');
+const PendingSignup = require('../models/PendingSignup');
+const Entitlement = require('../models/Entitlement');
+const { getJwtSecret } = require('../config/secret');
+
+const SUB_PRODUCT_ID = 'com.phoenix.sub.monthly';
+const USERNAME_RE = /^[A-Za-z0-9_]{3,16}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Public client IDs from capacitor.config.ts (client IDs are not secrets).
+const DEFAULT_GOOGLE_AUDIENCES = [
+  '108585498879-v35d0d196d4djglodbbjok452pr1e04r.apps.googleusercontent.com',
+  '108585498879-o171u9a80ssqfkojpd8hohgq6dumk0iu.apps.googleusercontent.com'
+];
 
 function generateToken(user) {
-  if (user.isTemp) {
-     // Sign plain object for temp user
-     return jwt.sign(user, secret, { expiresIn: '1h' });
-  }
-  return jwt.sign({ id: user._id }, secret, { expiresIn: '30d' });
+  return jwt.sign({ id: user._id ? user._id : user.id }, getJwtSecret(), { expiresIn: '30d' });
 }
 
-// --- Local Auth ---
+function generatePendingToken(pendingId) {
+  return jwt.sign({ pending: true, pendingId }, getJwtSecret(), { expiresIn: '30m' });
+}
+
+// Strip secrets and attach server-derived entitlement state.
+async function publicUser(user) {
+  const obj = user.toObject ? user.toObject() : { ...user };
+  delete obj.password;
+  delete obj.pushSubscriptions;
+  const now = new Date();
+  const sub = await Entitlement.findOne({
+    userId: user._id, productId: SUB_PRODUCT_ID,
+    $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }]
+  }).lean();
+  obj.hasActiveSub = !!sub;
+  obj.isSubscribed = !!sub;
+  return obj;
+}
+
+// Auth middleware for the username step: the bearer token must be a pending
+// token whose server-side PendingSignup record still exists.
+async function requirePending(req, res, next) {
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token) return res.status(401).json({ message: 'Pending signup token required.' });
+  try {
+    const payload = jwt.verify(token, getJwtSecret());
+    if (!payload.pending || !payload.pendingId) throw new Error('not pending');
+    const pending = await PendingSignup.findById(payload.pendingId);
+    if (!pending) return res.status(401).json({ message: 'Signup session expired. Please start again.' });
+    req.pending = pending;
+    next();
+  } catch (e) {
+    return res.status(401).json({ message: 'Signup session expired. Please start again.' });
+  }
+}
+
+async function usernameTaken(username) {
+  const escaped = username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return !!(await User.findOne({ username: new RegExp(`^${escaped}$`, 'i') }).lean());
+}
+
+// Step 1 of email signup: validate and park a server-side pending record.
+// Nothing sensitive ever travels inside the token (audit bug 18).
 router.post('/register', async (req, res) => {
   try {
-    const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ message: 'Missing fields' });
-    
-    let user = await User.findOne({ email: email.toLowerCase() });
-    if (user) {
-        return res.status(400).json({ message: 'Email is already registered' });
-    }
+    const email = (req.body.email || '').toLowerCase().trim();
+    const password = req.body.password || '';
+    if (!EMAIL_RE.test(email)) return res.status(400).json({ message: 'Please enter a valid email address.' });
+    if (password.length < 8) return res.status(400).json({ message: 'Password must be at least 8 characters.' });
 
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    const existing = await User.findOne({ email });
+    if (existing) return res.status(400).json({ message: 'An account with this email already exists. Log in instead.' });
 
-    const tempUser = {
-        isTemp: true,
-        isLocal: true,
-        email: email.toLowerCase(),
-        password: hashedPassword
-    };
-    
-    const token = generateToken(tempUser);
-    res.status(201).json({ user: tempUser, token });
+    const passwordHash = await bcrypt.hash(password, 10);
+    await PendingSignup.deleteMany({ email });
+    const pending = await PendingSignup.create({ email, passwordHash });
+
+    res.status(201).json({
+      user: { isTemp: true, email },
+      token: generatePendingToken(pending._id)
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ message: err.message });
   }
 });
 
+// Login: returns { user, token }. The client stores the token and sends it
+// as a Bearer header on every later call (audit bug 5).
 router.post('/login', (req, res, next) => {
-  passport.authenticate('local', (err, user, info) => {
+  passport.authenticate('local', { session: false }, async (err, user, info) => {
     if (err) return next(err);
-    if (!user) return res.status(401).json({ message: info.message || 'Login failed' });
-    const token = generateToken(user);
-    res.json({ user, token });
+    if (!user) return res.status(401).json({ message: info?.message || 'Login failed' });
+    const pub = await publicUser(user);
+    res.json({ user: pub, token: generateToken(user) });
   })(req, res, next);
 });
 
-// --- Complete Google / Local Signup ---
-router.post('/complete-signup', async (req, res) => {
-    try {
-        if (!req.isAuthenticated() || !req.user.isTemp) {
-            return res.status(401).json({ message: 'Unauthorized or not in temp state' });
-        }
-        const { username } = req.body;
-        if (!username) return res.status(400).json({ message: 'Username required' });
-        
-        let existing = await User.findOne({ username });
-        if (existing) return res.status(400).json({ message: 'Username is taken' });
-        
-        let newUserConfig = {
-            username: username,
-            email: req.user.email,
-            acceptedLegalPolicies: true
-        };
-
-        if (req.user.isLocal) {
-            newUserConfig.password = req.user.password;
-        } else {
-            newUserConfig.googleId = req.user.googleId;
-        }
-
-        const newUser = await User.create(newUserConfig);
-        
-        const token = generateToken(newUser);
-        res.json({ user: newUser, token });
-    } catch(err) {
-        res.status(500).json({ error: err.message });
+// Step 2 of signup (email or Google): pick a unique display name, which
+// creates the real account in one step.
+router.post('/complete-signup', requirePending, async (req, res) => {
+  try {
+    const username = (req.body.username || '').trim();
+    if (!USERNAME_RE.test(username)) {
+      return res.status(400).json({ message: 'Username must be 3-16 characters: letters, numbers, underscore.' });
     }
+    if (await usernameTaken(username)) {
+      return res.status(400).json({ message: 'That username is taken. Try another.' });
+    }
+    const pending = req.pending;
+    if (pending.email) {
+      const clash = await User.findOne({ email: pending.email });
+      if (clash) return res.status(400).json({ message: 'An account with this email already exists. Log in instead.' });
+    }
+    const user = new User({
+      username,
+      email: pending.email,
+      // Already a bcrypt hash; the model's pre-save hook leaves hashes alone.
+      password: pending.passwordHash,
+      googleId: pending.googleId
+    });
+    await user.save();
+    await PendingSignup.findByIdAndDelete(pending._id);
+    const pub = await publicUser(user);
+    res.status(201).json({ user: pub, token: generateToken(user) });
+  } catch (err) {
+    if (err.code === 11000) return res.status(400).json({ message: 'That username or email is already in use.' });
+    res.status(500).json({ message: err.message });
+  }
 });
 
-// --- Google Auth ---
-
-router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+// Google web flow
+router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'], session: false }));
 
 router.get('/google/callback', (req, res, next) => {
-  passport.authenticate('google', (err, user, info) => {
-    const frontendUrl = process.env.PROD_FRONTEND_URL || 'http://localhost:4200';
-    if (err || !user) {
-      return res.redirect(`${frontendUrl}?error=google`);
+  const frontend = process.env.FRONTEND_URL || 'http://localhost:4200';
+  passport.authenticate('google', { session: false }, async (err, user) => {
+    if (err || !user) return res.redirect(`${frontend}/login?error=google`);
+    try {
+      if (user.isPendingGoogle) {
+        await PendingSignup.deleteMany({ $or: [{ googleId: user.googleId }, { email: user.email }] });
+        const pending = await PendingSignup.create({ googleId: user.googleId, email: user.email });
+        return res.redirect(`${frontend}/login?mode=set-username&token=${generatePendingToken(pending._id)}`);
+      }
+      return res.redirect(`${frontend}/login?token=${generateToken(user)}`);
+    } catch (e) {
+      return res.redirect(`${frontend}/login?error=google`);
     }
-    
-    const token = generateToken(user);
-    if (user.isTemp) {
-        return res.redirect(`${frontendUrl}?mode=set-username&token=${token}`);
-    }
-    res.redirect(`${frontendUrl}?token=${token}`);
   })(req, res, next);
 });
 
-const { OAuth2Client } = require('google-auth-library');
-const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
-
+// Google native flow (Capacitor Google Auth plugin sends an ID token)
 router.post('/google/native', async (req, res) => {
-    try {
-        const { idToken } = req.body;
-        if (!idToken) return res.status(400).json({ message: 'No ID token provided' });
+  try {
+    const { idToken } = req.body;
+    if (!idToken) return res.status(400).json({ message: 'idToken required' });
+    const audiences = process.env.GOOGLE_CLIENT_IDS
+      ? process.env.GOOGLE_CLIENT_IDS.split(',').map(s => s.trim()).filter(Boolean)
+      : DEFAULT_GOOGLE_AUDIENCES;
+    const client = new OAuth2Client();
+    const ticket = await client.verifyIdToken({ idToken, audience: audiences });
+    const payload = ticket.getPayload();
+    const googleId = payload.sub;
+    const email = (payload.email || '').toLowerCase();
 
-        const ticket = await client.verifyIdToken({
-            idToken: idToken,
-            audience: [
-                process.env.GOOGLE_CLIENT_ID,
-                '108585498879-o171u9a80ssqfkojpd8hohgq6dumk0iu.apps.googleusercontent.com'
-            ],
-        });
-        const payload = ticket.getPayload();
-        
-        let user = await User.findOne({ googleId: payload.sub });
-        if (!user) {
-            // Only map to email if it already exists and doesn't have a password, or prompt for linking.
-            // Best practice: if user has an email but no googleId, and has a password, reject or require password.
-            // For now, only match if they don't have a password (i.e. they are already a google-only user that somehow didn't match sub)
-            let existingByEmail = await User.findOne({ email: payload.email });
-            if (existingByEmail && existingByEmail.googleId) {
-                user = existingByEmail;
-            } else if (existingByEmail && !existingByEmail.googleId) {
-                return res.status(400).json({ message: 'Email registered locally. Please log in with your password.' });
-            }
-        }
-        
-        if (!user) {
-            const tempUser = {
-                isTemp: true,
-                googleId: payload.sub,
-                email: payload.email,
-            };
-            const token = generateToken(tempUser);
-            return res.json({ user: tempUser, token });
-        } else {
-            const token = generateToken(user);
-            return res.json({ user, token });
-        }
-    } catch (err) {
-        console.error('Native Google Auth Error:', err);
-        res.status(500).json({ error: err.message });
+    let user = await User.findOne({ googleId });
+    if (!user && email) user = await User.findOne({ email });
+    if (user) {
+      if (!user.googleId) { user.googleId = googleId; await user.save(); }
+      const pub = await publicUser(user);
+      return res.json({ user: pub, token: generateToken(user) });
     }
+    await PendingSignup.deleteMany({ $or: [{ googleId }, { email }] });
+    const pending = await PendingSignup.create({ googleId, email });
+    res.json({ user: { isTemp: true, email }, token: generatePendingToken(pending._id) });
+  } catch (err) {
+    res.status(401).json({ message: 'Google sign-in could not be verified.' });
+  }
 });
 
-
-// --- Common ---
-router.get('/user', passport.authenticate('jwt', { session: false }), (req, res) => {
-  res.json(req.user);
+router.get('/user', passport.authenticate('jwt', { session: false }), async (req, res) => {
+  res.json(await publicUser(req.user));
 });
 
+// Cloud sync with server-side economy guardrails (audit bug 19).
+// The client may report progress, but it may not mint premium state:
+//  - coin and gem balances may only grow by capped deltas per sync
+//  - gem-priced cosmetics and doublers may only flip on when the same sync
+//    shows the gem cost actually being spent
+//  - hasRemoveAds, subscription state, boost, and revive-token increases are
+//    granted ONLY by /api/billing/verify and /api/ads/ssv and are ignored here
 router.post('/sync', passport.authenticate('jwt', { session: false }), async (req, res) => {
   try {
-    const user = req.user;
-    
-    // Server-side validation
-    if (typeof req.body.coins === 'number' && req.body.coins >= 0 && req.body.coins < 9999999) user.coins = req.body.coins;
-    if (typeof req.body.gems === 'number' && req.body.gems >= 0 && req.body.gems < 999999) user.gems = req.body.gems;
-    if (typeof req.body.level === 'number' && req.body.level >= 0 && req.body.level < 10000) user.level = req.body.level;
-    if (typeof req.body.xp === 'number' && req.body.xp >= 0 && req.body.xp < 999999999) user.xp = req.body.xp;
-    
-    if (Array.isArray(req.body.unlockedWorlds)) user.unlockedWorlds = req.body.unlockedWorlds;
-    if (Array.isArray(req.body.trophies)) user.trophies = req.body.trophies;
-    if (Array.isArray(req.body.unlockedEnemies)) user.unlockedEnemies = req.body.unlockedEnemies;
-    
-    // Battle Mode
-    if (typeof req.body.battleHighscore === 'number' && req.body.battleHighscore > (user.battleHighscore || 0)) user.battleHighscore = req.body.battleHighscore;
-    if (typeof req.body.battleBestTime === 'number' && req.body.battleBestTime > (user.battleBestTime || 0)) user.battleBestTime = req.body.battleBestTime;
-    if (typeof req.body.battleBestCoins === 'number' && req.body.battleBestCoins > (user.battleBestCoins || 0)) user.battleBestCoins = req.body.battleBestCoins;
-    
-    // Cosmetics & Premium
-    if (req.body.hasCosmicTrail !== undefined) user.hasCosmicTrail = req.body.hasCosmicTrail;
-    if (req.body.hasGoldenAura !== undefined) user.hasGoldenAura = req.body.hasGoldenAura;
-    if (req.body.hasCelestialShield !== undefined) user.hasCelestialShield = req.body.hasCelestialShield;
-    if (req.body.hasPurchasedGems !== undefined) user.hasPurchasedGems = req.body.hasPurchasedGems;
-    if (req.body.toggleCosmicTrail !== undefined) user.toggleCosmicTrail = req.body.toggleCosmicTrail;
-    if (req.body.toggleGoldenAura !== undefined) user.toggleGoldenAura = req.body.toggleGoldenAura;
-    if (req.body.toggleCelestialShield !== undefined) user.toggleCelestialShield = req.body.toggleCelestialShield;
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    const b = req.body || {};
+    const num = (v, fallback) => (typeof v === 'number' && isFinite(v) ? v : fallback);
+    const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-    // Progression & Deals
-    if (req.body.upsellChance !== undefined) user.upsellChance = req.body.upsellChance;
-    if (req.body.coinMultiplier !== undefined) user.coinMultiplier = req.body.coinMultiplier;
-    if (req.body.xpMultiplier !== undefined) user.xpMultiplier = req.body.xpMultiplier;
-    if (req.body.crazyDealExpiresAt !== undefined) user.crazyDealExpiresAt = req.body.crazyDealExpiresAt;
-    
-    if (req.body.acceptedLegalPolicies !== undefined) user.acceptedLegalPolicies = req.body.acceptedLegalPolicies;
+    const prevCoins = user.coins || 0;
+    const prevGems = user.gems || 0;
 
-    if (req.body.worldUpgrades) {
-        user.worldUpgrades = req.body.worldUpgrades;
-        user.markModified('worldUpgrades');
+    if (b.level !== undefined) user.level = clamp(Math.floor(num(b.level, user.level)), 0, 100000);
+    if (b.xp !== undefined) user.xp = clamp(Math.floor(num(b.xp, user.xp)), 0, 1e12);
+    if (b.coins !== undefined) {
+      const want = clamp(Math.floor(num(b.coins, prevCoins)), 0, 1e10);
+      user.coins = want > prevCoins ? Math.min(want, prevCoins + 5000000) : want;
     }
+    if (b.gems !== undefined) {
+      const want = clamp(Math.floor(num(b.gems, prevGems)), 0, 1e9);
+      user.gems = want > prevGems ? Math.min(want, prevGems + 1000) : want;
+    }
+    const gemSpend = Math.max(0, prevGems - (typeof b.gems === 'number' ? Math.floor(b.gems) : prevGems));
+
+    if (Array.isArray(b.unlockedWorlds)) {
+      const merged = new Set([...(user.unlockedWorlds || []), ...b.unlockedWorlds.filter(n => Number.isInteger(n) && n >= 0 && n <= 9)]);
+      user.unlockedWorlds = [...merged].sort((a, c) => a - c);
+    }
+    if (b.worldUpgrades && typeof b.worldUpgrades === 'object') {
+      const json = JSON.stringify(b.worldUpgrades);
+      if (json.length < 2_000_000) user.worldUpgrades = b.worldUpgrades;
+    }
+    if (Array.isArray(b.trophies)) user.trophies = [...new Set([...(user.trophies || []), ...b.trophies.map(String).slice(0, 200)])];
+    if (Array.isArray(b.unlockedEnemies)) user.unlockedEnemies = [...new Set([...(user.unlockedEnemies || []), ...b.unlockedEnemies.map(String).slice(0, 200)])];
+
+    // Gem-priced unlocks: honoured only when the gems left the balance.
+    const gemGated = [
+      ['hasCosmicTrail', 200], ['hasGoldenAura', 300], ['hasCelestialShield', 400]
+    ];
+    for (const [field, cost] of gemGated) {
+      if (b[field] === true && !user[field] && gemSpend >= cost) user[field] = true;
+      if (b[field] === false) user[field] = false;
+    }
+    if (b.toggleCosmicTrail !== undefined) user.toggleCosmicTrail = !!b.toggleCosmicTrail;
+    if (b.toggleGoldenAura !== undefined) user.toggleGoldenAura = !!b.toggleGoldenAura;
+    if (b.toggleCelestialShield !== undefined) user.toggleCelestialShield = !!b.toggleCelestialShield;
+    if (b.coinMultiplier === 2 && user.coinMultiplier !== 2 && gemSpend >= 50) user.coinMultiplier = 2;
+    if (b.xpMultiplier === 2 && user.xpMultiplier !== 2 && gemSpend >= 50) user.xpMultiplier = 2;
+    if (b.hasPurchasedGems === true) user.hasPurchasedGems = true;
+
+    if (b.pendingCratesCount !== undefined) user.pendingCratesCount = clamp(Math.floor(num(b.pendingCratesCount, user.pendingCratesCount)), 0, 3);
+    if (typeof b.lastCrateMonth === 'string') user.lastCrateMonth = b.lastCrateMonth.slice(0, 7);
+    if (b.acceptedLegalPolicies === true) user.acceptedLegalPolicies = true;
+
+    // Revive tokens may only ever decrease through sync (spending). Increases
+    // come from verified ad rewards and purchases only.
+    if (b.reviveTokens !== undefined) {
+      user.reviveTokens = clamp(Math.floor(num(b.reviveTokens, user.reviveTokens)), 0, user.reviveTokens || 0);
+    }
+
+    // Battle stats are personal bests: keep the better value.
+    for (const f of ['battleHighscore', 'battleBestTime', 'battleBestCoins']) {
+      if (b[f] !== undefined) user[f] = Math.max(user[f] || 0, clamp(Math.floor(num(b[f], 0)), 0, 1e10));
+    }
+
+    user.lastActiveAt = new Date();
     await user.save();
-    res.json(user);
+    res.json(await publicUser(user));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ message: err.message });
   }
 });
 
 router.get('/logout', (req, res) => {
-  // Client is responsible for deleting the token
-  res.json({ message: 'Logged out' });
+  res.json({ success: true });
 });
 
 router.post('/accept-policies', passport.authenticate('jwt', { session: false }), async (req, res) => {
-    try {
-        req.user.acceptedLegalPolicies = true;
-        await req.user.save();
-        res.json({ message: 'Policies accepted' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+  try {
+    req.user.acceptedLegalPolicies = true;
+    await req.user.save();
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
+// Account deletion (Play requirement). Removes the account and its grants.
 router.delete('/user', passport.authenticate('jwt', { session: false }), async (req, res) => {
-    try {
-        await User.findByIdAndDelete(req.user._id);
-        res.json({ message: 'Account deleted successfully' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+  try {
+    const id = req.user._id;
+    await Entitlement.deleteMany({ userId: id });
+    await User.findByIdAndDelete(id);
+    res.json({ success: true, message: 'Account deleted.' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
 module.exports = router;

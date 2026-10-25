@@ -31,11 +31,19 @@ const userSchema = new mongoose.Schema({
   toggleGoldenAura: { type: Boolean, default: true },
   toggleCelestialShield: { type: Boolean, default: true },
 
-  // Progression & Deals
-  upsellChance: { type: Number, default: 0 },
+  // Progression
   coinMultiplier: { type: Number, default: 1 },
   xpMultiplier: { type: Number, default: 1 },
-  crazyDealExpiresAt: { type: Number, default: null },
+
+  // Subscription crates (written by sync; eligibility is server-derived)
+  pendingCratesCount: { type: Number, default: 0 },
+  lastCrateMonth: { type: String, default: '' },
+
+  // Server-granted only (set by /api/billing/verify or /api/ads/ssv, never by /auth/sync)
+  hasRemoveAds: { type: Boolean, default: false },
+  reviveTokens: { type: Number, default: 0 },
+  boostExpiresAt: { type: Number, default: 0 },
+  boostMultiplier: { type: Number, default: 1 },
 
   
   // Compliance

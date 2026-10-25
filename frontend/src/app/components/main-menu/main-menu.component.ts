@@ -159,11 +159,13 @@ export class MainMenuComponent {
 
   campaignWorldIndex = signal(0);
   currentWorld = computed(() => WORLDS[this.campaignWorldIndex()]);
-  isWorldUnlocked = computed(() => this.campaignWorldIndex() === 0);
+  // Audit bug 1: this was hard-coded to world 0, locking every other world
+  // forever. A world is playable when it is in the player's unlockedWorlds.
+  isWorldUnlocked = computed(() => this.gameState.unlockedWorlds().includes(this.campaignWorldIndex()));
   
   selectedBattleWorldIndex = signal(0);
   currentBattleWorld = computed(() => WORLDS[this.selectedBattleWorldIndex()]);
-  isBattleWorldUnlocked = computed(() => this.selectedBattleWorldIndex() === 0);
+  isBattleWorldUnlocked = computed(() => this.gameState.unlockedWorlds().includes(this.selectedBattleWorldIndex()));
   
   showSettings = false;
   activeMenuMode: 'campaign' | 'battle' | 'ai_vs_ai' = this.gameState.currentGameMode();

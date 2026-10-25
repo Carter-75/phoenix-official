@@ -69,17 +69,23 @@ export class App {
           window.history.replaceState({}, document.title, window.location.pathname + (mode ? `?mode=${mode}` : ''));
       }
 
-      this.auth.checkStatus().subscribe(user => {
-          if (user) {
-              if (user.isTemp) {
-                  this.gameState.activeScreen.set('login');
-              } else {
-                  this.gameState.syncWithUser(user);
+      const isPendingSignup = urlParams.get('mode') === 'set-username';
+      if (!isPendingSignup) {
+          // A pending-signup token is not a user token: /auth/user would 401
+          // and the error handler would delete the token before the username
+          // step can use it. Skip the session check in that flow.
+          this.auth.checkStatus().subscribe(user => {
+              if (user) {
+                  if (user.isTemp) {
+                      this.gameState.activeScreen.set('login');
+                  } else {
+                      this.gameState.syncWithUser(user);
+                  }
               }
-          }
-      });
+          });
+      }
 
-      if (urlParams.get('mode') === 'set-username') {
+      if (isPendingSignup) {
           this.gameState.activeScreen.set('login');
       }
   }

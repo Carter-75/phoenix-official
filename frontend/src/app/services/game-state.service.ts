@@ -6,7 +6,6 @@ import { environment } from '../../environments/environment';
 import { AudioService } from './audio.service';
 import { AuthService, User } from './auth.service';
 import { StorageService } from './storage.service';
-import { NotificationService } from './notification.service';
 import { WorldStats, PhysicsEntity, World, AbilityData } from '../models/game.models';
 import { WORLDS, ABILITIES, REALM_ABILITIES, BASE_STATS, WORLD_0_STATS, ABILITY_UPGRADE_TARGETS } from '../constants/game.constants';
 
@@ -18,7 +17,6 @@ export class GameStateService {
   private auth = inject(AuthService);
   private http = inject(HttpClient);
   private storage = inject(StorageService);
-  private notificationService = inject(NotificationService);
 
   public isGuest = computed(() => !this.auth.currentUser() || this.auth.currentUser()?.isTemp);
 
@@ -29,7 +27,9 @@ export class GameStateService {
   public coins = signal<number>(100); 
   public gems = signal<number>(0);
   public hasPurchasedGems = signal<boolean>(false);
-  public upsellChance = signal<number>(1.0);
+  // Server-granted entitlements (set from the account record, never locally)
+  public hasRemoveAds = signal<boolean>(false);
+  public reviveTokens = signal<number>(0);
   public acceptedLegalPolicies = signal<boolean>(false);
   public unlockedEnemies = signal<string[]>([]);
 
@@ -58,8 +58,6 @@ export class GameStateService {
   public unlockedWorlds = signal<number[]>([0]); // IDs of unlocked worlds
   public selectedWorldIndex = signal<number>(0);
   public currentGameMode = signal<'campaign' | 'battle' | 'ai_vs_ai'>('campaign');
-  public crazyDealTimer = signal<number>(0);
-  public crazyDealExpiresAt = signal<number | null>(null);
   public coinMultiplier = signal<number>(1);
   public xpMultiplier = signal<number>(1);
   public hasCosmicTrail = signal<boolean>(false);
@@ -119,7 +117,10 @@ export class GameStateService {
           }
       });
 
-      this.notificationService.setupNotifications((expiresAt) => this.triggerCrazyDeal(expiresAt));
+      // Restore the guest save. Audit bug 2: this used to sit inside the else
+      // branch of the upsellChance check, and every real save HAS an
+      // upsellChance, so progression silently never restored. Every field now
+      // restores unconditionally, field by field.
       const localData = this.storage.getItem('phoenix_guest_data');
       if (localData) {
           try {
@@ -128,64 +129,49 @@ export class GameStateService {
               this.xp.set(data.xp || 0);
               this.trophies.set(data.trophies || []);
               this.coins.set(Math.floor(data.coins !== undefined ? data.coins : 100));
-              
-              // Boot-up creep: Increase chance of popup by 10% each session
               if (data.gems !== undefined) this.gems.set(Math.floor(data.gems));
               if (data.hasPurchasedGems !== undefined) this.hasPurchasedGems.set(data.hasPurchasedGems);
               if (data.acceptedLegalPolicies !== undefined) this.acceptedLegalPolicies.set(data.acceptedLegalPolicies);
-              if (data.upsellChance !== undefined) {
-                  let chance = data.upsellChance + 0.1;
-                  if (chance > 0.33) chance = 0.33;
-                  if (this.storage.getItem('phoenix_last_upsell') === 'true') {
-                      chance = 0;
-                      this.storage.setItem('phoenix_last_upsell', 'false');
-                  }
-                  this.upsellChance.set(chance);
-              } else {
-                  if (data.activeScreen) this.activeScreen.set(data.activeScreen);
-                  if (data.activeScreen) this.activeScreen.set(data.activeScreen);
-                  if (data.unlockedWorlds) this.unlockedWorlds.set(data.unlockedWorlds);
-                  if (data.selectedWorldIndex) this.selectedWorldIndex.set(data.selectedWorldIndex);
-                  if (data.coinMultiplier) this.coinMultiplier.set(data.coinMultiplier);
-                  if (data.xpMultiplier) this.xpMultiplier.set(data.xpMultiplier);
-                  if (data.hasCosmicTrail !== undefined) this.hasCosmicTrail.set(data.hasCosmicTrail);
-                  if (data.hasGoldenAura !== undefined) this.hasGoldenAura.set(data.hasGoldenAura);
-                  if (data.hasCelestialShield !== undefined) this.hasCelestialShield.set(data.hasCelestialShield);
-                  if (data.lastCrateMonth !== undefined) this.lastCrateMonth.set(data.lastCrateMonth);
-                  if (data.pendingCratesCount !== undefined) this.pendingCratesCount.set(data.pendingCratesCount);
-                  
-                  this.checkTemporaryMultipliers();
-                  
-                  if (data.toggleCosmicTrail !== undefined) this.toggleCosmicTrail.set(data.toggleCosmicTrail);
-                  if (data.toggleGoldenAura !== undefined) this.toggleGoldenAura.set(data.toggleGoldenAura);
-                  if (data.toggleCelestialShield !== undefined) this.toggleCelestialShield.set(data.toggleCelestialShield);
+              if (data.activeScreen) this.activeScreen.set(data.activeScreen);
+              if (data.unlockedWorlds) this.unlockedWorlds.set(data.unlockedWorlds);
+              if (data.selectedWorldIndex) this.selectedWorldIndex.set(data.selectedWorldIndex);
+              if (data.coinMultiplier) this.coinMultiplier.set(data.coinMultiplier);
+              if (data.xpMultiplier) this.xpMultiplier.set(data.xpMultiplier);
+              if (data.hasCosmicTrail !== undefined) this.hasCosmicTrail.set(data.hasCosmicTrail);
+              if (data.hasGoldenAura !== undefined) this.hasGoldenAura.set(data.hasGoldenAura);
+              if (data.hasCelestialShield !== undefined) this.hasCelestialShield.set(data.hasCelestialShield);
+              if (data.lastCrateMonth !== undefined) this.lastCrateMonth.set(data.lastCrateMonth);
+              if (data.pendingCratesCount !== undefined) this.pendingCratesCount.set(data.pendingCratesCount);
+              if (data.hasRemoveAds !== undefined) this.hasRemoveAds.set(data.hasRemoveAds);
+              if (data.reviveTokens !== undefined) this.reviveTokens.set(data.reviveTokens);
 
-                  if (data.unlockedEnemies !== undefined) this.unlockedEnemies.set(data.unlockedEnemies);
-                  if (data.crazyDealExpiresAt) {
-                      this.crazyDealExpiresAt.set(data.crazyDealExpiresAt);
-                  }
-                  
-                  // Restore world upgrades
-                  if (data.worldUpgrades) {
-                      Object.keys(data.worldUpgrades).forEach(key => {
-                          const upgrades = data.worldUpgrades[key as unknown as number];
-                          Object.keys(upgrades).forEach(statKey => {
-                              if (statKey === 'unlockedAbilities') {
-                                  const abilities = (upgrades as any)[statKey] as Record<string, any>;
-                                  Object.keys(abilities).forEach(abKey => {
-                                      const ability = abilities[abKey];
-                                      if (ability && typeof ability.level === 'number' && !ability.modifiers) {
-                                          ability.modifiers = {
-                                              cooldown: 1.0, speed: 1.0, duration: 1.0, damage: 1.0, radius: 1.0, range: 1.0, ammo: 1.0
-                                          };
-                                      }
-                                  });
-                              } else if (typeof upgrades[statKey as keyof WorldStats] === 'number' && isNaN(upgrades[statKey as keyof WorldStats] as number)) {
-                                  (upgrades as any)[statKey] = (BASE_STATS as any)[statKey];
-                              }
-                          });
+              this.checkTemporaryMultipliers();
+
+              if (data.toggleCosmicTrail !== undefined) this.toggleCosmicTrail.set(data.toggleCosmicTrail);
+              if (data.toggleGoldenAura !== undefined) this.toggleGoldenAura.set(data.toggleGoldenAura);
+              if (data.toggleCelestialShield !== undefined) this.toggleCelestialShield.set(data.toggleCelestialShield);
+              if (data.unlockedEnemies !== undefined) this.unlockedEnemies.set(data.unlockedEnemies);
+
+              // Restore world upgrades (with legacy migrations)
+              if (data.worldUpgrades) {
+                  Object.keys(data.worldUpgrades).forEach(key => {
+                      const upgrades = data.worldUpgrades[key as unknown as number];
+                      Object.keys(upgrades).forEach(statKey => {
+                          if (statKey === 'unlockedAbilities') {
+                              const abilities = (upgrades as any)[statKey] as Record<string, any>;
+                              Object.keys(abilities).forEach(abKey => {
+                                  const ability = abilities[abKey];
+                                  if (ability && typeof ability.level === 'number' && !ability.modifiers) {
+                                      ability.modifiers = {
+                                          cooldown: 1.0, speed: 1.0, duration: 1.0, damage: 1.0, radius: 1.0, range: 1.0, ammo: 1.0
+                                      };
+                                  }
+                              });
+                          } else if (typeof upgrades[statKey as keyof WorldStats] === 'number' && isNaN(upgrades[statKey as keyof WorldStats] as number)) {
+                              (upgrades as any)[statKey] = (BASE_STATS as any)[statKey];
+                          }
                       });
-                  }
+                  });
                   this.worldUpgrades.set(data.worldUpgrades);
               }
           } catch (e) {}
@@ -210,7 +196,8 @@ export class GameStateService {
               gems: this.gems(),
               hasPurchasedGems: this.hasPurchasedGems(),
               acceptedLegalPolicies: this.acceptedLegalPolicies(),
-              upsellChance: this.upsellChance(),
+              hasRemoveAds: this.hasRemoveAds(),
+              reviveTokens: this.reviveTokens(),
               unlockedWorlds: this.unlockedWorlds(),
               worldUpgrades: this.worldUpgrades(),
               coinMultiplier: this.coinMultiplier(),
@@ -223,8 +210,7 @@ export class GameStateService {
               toggleCosmicTrail: this.toggleCosmicTrail(),
               toggleGoldenAura: this.toggleGoldenAura(),
               toggleCelestialShield: this.toggleCelestialShield(),
-              unlockedEnemies: this.unlockedEnemies(),
-              crazyDealExpiresAt: this.crazyDealExpiresAt()
+              unlockedEnemies: this.unlockedEnemies()
           };
           if (!this.auth.currentUser() || this.auth.currentUser()?.isTemp) {
               this.storage.setItem('phoenix_guest_data', JSON.stringify(stateToSave));
@@ -237,31 +223,6 @@ export class GameStateService {
           if (this.gems() >= 10) this.awardTrophy("Gem Hoarder");
       }, { allowSignalWrites: true });
 
-      // Crazy Deal Timer Interval (Calculates remaining seconds from absolute expiry timestamp)
-      setInterval(() => {
-          const expiresAt = this.crazyDealExpiresAt();
-          if (expiresAt) {
-              const remaining = Math.floor((expiresAt - Date.now()) / 1000);
-              if (remaining > 0) {
-                  this.crazyDealTimer.set(remaining);
-              } else {
-                  this.crazyDealExpiresAt.set(null);
-                  this.crazyDealTimer.set(0);
-              }
-          }
-      }, 1000);
-
-      // Web Push Check
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('crazyDealExpiresAt')) {
-          const expiresAt = parseInt(params.get('crazyDealExpiresAt') || '0', 10);
-          const now = Date.now();
-          // Ensure the deal hasn't expired, and the requested expiry is not more than ~10 minutes into the future
-          if (expiresAt > now && (expiresAt - now) <= 605000) {
-              this.triggerCrazyDeal(expiresAt);
-          }
-          window.history.replaceState({}, document.title, window.location.pathname);
-      }
   }
 
   public checkMonthlyCrateEligibility(isSubscribed: boolean) {
@@ -308,16 +269,6 @@ export class GameStateService {
       }
   }
 
-  public triggerCrazyDeal(expiresAt?: number) {
-      if (expiresAt) {
-          this.crazyDealExpiresAt.set(expiresAt);
-      } else {
-          // Fallback if no specific expiry was given: 5 Minutes (300 seconds) from now
-          this.crazyDealExpiresAt.set(Date.now() + 1000 * 60 * 5);
-      }
-      this.activeScreen.set('shop');
-  }
-
   // World State
   public worlds = WORLDS;
 
@@ -347,6 +298,16 @@ export class GameStateService {
       this.coins.set(Math.floor(Number(user.coins !== undefined && user.coins !== null ? user.coins : 100)) || 100);
       this.gems.set(Math.floor(Number(user.gems)) || 0);
       if (user.acceptedLegalPolicies) this.acceptedLegalPolicies.set(true);
+      if (user.hasRemoveAds !== undefined) this.hasRemoveAds.set(!!user.hasRemoveAds);
+      if (user.reviveTokens !== undefined) this.reviveTokens.set(user.reviveTokens || 0);
+      // Server-granted boost (verified ad reward or verified purchase)
+      if (user.boostExpiresAt && user.boostExpiresAt > Date.now()) {
+          const mult = user.boostMultiplier || 2;
+          this.tempCoinMultiplier.set(mult);
+          this.tempCoinMultiplierExpiresAt.set(user.boostExpiresAt);
+          this.tempXpMultiplier.set(mult);
+          this.tempXpMultiplierExpiresAt.set(user.boostExpiresAt);
+      }
       this.unlockedWorlds.set(user.unlockedWorlds && user.unlockedWorlds.length > 0 ? user.unlockedWorlds : [0]);
       if (user.worldUpgrades && Object.keys(user.worldUpgrades).length > 0) {
           const upgrades = user.worldUpgrades;
@@ -543,7 +504,7 @@ export class GameStateService {
           worldUpgrades: this.worldUpgrades(),
           hasPurchasedGems: this.hasPurchasedGems(),
           acceptedLegalPolicies: this.acceptedLegalPolicies(),
-          upsellChance: this.upsellChance(),
+          reviveTokens: this.reviveTokens(),
           coinMultiplier: this.coinMultiplier(),
           xpMultiplier: this.xpMultiplier(),
           hasCosmicTrail: this.hasCosmicTrail(),
@@ -555,7 +516,6 @@ export class GameStateService {
           toggleGoldenAura: this.toggleGoldenAura(),
           toggleCelestialShield: this.toggleCelestialShield(),
           unlockedEnemies: this.unlockedEnemies(),
-          crazyDealExpiresAt: this.crazyDealExpiresAt(),
           ...(battleStats || {})
       };
       
@@ -587,10 +547,11 @@ export class GameStateService {
       this.worldUpgrades.update(upgrades => {
         const currentWorldId = this.selectedWorldIndex();
         const currentWorldStats = upgrades[currentWorldId];
+        // Stack on the world's actual current value. (The old code reset
+        // maxHealth and speed to BASE_STATS on every purchase, so repeat
+        // purchases never accumulated.)
         let currentVal = currentWorldStats[type] as number;
-        if (type === 'maxHealth') {
-            currentVal = BASE_STATS[type] as number;
-        } else if (type === 'speed') {
+        if (typeof currentVal !== 'number' || isNaN(currentVal)) {
             currentVal = BASE_STATS[type] as number;
         }
         

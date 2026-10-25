@@ -558,7 +558,10 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
               const steering = desiredVelocity.sub(bird.velocity);
               if (steering.length() > maxTurnForce) steering.normalize().multiplyScalar(maxTurnForce);
               bird.velocity.add(steering);
-              if (bird.velocity.lengthSq() > 0) bird.velocity.normalize().multiplyScalar(speed);
+              // Top speed must include speedMult (stat upgrades, boosts).
+              // Renormalizing to the base `speed` here is why Agility
+              // upgrades never made the phoenix faster (audit major bug).
+              if (bird.velocity.lengthSq() > 0) bird.velocity.normalize().multiplyScalar(speed * speedMult);
               
               bird.position.add(bird.velocity);
           }

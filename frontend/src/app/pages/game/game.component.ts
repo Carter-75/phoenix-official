@@ -230,10 +230,19 @@ interface EnemyData {
                   <img src="assets/gem_icon.png" class="w-6 h-6"/>
                   <span class="text-white font-bold text-xl">{{ getReviveCost() }}</span>
                 </button>
+                @if (adRevivesUsed < maxAdRevivesPerRun) {
                 <button (click)="reviveWithAd()" class="w-full mt-2 py-4 bg-gradient-to-r from-blue-600 to-cyan-600 hover:brightness-125 border border-cyan-400/50 rounded-2xl flex justify-center items-center gap-3 transition shadow-[0_0_20px_rgba(0,200,255,0.3)]">
                   <span class="text-white font-bold text-xl">Watch Ad to Revive</span>
                   <span class="text-2xl">📺</span>
                 </button>
+                }
+                @if (gameState.reviveTokens() > 0) {
+                <button (click)="reviveWithToken()" class="w-full mt-2 py-4 bg-gradient-to-r from-amber-600 to-orange-600 hover:brightness-125 border border-amber-400/50 rounded-2xl flex justify-center items-center gap-3 transition shadow-[0_0_20px_rgba(255,180,0,0.3)]">
+                  <span class="text-white font-bold text-xl">Use Revive Token</span>
+                  <span class="text-white font-bold text-xl">({{ gameState.reviveTokens() }})</span>
+                  <span class="text-2xl">🪶</span>
+                </button>
+                }
                 <button (click)="quitGame()" class="w-full mt-4 py-4 bg-transparent hover:bg-white/5 border border-transparent hover:border-white/10 rounded-2xl text-white/50 hover:text-white transition">
                   Give Up
                 </button>
@@ -310,6 +319,10 @@ export class GameComponent implements OnInit, OnDestroy {
   public damageFlash = signal<boolean>(false);
 
   public reviveCount = 0;
+  // Rewarded-ad revives are capped per run (audit 6.3). Gem and token
+  // revives stay available after the ad cap is reached.
+  public readonly maxAdRevivesPerRun = 2;
+  public adRevivesUsed = 0;
 
   public celestialShieldActive = signal<boolean>(true);
 
@@ -529,6 +542,8 @@ export class GameComponent implements OnInit, OnDestroy {
   ngOnInit() {
     this.isDead.set(false);
     this.gameEnded.set(false);
+    this.reviveCount = 0;
+    this.adRevivesUsed = 0;
     this.bossSpawned.set(false);
     this.inBossDefeatSequence.set(false);
     this.gameState.isDeadMenuOpen.set(false);
@@ -622,10 +637,9 @@ export class GameComponent implements OnInit, OnDestroy {
               this.mlAi.trainOnMemory();
           }
           
-          if (this.battleTimer() > 0 && this.battleTimer() % 60 === 0) {
-              this.mlAi.pushGlobalWeights();
-          }
-          
+          // Global ML weights sync was cut for v1 (audit bugs 15/34): the
+          // shared model endpoint was unauthenticated. Training stays local.
+
           // AI Economy TICK
           this.battleAi.tick({
               gameState: this.gameState,
@@ -647,9 +661,6 @@ export class GameComponent implements OnInit, OnDestroy {
               this.nextDropIndex++;
           }
           
-          if (this.gameState.currentGameMode() === 'ai_vs_ai' && this.gameState.sessionPlayTime() % 60 === 0) {
-              this.mlAi.pushGlobalWeights();
-          }
       } else {
           this.timeRemaining.update(t => Math.max(0, Math.floor(t - 1)));
           if (this.timeRemaining() === 0 && this.bossSpawned() && !this.inBossDefeatSequence() && !this.isDead() && !this.rageModeActive()) {
@@ -1442,6 +1453,19 @@ export class GameComponent implements OnInit, OnDestroy {
       // 4.6 Cleanup off-screen items
       this.items = this.items.filter(item => {
           if (item.position.y > window.innerHeight + 200) {
+              // Audit bug 7 (ascension soft-lock): a boss gem that falls past
+              // the bottom must still count as collected, or the collected
+              // counter never reaches the dropped counter and the ascension
+              // never fires. Credit it exactly like a pickup.
+              const data = item.plugin['data'] as any;
+              if (this.inBossDefeatSequence() && data && data.type === 'gem') {
+                  const scale = 3 * Math.max(0.2, 1 - (this.progressPercent() / 100));
+                  this.gameState.gems.update(g => g + ((data.value || 0) * scale));
+                  this.bossGemsCollected++;
+                  if (this.bossGemsCollected >= this.bossGemsDropped && !this.animatingAscension()) {
+                      this.triggerAscension();
+                  }
+              }
               if (item.parent) Matter.Composite.remove(this.engine.world, item);
               return false;
           }
@@ -2104,6 +2128,14 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
                 if (!this.animatingAscension()) this.triggerAscension();
             }, 1500);
         }
+
+        // Safety net (audit bug 7): whatever happens to the physical gem
+        // bodies, the defeat sequence must always resolve into ascension.
+        setTimeout(() => {
+            if (this.inBossDefeatSequence() && !this.animatingAscension()) {
+                this.triggerAscension();
+            }
+        }, 10000);
         
         // Coins explosion (Huge visual blast, value scales to intended)
         const intendedCoins = 1000;
@@ -2320,7 +2352,17 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   }
 
 
+  public reviveWithToken() {
+    if (this.gameState.reviveTokens() <= 0) return;
+    this.gameState.reviveTokens.update(t => t - 1);
+    this.reviveCount++;
+    this.gameState.syncProgressToServer();
+    this.executeRevival();
+  }
+
+
   public reviveWithAd() {
+    if (this.adRevivesUsed >= this.maxAdRevivesPerRun) return;
     // Pause the countdown while ad plays
     clearInterval(this.reviveInterval);
     
@@ -2331,6 +2373,8 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
             name: 'revive_ad',
             beforeReward: (showAdFn: any) => { showAdFn(); },
             adViewed: () => {
+                this.adRevivesUsed++;
+                this.reviveCount++;
                 this.executeRevival();
             },
             adDismissed: () => {
@@ -2351,7 +2395,9 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
         
         setTimeout(() => {
             this.audioService.resumeAudioAfterAd();
-            
+
+            this.adRevivesUsed++;
+            this.reviveCount++;
             this.executeRevival();
         }, 2000);
     }

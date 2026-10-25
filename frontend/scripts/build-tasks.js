@@ -23,9 +23,11 @@ function normalizeOutput() {
   const dest = path.join(__dirname, '..', 'dist', 'frontend');
 
   if (fs.existsSync(src)) {
-    console.log('[build-tasks] Normalizing output: moving ' + src + ' to ' + dest);
+    // Copy a flat copy up for static hosting, but NEVER delete the browser
+    // directory: capacitor.config.ts points webDir at dist/frontend/browser,
+    // and deleting it made every `cap sync` after a build fail (audit bug 6).
+    console.log('[build-tasks] Copying ' + src + ' to ' + dest + ' (browser dir kept for Capacitor)');
     fs.cpSync(src, dest, { recursive: true });
-    fs.rmSync(src, { recursive: true });
     console.log('[build-tasks] Output normalization complete.');
   } else {
     console.log('[build-tasks] Skipping normalization: ' + src + ' not found.');

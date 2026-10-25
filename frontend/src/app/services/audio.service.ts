@@ -112,6 +112,22 @@ export class AudioService {
         this.onWorldBgmEnded.set(true);
     });
 
+    // Missing per-world music must never stall a run: the boss spawns when
+    // the world BGM ends, so if a world's track fails to load, fall back to
+    // the world 1 track (whose ending still drives the boss flow).
+    const bgmFallback = (el: HTMLAudioElement, fallbackSrc: string) => {
+        el.addEventListener('error', () => {
+            if (!el.src.includes(fallbackSrc)) {
+                console.warn('BGM failed to load, falling back to', fallbackSrc);
+                el.src = fallbackSrc;
+                el.load();
+                if (this.currentBgm === el) el.play().catch(() => {});
+            }
+        });
+    };
+    bgmFallback(this.worldBgm, 'assets/audio/world_1_bgm.wav');
+    bgmFallback(this.intenseBgm, 'assets/audio/world_1_intense_bgm.wav');
+
     this.intenseBgm.addEventListener('ended', () => {
         this.onIntenseBgmEnded.set(true);
     });

@@ -28,7 +28,7 @@ const app = express();
 // --- Configuration ---
 const isProd = process.env.PRODUCTION === 'true' || process.env.VERCEL === '1';
 const prodUrl = process.env.PROD_FRONTEND_URL;
-const PROJECT_NAME = process.env.PROJECT_NAME || 'Phoenix-Fall';
+const PROJECT_NAME = process.env.PROJECT_NAME || 'Phoenix';
 
 // Trust proxy for secure cookies on Vercel
 if (isProd) {
@@ -43,7 +43,8 @@ const indexRouter = require('./routes/index');
 const authRouter = require('./routes/auth');
 const leaderboardRouter = require('./routes/leaderboard');
 const notificationsRouter = require('./routes/notifications');
-const aiRouter = require('./routes/ai');
+const billingRouter = require('./routes/billing');
+const adsRouter = require('./routes/ads');
 
 // --- Diagnostic Routes ---
 app.get('/api/health', async (req, res) => {
@@ -144,8 +145,11 @@ app.use('/leaderboard', leaderboardRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/notifications', notificationsRouter);
 
-app.use('/api/ai', aiRouter);
-app.use('/ai', aiRouter);
+app.use('/api/billing', billingRouter);
+app.use('/billing', billingRouter);
+
+app.use('/api/ads', adsRouter);
+app.use('/ads', adsRouter);
 
 // Error handler
 app.use((err, req, res, next) => {

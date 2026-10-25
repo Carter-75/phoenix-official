@@ -1,4 +1,4 @@
-import { Component, signal, computed, OnInit, OnDestroy, inject } from '@angular/core';
+import { Component, signal, computed, OnInit, inject } from '@angular/core';
 import { GameStateService } from '../../services/game-state.service';
 import { ABILITIES, WORLDS } from '../../constants/game.constants';
 import { WorldStats } from '../../models/game.models';
@@ -6,13 +6,6 @@ import { IapService } from '../../services/iap.service';
 import { environment } from '../../../environments/environment';
 import { CommonModule } from '@angular/common';
 
-export interface ActiveDeal {
-  name: string;
-  type: 'holiday' | 'ghost' | 'clearance' | 'none';
-  priceMultiplier: number;
-  gemMultiplier: number;
-  bannerColor: string;
-}
 
 
 @Component({
@@ -45,80 +38,20 @@ export interface ActiveDeal {
         </div>
       </div>
 
-      <!-- Dynamic Deals Banners -->
-      @if (activeTab() === 'gems') {
-         <!-- CRAZY FLASH DEAL (from notification) -->
-         @if (crazyDealTimer() > 0) {
-            <div class="w-full max-w-4xl bg-gradient-to-r from-red-600 via-pink-600 to-fuchsia-600 rounded-xl p-6 mb-8 flex flex-col md:flex-row justify-between items-center shadow-[0_0_50px_rgba(255,0,100,0.6)] border-2 border-white/50 relative overflow-hidden animate-pulse group">
-               <!-- Warning Tape Background -->
-               <div class="absolute inset-0 opacity-20 bg-[repeating-linear-gradient(45deg,transparent,transparent_10px,#000_10px,#000_20px)]"></div>
-               
-               <div class="relative z-10 flex flex-col md:w-2/3">
-                  <h3 class="font-black text-white text-3xl uppercase tracking-widest drop-shadow-md">⚠️ ONCE IN A LIFETIME DEAL ⚠️</h3>
-                  <p class="text-white font-bold text-xl mt-2 drop-shadow-sm">250 Gems for only $9.99!</p>
-                  <p class="text-white/80 font-mono text-sm mt-1">Exclusive push-notification offer. (10x Value!)</p>
-               </div>
-               
-               <div class="relative z-10 flex flex-col items-center mt-6 md:mt-0">
-                  <div class="bg-black/80 px-6 py-2 rounded-lg font-mono text-4xl font-black text-red-400 border border-red-500 shadow-[0_0_20px_rgba(255,0,0,0.5)] mb-4">
-                     {{ formatCrazyTimer(crazyDealTimer()) }}
-                  </div>
-                  <button (click)="buyCrazyDeal()" class="px-8 py-4 bg-white text-red-600 rounded-xl font-black text-2xl hover:scale-105 active:scale-95 transition shadow-xl" [disabled]="iapService.isProcessing()">
-                     CLAIM $9.99
-                  </button>
-               </div>
-            </div>
-         }
-
-         <!-- Active Deal Banner -->
-         @if (activeDeal().type !== 'none') {
-            <div class="w-full max-w-4xl bg-gradient-to-r {{ activeDeal().bannerColor }} rounded-xl p-4 mb-4 flex justify-between items-center shadow-lg animate-pulse border border-white/50">
-               <div>
-                  <h3 class="font-black text-white text-2xl uppercase tracking-wider">{{ activeDeal().name }}</h3>
-                  <p class="text-white/80 font-bold">Special pricing event is live!</p>
-               </div>
-            </div>
-         } @else if (dealRadarDays() <= 2) {
-            <!-- Deal Radar -->
-            <div class="w-full max-w-4xl bg-white/5 rounded-xl p-4 mb-4 flex justify-between items-center shadow-lg border border-white/10">
-               <div>
-                  <h3 class="font-bold text-white text-lg">Deal Radar 📡</h3>
-                  <p class="text-white/60 text-sm">Next major sale in {{ dealRadarDays() }} days.</p>
-               </div>
-               <div class="bg-black/50 px-4 py-2 rounded-lg font-bold text-cyan-300">
-                  Forecast: {{ dealRadarHype() }}
-               </div>
-            </div>
-         }
-
-         <!-- Ghost Deal Banner -->
-         @if (ghostDealActive()) {
-            <div class="w-full max-w-4xl bg-gradient-to-r from-fuchsia-600 to-purple-800 rounded-xl p-4 mb-4 flex justify-between items-center shadow-[0_0_30px_rgba(200,0,255,0.6)] animate-bounce border border-pink-400">
-               <div>
-                  <h3 class="font-black text-white text-xl uppercase tracking-wider">👻 GHOST DEAL TRIGGERED 👻</h3>
-                  <p class="text-white/90 font-bold">3X GEMS ON ALL PACKAGES!</p>
-               </div>
-               <div class="bg-black/50 px-4 py-2 rounded-lg font-mono text-xl font-bold text-pink-300">
-                  {{ formatTime(ghostDealTimer()) }}
-               </div>
-            </div>
-         }
-
-        <!-- Original Flash Sale Banner -->
-        @if (!gameState.hasPurchasedGems() && flashSaleTimer() > 0) {
-          <div class="w-full max-w-4xl bg-gradient-to-r from-red-600 to-orange-600 rounded-xl p-4 mb-6 flex justify-between items-center shadow-lg shadow-red-500/50 border border-yellow-400">
-            <div class="flex items-center gap-3">
-               <span class="text-3xl">🔥</span>
-               <div>
-                  <h3 class="font-black text-white text-xl uppercase tracking-wider">Flash Sale</h3>
-                  <p class="text-white/80 text-sm font-bold">First Time Purchase 2x Bonus Active!</p>
-               </div>
-            </div>
-            <div class="bg-black/50 px-4 py-2 rounded-lg font-mono text-xl font-bold text-yellow-300">
-               {{ formatTime(flashSaleTimer()) }}
-            </div>
+      <!-- First purchase bonus: the only promotion in the store, stated
+           plainly with no countdown and no fake discounts. (The crazy deal,
+           holiday inflation, ghost deal, and deal radar were deleted: audit
+           bug 37, Google Play deceptive-behavior risk.) -->
+      @if (activeTab() === 'gems' && !gameState.hasPurchasedGems()) {
+        <div class="w-full max-w-4xl bg-gradient-to-r from-red-600 to-orange-600 rounded-xl p-4 mb-6 flex justify-between items-center shadow-lg shadow-red-500/50 border border-yellow-400">
+          <div class="flex items-center gap-3">
+             <span class="text-3xl">🔥</span>
+             <div>
+                <h3 class="font-black text-white text-xl uppercase tracking-wider">First Purchase Bonus</h3>
+                <p class="text-white/80 text-sm font-bold">Your first gem pack grants double gems. Prices shown include the bonus.</p>
+             </div>
           </div>
-        }
+        </div>
       }
 
       <!-- Tabs -->
@@ -190,10 +123,10 @@ export interface ActiveDeal {
             <div class="text-center">
               <h3 class="text-2xl font-bold text-white">Agility</h3>
               <p class="text-white/50 text-sm">Increase Flight Speed</p>
-              <p class="text-blue-400 font-mono mt-1">Lvl {{ ((gameState.currentStats().speed - 1) * 10).toFixed(0) }}</p>
+              <p class="text-blue-400 font-mono mt-1">Lvl {{ ((gameState.currentStats().speed - 2) * 10).toFixed(0) }}</p>
             </div>
             <div class="w-full mt-4">
-              @if (canAffordWithGemsButNotCoins(getCost('speed', 150, 0.1, 1))) {
+              @if (canAffordWithGemsButNotCoins(getCost('speed', 150, 0.1, 2))) {
                  <div class="flex gap-2 w-full">
                    <button (click)="buySpeed(true)" class="flex-1 py-3 bg-gradient-to-r from-purple-600 to-fuchsia-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(200,0,255,0.3)]">
                      <img src="assets/gem_icon.png" class="w-7 h-7"/>
@@ -202,13 +135,13 @@ export interface ActiveDeal {
                      <span class="text-2xl">📺</span>
                    </button>
                  </div>
-              } @else if (gameState.coins() < getCost('speed', 150, 0.1, 1)) {
+              } @else if (gameState.coins() < getCost('speed', 150, 0.1, 2)) {
                  <button (click)="buyWithAd('speed')" class="w-full py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
                    <span class="text-xl">📺</span>
                  </button>
               } @else {
-                 <button (click)="buySpeed()" class="w-full py-3 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition" [disabled]="gameState.coins() < getCost('speed', 150, 0.1, 1)">
-                   <img src="assets/coin_icon.png" class="w-5 h-5"/> {{ getCost('speed', 150, 0.1, 1) }}
+                 <button (click)="buySpeed()" class="w-full py-3 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition" [disabled]="gameState.coins() < getCost('speed', 150, 0.1, 2)">
+                   <img src="assets/coin_icon.png" class="w-5 h-5"/> {{ getCost('speed', 150, 0.1, 2) }}
                  </button>
               }
             </div>
@@ -512,10 +445,7 @@ export interface ActiveDeal {
               <p class="text-purple-400 font-bold text-xl mt-1">{{ calculatedGems()[0] }} Gem</p>
             </div>
             <button (click)="buyGems(calculatedGems()[0], 0)" class="mt-4 w-full py-3 bg-white/10 border border-purple-500/50 rounded-xl font-bold text-lg text-white hover:bg-purple-600/50 hover:border-purple-500 active:scale-95 transition flex justify-center gap-2" [disabled]="iapService.isProcessing()">
-              @if (crossedOutPrices().length) {
-                <span class="line-through text-white/50">&dollar;{{ crossedOutPrices()[0] }}</span>
-              }
-              &dollar;{{ calculatedPrices()[0] }}
+&dollar;{{ basePrices[0] }}
             </button>
           </div>
 
@@ -526,7 +456,7 @@ export interface ActiveDeal {
             
             <!-- Clipped Card -->
             <div class="relative w-full h-full bg-gradient-to-b from-purple-900/40 to-black/40 border border-purple-500/50 rounded-3xl p-6 flex flex-col items-center gap-4 hover:brightness-110 transition shadow-[0_0_30px_rgba(168,85,247,0.3)] overflow-hidden">
-                @if (!gameState.hasPurchasedGems() && flashSaleTimer() > 0) {
+                @if (!gameState.hasPurchasedGems()) {
                     <div class="absolute top-4 -right-8 bg-red-600 text-white text-xs font-bold py-1 px-10 rotate-45 shadow-lg z-10 pointer-events-none">2X BONUS</div>
                 }
                 <img src="assets/gem_icon.png" class="w-32 h-32 object-contain drop-shadow-[0_0_25px_rgba(168,85,247,0.8)] mt-2" />
@@ -535,17 +465,14 @@ export interface ActiveDeal {
                   <p class="text-purple-400 font-bold text-xl mt-1">{{ calculatedGems()[1] }} Gems</p>
                 </div>
                 <button (click)="buyGems(calculatedGems()[1], 1)" class="mt-4 w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl font-bold text-lg text-white hover:brightness-110 active:scale-95 transition shadow-lg shadow-purple-500/30 flex justify-center gap-2" [disabled]="iapService.isProcessing()">
-                  @if (crossedOutPrices().length) {
-                    <span class="line-through text-white/50">&dollar;{{ crossedOutPrices()[1] }}</span>
-                  }
-                  &dollar;{{ calculatedPrices()[1] }}
+&dollar;{{ basePrices[1] }}
                 </button>
             </div>
           </div>
 
           <!-- Package 3 -->
           <div class="bg-white/5 border border-purple-500/20 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-[0_0_20px_rgba(168,85,247,0.1)] hover:shadow-[0_0_30px_rgba(168,85,247,0.2)] relative overflow-hidden">
-            @if (!gameState.hasPurchasedGems() && flashSaleTimer() > 0) {
+            @if (!gameState.hasPurchasedGems()) {
                 <div class="absolute top-4 -right-8 bg-red-600 text-white text-xs font-bold py-1 px-10 rotate-45 shadow-lg z-10">2X BONUS</div>
             }
             <img src="assets/gem_icon.png" class="w-24 h-24 object-contain drop-shadow-[0_0_15px_rgba(168,85,247,0.5)]" />
@@ -554,10 +481,7 @@ export interface ActiveDeal {
               <p class="text-purple-400 font-bold text-xl mt-1">{{ calculatedGems()[2] }} Gems</p>
             </div>
             <button (click)="buyGems(calculatedGems()[2], 2)" class="mt-4 w-full py-3 bg-white/10 border border-purple-500/50 rounded-xl font-bold text-lg text-white hover:bg-purple-600/50 hover:border-purple-500 active:scale-95 transition flex justify-center gap-2" [disabled]="iapService.isProcessing()">
-              @if (crossedOutPrices().length) {
-                <span class="line-through text-white/50">&dollar;{{ crossedOutPrices()[2] }}</span>
-              }
-              &dollar;{{ calculatedPrices()[2] }}
+&dollar;{{ basePrices[2] }}
             </button>
           </div>
 
@@ -588,6 +512,29 @@ export interface ActiveDeal {
                     Exchange
                   </button>
                </div>
+            </div>
+          </div>
+
+          <!-- Remove Ads -->
+          <div class="col-span-1 md:col-span-3 mt-8">
+            <div class="bg-gradient-to-br from-emerald-900/50 to-teal-900/50 border border-emerald-500/50 rounded-3xl p-6 flex flex-col md:flex-row items-center justify-between shadow-[0_0_20px_rgba(16,185,129,0.2)]">
+              <div class="flex items-center gap-4 mb-4 md:mb-0">
+                 <div class="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center border border-emerald-500/50 shrink-0">
+                    <span class="text-3xl">🚫</span>
+                 </div>
+                 <div>
+                    <h3 class="text-xl font-bold text-white">Remove Ads</h3>
+                    <p class="text-emerald-300/80 text-sm">Removes all interstitial ads forever. Optional rewarded ads stay available whenever you choose them.</p>
+                    @if (gameState.hasRemoveAds()) {
+                      <p class="text-green-400 font-bold text-sm mt-1">✓ Owned</p>
+                    }
+                 </div>
+              </div>
+              @if (!gameState.hasRemoveAds()) {
+                 <button (click)="buyRemoveAds()" class="px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition flex items-center gap-2 whitespace-nowrap shadow-lg shadow-emerald-500/30" [disabled]="iapService.isProcessing()">
+                    Buy $4.99
+                 </button>
+              }
             </div>
           </div>
 
@@ -775,37 +722,6 @@ export interface ActiveDeal {
            <p class="text-white/50">Contacting Google Play / Payment Provider</p>
         </div>
       }
-      <!-- Whale Trap Modal -->
-      @if (showWhaleTrap()) {
-         <div class="fixed inset-0 bg-black/95 flex flex-col items-center justify-center z-[100] px-4 backdrop-blur-md animate-fade-in">
-            <div class="w-full max-w-md bg-gradient-to-b from-purple-900 to-black border-2 border-fuchsia-500 rounded-3xl p-8 flex flex-col items-center text-center shadow-[0_0_100px_rgba(200,0,255,0.6)] relative overflow-hidden">
-               <div class="absolute top-0 w-full bg-red-600 text-white font-black uppercase tracking-widest py-1 text-sm">Do Not Close This Window</div>
-               
-               <h2 class="text-4xl font-black text-white mt-6 drop-shadow-[0_0_10px_rgba(255,255,255,0.8)]">WAIT!</h2>
-               <h3 class="text-2xl font-bold text-fuchsia-400 mt-2">ONE-TIME SECRET OFFER</h3>
-               
-               <img src="assets/gem_icon.png" class="w-40 h-40 my-6 drop-shadow-[0_0_30px_rgba(200,0,255,0.8)]" />
-               
-               <p class="text-white text-lg font-bold">Since you just purchased Gems, you've unlocked this exclusive package!</p>
-               <div class="my-6 bg-black/50 border border-fuchsia-500/50 p-4 rounded-xl w-full">
-                  <div class="flex justify-center items-baseline gap-2">
-                     <p class="text-4xl font-black text-fuchsia-400">75 GEMS</p>
-                     <span class="bg-red-600 text-white text-xs px-2 py-1 rounded font-bold ml-2">≈ 50% OFF</span>
-                  </div>
-                  <p class="text-white/50 line-through mt-1">Usually $9.99</p>
-               </div>
-               
-               <button (click)="buyWhaleTrap()" class="w-full py-4 bg-gradient-to-r from-fuchsia-600 to-purple-600 rounded-xl font-black text-2xl text-white hover:brightness-125 active:scale-95 transition shadow-lg shadow-fuchsia-500/50" [disabled]="iapService.isProcessing()">
-                 Claim for $4.99
-               </button>
-               
-               <button (click)="declineWhaleTrap()" class="mt-6 text-white/30 text-sm hover:text-white/50 transition border-b border-transparent hover:border-white/50">
-                 No thanks, I hate great deals
-               </button>
-            </div>
-         </div>
-      }
-
     </div>
   `,
   styles: [`
@@ -818,47 +734,23 @@ export interface ActiveDeal {
     }
   `]
 })
-export class ShopComponent implements OnInit, OnDestroy {
+export class ShopComponent implements OnInit {
   activeTab = signal<'passives' | 'abilities' | 'gems'>('passives');
   iapService = inject(IapService);
   isGachaSpinning = signal<boolean>(false);
-  flashSaleTimer = signal<number>(0); 
   currentWorld = computed(() => WORLDS[this.gameState.selectedWorldIndex()]);
-  crazyDealTimer = computed(() => this.gameState.crazyDealTimer());
-  private timerInterval: any;
-  private ghostInterval: any;
 
-  // Whale Trap State
-  showWhaleTrap = signal<boolean>(false);
-
-  // Dynamic Pricing State
+  // Honest pricing: these are the prices and amounts, full stop. The first
+  // gem purchase grants double, and the amounts below already include that
+  // bonus while it applies. (Deleted: dynamic deal pricing with fake
+  // inflation, ghost deals, deal radar, and the whale trap modal. Audit
+  // bug 37.)
   basePrices = [1.99, 9.99, 49.99];
   baseGems = [20, 150, 1000];
-  
-  activeDeal = signal<ActiveDeal>({ name: 'None', type: 'none', priceMultiplier: 1, gemMultiplier: 1, bannerColor: '' });
-  dealRadarDays = signal<number>(0);
-  dealRadarHype = signal<string>('');
-  
-  ghostDealActive = signal<boolean>(false);
-  ghostDealTimer = signal<number>(0);
 
-  calculatedPrices = computed(() => this.basePrices.map(p => +(p * this.activeDeal().priceMultiplier).toFixed(2)));
-  
   calculatedGems = computed(() => {
-     return this.baseGems.map((g, index) => {
-         let mult = this.activeDeal().gemMultiplier;
-         if (this.ghostDealActive()) mult *= 3; // Ghost deal is 3x gems
-         let amt = Math.floor(g * mult);
-         if (!this.gameState.hasPurchasedGems() && index > 0 && this.flashSaleTimer() > 0) amt *= 2;
-         return amt;
-     });
-  });
-  
-  crossedOutPrices = computed(() => {
-     if (this.activeDeal().type === 'holiday') {
-         return this.basePrices.map(p => +(p * 1.7).toFixed(2)); // Fake 70% inflation
-     }
-     return [];
+     const firstPurchaseBonus = !this.gameState.hasPurchasedGems();
+     return this.baseGems.map(g => firstPurchaseBonus ? g * 2 : g);
   });
 
   constructor(public gameState: GameStateService) {}
@@ -875,7 +767,7 @@ export class ShopComponent implements OnInit, OnDestroy {
       if (typeof window !== 'undefined' && window.localStorage) {
           savedTab = localStorage.getItem('phoenix_shop_last_tab');
       }
-      
+
       if (savedTab === 'passives' || savedTab === 'abilities' || savedTab === 'gems') {
           this.activeTab.set(savedTab);
       } else {
@@ -884,112 +776,6 @@ export class ShopComponent implements OnInit, OnDestroy {
               localStorage.setItem('phoenix_shop_last_tab', 'gems');
           }
       }
-      
-      this.evaluatePricing();
-      
-      let flashEndTime = 0;
-      if (typeof window !== 'undefined' && window.localStorage) {
-          const savedEnd = localStorage.getItem('phoenix_flash_sale_end');
-          if (savedEnd) {
-              flashEndTime = parseInt(savedEnd, 10);
-          } else {
-              flashEndTime = Date.now() + (15 * 60 * 1000); // 15 minutes from now
-              localStorage.setItem('phoenix_flash_sale_end', flashEndTime.toString());
-          }
-      } 
-
-      this.timerInterval = setInterval(() => {
-          if (flashEndTime > 0) {
-              const remaining = Math.max(0, Math.floor((flashEndTime - Date.now()) / 1000));
-              this.flashSaleTimer.set(remaining);
-          }
-          
-          if (this.ghostDealActive()) {
-              this.ghostDealTimer.update(t => t - 1);
-              if (this.ghostDealTimer() <= 0) this.ghostDealActive.set(false);
-          }
-      }, 1000);
-
-      this.ghostInterval = setInterval(() => {
-          if (!this.ghostDealActive() && Math.random() < 0.1) {
-              this.ghostDealActive.set(true);
-              this.ghostDealTimer.set(10 * 60); 
-          }
-      }, 1000 * 60); 
-      
-      // Check Whale Trap trigger from IapService
-      if (typeof window !== 'undefined' && window.localStorage) {
-          if (localStorage.getItem('phoenix_trigger_whale') === 'true') {
-              this.showWhaleTrap.set(true);
-              localStorage.removeItem('phoenix_trigger_whale');
-          }
-      }
-  }
-
-  ngOnDestroy() { 
-      clearInterval(this.timerInterval); 
-      clearInterval(this.ghostInterval);
-  }
-
-  private evaluatePricing() {
-    const today = new Date();
-    const currentYear = today.getFullYear();
-    
-    const holidays = [
-        { name: 'Valentine\'s Day', date: new Date(currentYear, 1, 14), color: 'from-pink-600 to-rose-600' },
-        { name: 'Summer Bash', date: new Date(currentYear, 6, 4), color: 'from-blue-400 to-cyan-500' },
-        { name: 'Halloween', date: new Date(currentYear, 9, 31), color: 'from-orange-600 to-purple-800' },
-        { name: 'Black Friday', date: new Date(currentYear, 10, 28), color: 'from-gray-900 to-black' },
-        { name: 'Christmas', date: new Date(currentYear, 11, 25), color: 'from-green-600 to-red-600' },
-    ];
-    
-    let closestHoliday = holidays[0];
-    let minDiff = Infinity;
-    for (const h of holidays) {
-        const hDate = new Date(h.date);
-        if (hDate < today && (today.getTime() - hDate.getTime()) > 3 * 24 * 60 * 60 * 1000) {
-             hDate.setFullYear(currentYear + 1); // Only push to next year if clearance is over
-        }
-        const diff = hDate.getTime() - today.getTime();
-        if (diff >= 0 && diff < minDiff) {
-            minDiff = diff;
-            closestHoliday = h;
-        }
-    }
-    
-    const daysUntil = Math.ceil(minDiff / (1000 * 60 * 60 * 24));
-    this.dealRadarDays.set(daysUntil);
-    if (daysUntil > 20) this.dealRadarHype.set('🔴🔴⚪⚪⚪ (Low Hype)');
-    else if (daysUntil > 7) this.dealRadarHype.set('🔴🔴🟢⚪⚪ (Good Hype)');
-    else this.dealRadarHype.set('🔴🔴🟢🟢🟢 (Amazing Hype)');
-
-    let deal: ActiveDeal = { name: 'None', type: 'none', priceMultiplier: 1, gemMultiplier: 1, bannerColor: '' };
-    
-    for (const h of holidays) {
-        const checkDate = new Date(h.date);
-        if (checkDate.getFullYear() > currentYear && today.getMonth() !== 0) {
-            checkDate.setFullYear(currentYear);
-        }
-        
-        const diffDays = Math.round((today.getTime() - checkDate.getTime()) / (1000 * 60 * 60 * 24));
-        
-        if (diffDays >= -14 && diffDays <= -1) {
-            const inflation = 1 + (15 - Math.abs(diffDays)) * 0.05; 
-            deal = { name: `Pre-${h.name} Peak`, type: 'none', priceMultiplier: inflation, gemMultiplier: 1, bannerColor: '' };
-        } else if (diffDays === 0) {
-            deal = { name: `${h.name} Mega Sale!`, type: 'holiday', priceMultiplier: 1, gemMultiplier: 1.15, bannerColor: h.color };
-        } else if (diffDays >= 1 && diffDays <= 3) {
-            deal = { name: `${h.name} Inventory Clearance!`, type: 'clearance', priceMultiplier: 1, gemMultiplier: 2.5, bannerColor: 'from-red-600 to-orange-600' };
-        }
-    }
-    
-    this.activeDeal.set(deal);
-  }
-
-  formatTime(seconds: number): string {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}:${s < 10 ? '0' : ''}${s}`;
   }
 
   get abilitiesList() { return Object.values(ABILITIES); }
@@ -1157,7 +943,7 @@ export class ShopComponent implements OnInit, OnDestroy {
   }
 
   getGemCost(coinCost: number): number {
-      // Exponential dark pattern cost: starts small but grows fast
+      // Gem price for coin-priced upgrades: grows with the coin cost
       return Math.max(1, Math.ceil(Math.pow(coinCost / 80, 1.35)));
   }
 
@@ -1243,7 +1029,7 @@ export class ShopComponent implements OnInit, OnDestroy {
 
   buySpeed(useGems: boolean = false, isFree: boolean = false) {
 
-    const cost = this.getCost('speed', 150, 0.1, 1);
+    const cost = this.getCost('speed', 150, 0.1, 2);
         if (isFree) {
       this.gameState.worldUpgrades.update(u => {
           u[this.gameState.selectedWorldIndex()].speed = +(u[this.gameState.selectedWorldIndex()].speed + 0.1).toFixed(2);
@@ -1461,33 +1247,8 @@ export class ShopComponent implements OnInit, OnDestroy {
     }
   }
 
-  formatCrazyTimer(seconds: number): string {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  }
-
-  buyCrazyDeal() {
-    this.buyGems(250, 2); // tier 2 is the $9.99 deal theoretically, wait actually flash deal relies on 9.99 sku so index 2
-    this.gameState.crazyDealExpiresAt.set(null);
-    this.gameState.crazyDealTimer.set(0);
-  }
-
-  buyGems(amount: number, tierIndex: number) {
-    let sku = environment.googlePlay.skuTier1;
-    if (tierIndex === 1) sku = environment.googlePlay.skuTier2;
-    if (tierIndex === 2) sku = environment.googlePlay.skuTier3;
-    
-    this.iapService.orderProduct(sku, amount);
-  }
-
-  buyWhaleTrap() {
-     this.showWhaleTrap.set(false);
-     this.iapService.orderProduct(environment.googlePlay.skuWhale, 0);
-  }
-
-  declineWhaleTrap() {
-     this.showWhaleTrap.set(false);
+  buyRemoveAds() {
+     this.iapService.orderProduct(environment.googlePlay.skuRemoveAds, 0);
   }
 
   buySubscription() {

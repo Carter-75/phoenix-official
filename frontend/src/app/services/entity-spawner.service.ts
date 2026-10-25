@@ -48,7 +48,7 @@ export class EntitySpawnerService {
     }
 
     public spawnBoss(ctx: SpawnerContext) {
-        if (ctx.gameState.selectedWorldIndex() !== 0) return; // Only world 0 has a boss for now
+        // Every world has a boss now (audit bug 3): HP scales with world index.
         ctx.bossSpawned.set(true);
         ctx.clearEnemies();
 
@@ -86,8 +86,9 @@ export class EntitySpawnerService {
     }
 
     public spawnEnemy(ctx: SpawnerContext) {
-        if (ctx.gameState.currentGameMode() === 'battle' || ctx.gameState.currentGameMode() === 'ai_vs_ai') return; 
-        if (ctx.gameState.selectedWorldIndex() !== 0) return;
+        if (ctx.gameState.currentGameMode() === 'battle' || ctx.gameState.currentGameMode() === 'ai_vs_ai') return;
+        // Regular enemies spawn in every world; their health already scales
+        // by world index below. (Was hard-gated to world 0: audit bug 3.)
 
         let x, y;
         const padding = 100;

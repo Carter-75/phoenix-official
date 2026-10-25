@@ -1,7 +1,10 @@
-import { Injectable, signal, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { environment } from '../../environments/environment';
+import { Injectable, signal } from '@angular/core';
 import * as tf from '@tensorflow/tfjs';
+
+// Battle AI (local only). The global weights sync was cut for v1 (audit bugs
+// 15 and 34): any client could read and overwrite the shared model through an
+// unauthenticated endpoint. This model now trains and persists ONLY on the
+// player's own device.
 
 export interface MLState {
     aiX: number; aiY: number;
@@ -33,8 +36,7 @@ export class MlAiService {
     private model!: tf.Sequential;
     private optimizer = tf.train.adam(0.01);
     public isTrained = false;
-    private http = inject(HttpClient);
-    
+
     private replayBuffer: Experience[] = [];
     private maxBufferSize = 500;
 
@@ -46,9 +48,11 @@ export class MlAiService {
     // X, Y, useTap, useHold
     private readonly OUTPUT_UNITS = 4;
 
+    private static readonly LOCAL_KEY = 'phoenix_local_ai_weights';
+
     constructor() {
         this.initModel();
-        this.loadGlobalWeights();
+        this.loadLocalWeights();
     }
 
     private initModel() {
@@ -59,37 +63,26 @@ export class MlAiService {
         this.model.compile({ optimizer: this.optimizer, loss: 'meanSquaredError' });
     }
 
-    private loadGlobalWeights() {
-        this.http.get<{weights: any, version: number}>(`${environment.apiUrl}/api/ai/weights`).subscribe({
-            next: (res) => {
-                if (res.weights && Array.isArray(res.weights) && res.weights.length > 0) {
-                    try {
-                        this.setWeightsFromArray(res.weights);
-                        this.isTrained = true;
-                        console.log('Loaded global TFJS weights v' + res.version);
-                    } catch (e) {
-                        console.warn('Global weights shape mismatch! Starting fresh for 4-output controller layout.');
-                        this.isTrained = true;
-                    }
-                } else {
-                    this.isTrained = true; 
-                    console.log('No valid weights found, starting fresh with random TFJS weights');
+    private loadLocalWeights() {
+        try {
+            const raw = localStorage.getItem(MlAiService.LOCAL_KEY);
+            if (raw) {
+                const arr = JSON.parse(raw);
+                if (Array.isArray(arr) && arr.length > 0) {
+                    this.setWeightsFromArray(arr);
+                    console.log('Loaded on-device AI weights');
                 }
-            },
-            error: (err) => {
-                console.log('No global weights found, starting fresh');
-                this.isTrained = true;
             }
-        });
+        } catch (e) {
+            console.warn('Saved AI weights did not fit this model; starting fresh.');
+        }
+        this.isTrained = true;
     }
 
-    public pushGlobalWeights() {
-        if (!this.isTrained) return;
-        const weightsArr = this.getWeightsAsArray();
-        this.http.post(`${environment.apiUrl}/api/ai/weights`, { weights: weightsArr }).subscribe({
-            next: () => console.log('Successfully pushed TFJS weights globally!'),
-            error: (err) => console.error('Failed to push global weights', err)
-        });
+    private saveLocalWeights() {
+        try {
+            localStorage.setItem(MlAiService.LOCAL_KEY, JSON.stringify(this.getWeightsAsArray()));
+        } catch (e) { /* storage full or unavailable: learning just will not persist */ }
     }
 
     private getWeightsAsArray(): number[] {
@@ -243,37 +236,22 @@ export class MlAiService {
         w.dispose();
 
         this.replayBuffer = [];
+        this.saveLocalWeights();
     }
 
     /**
-     * Nuclear reset: destroy trained model, re-initialize with random weights,
-     * clear replay buffer, reset exploration, and push fresh weights to server.
+     * Nuclear reset: destroy the trained model, re-initialize with random
+     * weights, clear the replay buffer and the on-device saved weights.
      */
     public resetWeights(): Promise<boolean> {
         return new Promise((resolve) => {
-            // Dispose old model
             this.model.dispose();
-
-            // Rebuild from scratch
             this.initModel();
-
-            // Reset learning state
             this.replayBuffer = [];
             this.explorationRate = 0.15;
             this.isTrained = true;
-
-            // Push fresh random weights to server (overwrite DB)
-            const weightsArr = this.getWeightsAsArray();
-            this.http.post(`${environment.apiUrl}/api/ai/weights`, { weights: weightsArr }).subscribe({
-                next: () => {
-                    console.log('AI weights reset and pushed to server!');
-                    resolve(true);
-                },
-                error: (err) => {
-                    console.error('Failed to push reset weights', err);
-                    resolve(false);
-                }
-            });
+            try { localStorage.removeItem(MlAiService.LOCAL_KEY); } catch (e) {}
+            resolve(true);
         });
     }
 }
