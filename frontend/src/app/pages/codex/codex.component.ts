@@ -17,14 +17,16 @@ export class CodexComponent implements OnInit, OnDestroy {
 
   gameState = inject(GameStateService);
   
-  // The real 10 realms, with the boss identities ported from Temp-phoenix.
+  // The real 10 realms. Display names are the canonical WORLDS names; the
+  // Temp-phoenix realm names are retired as display names (visual spec
+  // Section 1.5). The one-line descriptions are carried over from the
+  // Temp-phoenix catalog, matched by boss identity so no content is lost.
   realms = WORLDS.map(w => ({
     id: w.id,
     name: w.name,
     bossName: w.bossName,
     bossTheme: w.bossTheme,
-    origin: TEMP_WORLDS[w.id]?.name,
-    description: TEMP_WORLDS[w.id]?.description,
+    description: TEMP_WORLDS.find(t => t.boss === w.bossName)?.description,
     status: 'available' as const
   }));
 

@@ -4,7 +4,8 @@
 //
 // Boss health values are Temp-phoenix numbers in Temp-phoenix damage
 // economy and are kept for reference and codex display. In-game boss HP
-// uses this game's own scaling in entity-spawner.service (1000 x 1.5^world).
+// uses this game's own scaling from data/balance.constants.ts
+// (1000 x 1.42^worldIndex; growth base adopted Oct 25, 2026).
 
 export interface TempWorldDef {
   id: number; // 1-based, pairs with this game's world index + 1

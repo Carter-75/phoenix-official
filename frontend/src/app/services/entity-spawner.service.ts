@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { GameStateService } from './game-state.service';
 import { AudioService } from './audio.service';
 import { EnemyData } from '../models/game.models';
+import { BOSS_BASE_HP, BOSS_HP_GROWTH } from '../data/balance.constants';
 import * as Matter from 'matter-js';
 import { WritableSignal } from '@angular/core';
 
@@ -59,11 +60,13 @@ export class EntitySpawnerService {
 
     public spawnBoss(ctx: SpawnerContext) {
         // Every world has a boss now (audit bug 3): HP scales with world index.
+        // Growth base 1.42 per world is Carter's adopted decision (systems
+        // spec decision log, Oct 25, 2026), read from the balance constants.
         ctx.bossSpawned.set(true);
         ctx.clearEnemies();
 
         const worldIndex = ctx.gameState.selectedWorldIndex();
-        const hp = Math.floor(1000 * Math.pow(1.5, worldIndex));
+        const hp = Math.floor(BOSS_BASE_HP * Math.pow(BOSS_HP_GROWTH, worldIndex));
         // Keep the HUD boss bar honest for every world: without this the
         // bar kept the 1000 HP defaults, so worlds 2 to 10 showed a full
         // (or over-100 percent) bar regardless of the real boss health.
