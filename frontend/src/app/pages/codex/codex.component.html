@@ -1,0 +1,56 @@
+<div class="codex-container">
+  <button class="back-btn" (click)="close()">⮜ Back</button>
+
+  <h1 class="title">Codex & Guide</h1>
+
+  <section class="guide-section">
+    <h2>How to Play</h2>
+    <p>
+      Hold the <img src="assets/play_button.png" class="inline-icon" alt="Play"> button to ascend. 
+      Avoid or destroy enemies to stay alive. Defeating enemies drops <img src="assets/coin_icon.png" class="inline-icon" alt="Coin"> Coins.
+    </p>
+    <p>
+      Defeating a Boss will yield precious <img src="assets/gem_icon.png" class="inline-icon" alt="Gem"> Gems.
+      Use your currencies in the <img src="assets/shop_icon.png" class="inline-icon" alt="Shop"> Shop to unlock powerful upgrades!
+    </p>
+  </section>
+
+  <div class="content-split">
+    <!-- Realms List -->
+    <div class="realms-list">
+      <h2>Realms</h2>
+      <div *ngFor="let realm of realms" class="realm-card" [class.locked]="realm.status === 'coming_soon'">
+        <h3>{{ realm.name }}</h3>
+        <span class="status" *ngIf="realm.status === 'coming_soon'">Coming Soon</span>
+        
+        <!-- Only show enemies for available realm -->
+        <div class="enemy-list" *ngIf="realm.status === 'available'">
+          <div *ngFor="let enemy of realmOneEnemies" 
+               class="enemy-btn" 
+               [class.active]="selectedEnemy().id === enemy.id"
+               (click)="selectEnemy(enemy)">
+               <!-- Lock Icon if not unlocked -->
+            <span *ngIf="!isUnlocked(enemy.id)">🔒</span>
+            {{ enemy.name }}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Enemy Preview -->
+    <div class="enemy-preview">
+      <div class="canvas-wrapper">
+        <canvas #previewCanvas></canvas>
+        <div class="shadow-overlay" *ngIf="!isUnlocked(selectedEnemy().id)">
+          <h2>UNKNOWN ENTITY</h2>
+          <p>Defeat this enemy in-game to reveal its true form.</p>
+        </div>
+      </div>
+      
+      <div class="enemy-info" *ngIf="isUnlocked(selectedEnemy().id)">
+        <h2>{{ selectedEnemy().name }}</h2>
+        <p>{{ selectedEnemy().desc }}</p>
+      </div>
+    </div>
+  </div>
+</div>

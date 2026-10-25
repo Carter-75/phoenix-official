@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">PhoenixFall</string>
+    <string name="title_activity_main">PhoenixFall</string>
+    <string name="package_name">com.phoenix.fall</string>
+    <string name="custom_url_scheme">com.phoenix.fall</string>
+    <string name="server_client_id">108585498879-v35d0d196d4djglodbbjok452pr1e04r.apps.googleusercontent.com</string>
+</resources>

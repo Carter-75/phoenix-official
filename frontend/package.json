@@ -1,0 +1,52 @@
+{
+  "name": "phoenix-fall-frontend",
+  "version": "0.0.0",
+  "scripts": {
+    "ng": "ng",
+    "start": "ng serve",
+    "build": "node scripts/build-tasks.js prebuild && ng build && node scripts/build-tasks.js postbuild",
+    "watch": "ng build --watch --configuration development",
+    "test": "vitest"
+  },
+  "private": true,
+  "dependencies": {
+    "@angular/common": "^21.2.0",
+    "@angular/compiler": "^21.2.0",
+    "@angular/core": "^21.2.0",
+    "@angular/forms": "^21.2.0",
+    "@angular/platform-browser": "^21.2.0",
+    "@angular/router": "^21.2.0",
+    "@capacitor/android": "^8.3.4",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/core": "^8.3.4",
+    "@capacitor/local-notifications": "^8.2.0",
+    "@codetrix-studio/capacitor-google-auth": "^3.4.0-rc.4",
+    "@studio-freight/lenis": "^1.0.42",
+    "@tensorflow/tfjs": "^4.22.0",
+    "animejs": "^3.2.2",
+    "brain.js": "^2.0.0-beta.24",
+    "buffer": "^6.0.3",
+    "cordova-plugin-purchase": "^13.17.2",
+    "gsap": "^3.15.0",
+    "matter-js": "^0.19.0",
+    "rxjs": "~7.8.0",
+    "three": "^0.184.0",
+    "tslib": "^2.3.0"
+  },
+  "devDependencies": {
+    "@angular/build": "^21.2.7",
+    "@angular/cli": "^21.2.7",
+    "@angular/compiler-cli": "^21.2.0",
+    "@capacitor/cli": "^8.3.4",
+    "@types/animejs": "^3.1.12",
+    "@types/matter-js": "^0.19.6",
+    "@types/three": "^0.184.0",
+    "autoprefixer": "^10.4.18",
+    "jsdom": "^28.0.0",
+    "postcss": "^8.4.35",
+    "prettier": "^3.8.1",
+    "tailwindcss": "^3.4.1",
+    "typescript": "~5.9.2",
+    "vitest": "^4.0.8"
+  }
+}

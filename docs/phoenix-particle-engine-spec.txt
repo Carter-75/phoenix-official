@@ -1,0 +1,598 @@
+You dont need to follow this exactly but closly!
+
+I want to build a highly advanced, majestic, 3D animated background for my Angular standalone application using Three.js. 
+The background should feature two main elements:
+1. An ambient field of 7,000 glowing, slowly drifting fire-colored, blue-colored, and purple-colored particles. To create massive depth, 5,000 of these particles should spawn in the background/midground (Z spanning from -30 to +10), and the remaining 2,000 should spawn explicitly in the foreground right up against the camera (Z spanning from -4 to +4).
+2. Three majestic, flying "Phoenix" birds (one Orange/Gold, one Blue/Cyan, and one Dark Purple) each made entirely of 4,000 particles that act like fluid, flying dragon/snakes.
+### Key Architectural Requirements for the Eclipse Phoenix Engine:
+1. **Object-Oriented Physics State:** Because there are three birds, you must not use standalone physics variables. You must create an interface/class to store the physical state of each bird (position, velocity, targetWaypoint, historyPos array, flapTime, theme color, etc.) and iterate over them in an array during the render loop.
+2. **Anatomical Particle Mapping:** The 4,000 particles per bird must not be random blocks. They must be mathematically distributed into distinct anatomical features:
+   - A sharp beak that tapers into a head and neck.
+   - A sleek, rounded body.
+   - Razor-thin, swept-back wings.
+   - 5 distinct, long trailing tail feathers.
+3. **Dragon Snake Fluidity:** The birds must NOT be rigid 3D objects that rotate together. Instead, you must implement a "History Trail" per bird. Record the last 600 frames of the head's exact 3D coordinates and banking angles. Every particle in the bird's body will look up its position in this history array based on how far back it is from the head (`Z` axis). This causes the wings and tail to physically bend and snake through the air, perfectly tracing the curved path the head took.
+4. **Flight Speed & Wing Flapping:** Ensure the birds fly majestically and somewhat slowly. Their flight speed vector should be multiplied by `0.06`, and their wing flapping animation should increment by `0.04` per frame so their wings beat slowly and widely like massive elemental beasts.
+5. **Blended Steering (Wander + S-Curve Waypoint):** The flight path must be dictated by a 50/50 blend of two mathematical forces:
+   - **Organic Wander:** A chaotic, fluid boid-like wander force that causes the bird to weave organically.
+   - **S-Curve Waypoint Pull:** Each bird generates an invisible target point anywhere within 90% of the visible viewport. However, the bird MUST NOT fly in a straight line toward it. Calculate a perpendicular offset vector using the `cross` product and scale it by a sine wave (`Math.sin(curvePhase)`). This artificially pulls the bird to the right, and then swings like a pendulum to pull it back to the left, mathematically forcing it to carve beautiful S-Curves through the air while still favoring the waypoint! Once it wanders within 10 units of the waypoint, it "captures" it and generates a new one. The Waypoints should spawn tightly clustered near `Z = -15` (between `-12.5` and `-17.5`) so the birds don't fly too deep into the screen.
+6. **Mutual Avoidance (Boid Separation):** The three birds must never crash into each other. Every frame, check the distance between them. If they come within 15 units of each other, inject a strong repulsive "Separation Force" into their velocities so they gracefully weave out of each other's way.
+7. **Dynamic Exclusion Radius:** When calculating the next waypoint, the bird MUST NOT spawn the new point too close to its old one. Calculate an exclusion radius around the previous waypoint that mathematically equals exactly 2.5% of the total screen area. If the generated point falls inside this radius, regenerate it. This ensures the bird makes grand, sweeping flights across the screen instead of twitching in a small area.
+8. **The Breathing Cone (Dynamic Turn Radius):** The birds must dynamically adjust how sharply they can turn based on where they are on the screen. Calculate their "Edge Proximity" (0% at the dead center, 100% at the edge of the viewport). In the dead center, use a tiny `maxTurnForce` (`0.0001`) so they pull incredibly massive, wide sweeping loops. As they get closer to the edge, scale it up to `0.0009` so they can elegantly and sharply whip around the screen boundary.
+9. **Dynamic Banking:** Calculate the angular turn rate of each bird and apply a Z-axis rotation (roll/bank) to the history trail so the birds dynamically bank their wings into corners like fighter jets.
+10. **CRITICAL ENGINE BUG (Frustum Culling):** Because you are manually overriding the `position` BufferAttribute array in the render loop based on the History array, ThreeJS will physically not know where the birds are. It will calculate the bird's bounding box to be permanently stuck behind the camera, and it will aggressively hide the bird using frustum culling. You MUST set `bird.particles.frustumCulled = false;` to guarantee the birds are actually visible.
+11. **Performance/Debugging:** Set up an Angular Service to toggle the rendering visibility of each bird independently using `bird.group.visible`. When disabled, skip the heavy physics iterations for that bird!
+Here is the exact CSS and TypeScript code that perfectly executes this complex logic. Please implement these into my Angular project.
+### 1. `styles.css` (Background ambient glow effects)
+Add this to the global CSS to provide the foundational dark aesthetic and fire elements:
+```css
+@layer base {
+  :root {
+    --bg-deep: #020205;
+    --accent-fire: #ff4d00;
+  }
+  html {
+    @apply bg-[#020205] w-full;
+  }
+  body {
+    @apply bg-transparent text-white font-['Inter'] m-0 antialiased overflow-x-hidden w-full relative;
+  }
+}
+.glow-orb {
+  @apply absolute rounded-full blur-[150px] opacity-20 pointer-events-none -z-10;
+  background: radial-gradient(circle, var(--accent-fire) 0%, transparent 70%);
+  animation: flicker 4s infinite alternate;
+}
+.fire-container {
+  @apply fixed inset-0 -z-40 pointer-events-none opacity-20 overflow-hidden;
+}
+.fire-bar {
+  @apply absolute w-[2px] h-[300%] bg-gradient-to-t from-transparent via-orange-600 to-transparent;
+  transform: rotate(35deg) translateY(-50%);
+  filter: blur(1px);
+  animation: fireRise 10s linear infinite;
+}
+@keyframes fireRise {
+  from { transform: rotate(35deg) translateY(0%); }
+  to { transform: rotate(35deg) translateY(-100%); }
+}
+@keyframes flicker {
+  0%, 100% { opacity: 0.15; filter: blur(150px); }
+  50% { opacity: 0.25; filter: blur(170px); }
+}
+2. background-animation.component.ts (The 3D Engine)
+This is the standalone component containing the Three.js physics, Waypoint steering, dynamic exclusion zones, and Dragon Snake history tracking. Make sure three is installed in the project.
+
+typescript
+
+import { Component, ElementRef, OnInit, OnDestroy, ViewChild, NgZone } from '@angular/core';
+import * as THREE from 'three';
+interface PhoenixState {
+  theme: 'orange' | 'blue' | 'purple';
+  group: THREE.Group;
+  particles: THREE.Points;
+  basePositions: Float32Array;
+  phoenixCount: number;
+  currentBank: number;
+  flapTime: number;
+  
+  position: THREE.Vector3;
+  velocity: THREE.Vector3;
+  previousVelocity: THREE.Vector3;
+  wanderTheta: number;
+  wanderPhi: number;
+  
+  targetWaypoint: THREE.Vector3;
+  exclusionRadius: number;
+  lastLogTime: number;
+  curvePhase: number;
+  
+  historyPos: THREE.Vector3[];
+  historyQuat: THREE.Quaternion[];
+}
+@Component({
+  selector: 'app-background-animation',
+  standalone: true,
+  template: \`<canvas #bgCanvas id="bg-canvas"></canvas>\`,
+  styles: [\`
+    :host {
+      display: block;
+      position: fixed;
+      inset: 0;
+      z-index: -50;
+      background: #020205;
+      pointer-events: none;
+    }
+    #bg-canvas {
+      width: 100%;
+      height: 100%;
+    }
+  \`]
+})
+export class BackgroundAnimationComponent implements OnInit, OnDestroy {
+  @ViewChild('bgCanvas', { static: true }) canvasRef!: ElementRef<HTMLCanvasElement>;
+  
+  private renderer!: THREE.WebGLRenderer;
+  private scene!: THREE.Scene;
+  private camera!: THREE.PerspectiveCamera;
+  private particles!: THREE.Points;
+  private animationId!: number;
+  
+  private birds: PhoenixState[] = [];
+  private readonly MAX_HISTORY = 600;
+  
+  // Mobile responsiveness
+  private boundX = 15;
+  private boundY = 10;
+  private birdScale = 1.0;
+  private readonly ambientBoxSize = 80;
+  constructor(private ngZone: NgZone) {}
+  ngOnInit() {
+    this.initThree();
+    this.createParticles();
+    
+    // Initialize Fire Phoenix
+    const orangeBird = this.createBirdState('orange');
+    this.initHistory(orangeBird);
+    this.createPhoenixMesh(orangeBird);
+    this.birds.push(orangeBird);
+    
+    // Initialize Ice Phoenix
+    const blueBird = this.createBirdState('blue');
+    this.initHistory(blueBird);
+    this.createPhoenixMesh(blueBird);
+    this.birds.push(blueBird);
+    // Initialize Eclipse Phoenix
+    const purpleBird = this.createBirdState('purple');
+    this.initHistory(purpleBird);
+    this.createPhoenixMesh(purpleBird);
+    this.birds.push(purpleBird);
+    this.animate();
+    
+    window.addEventListener('resize', this.onResize.bind(this));
+  }
+  ngOnDestroy() {
+    if (this.animationId) {
+      cancelAnimationFrame(this.animationId);
+    }
+    window.removeEventListener('resize', this.onResize.bind(this));
+    this.renderer.dispose();
+  }
+  private createBirdState(theme: 'orange' | 'blue' | 'purple'): PhoenixState {
+    return {
+      theme,
+      group: new THREE.Group(),
+      particles: new THREE.Points(),
+      basePositions: new Float32Array(0),
+      phoenixCount: 4000,
+      currentBank: 0,
+      flapTime: Math.random() * Math.PI, // Offset flap cycle
+      
+      position: new THREE.Vector3(0, 0, -15),
+      velocity: new THREE.Vector3(0, 0, -1),
+      previousVelocity: new THREE.Vector3(0, 0, -1),
+      wanderTheta: 0,
+      wanderPhi: Math.PI / 2,
+      
+      targetWaypoint: new THREE.Vector3(),
+      exclusionRadius: 0,
+      lastLogTime: 0,
+      curvePhase: Math.random() * Math.PI, // Offset S-curves
+      
+      historyPos: [],
+      historyQuat: []
+    };
+  }
+  private initThree() {
+    this.scene = new THREE.Scene();
+    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    this.renderer = new THREE.WebGLRenderer({
+      canvas: this.canvasRef.nativeElement,
+      alpha: true,
+      antialias: true
+    });
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    
+    this.camera.position.z = 5;
+    this.updateBounds();
+  }
+  private updateBounds() {
+    const depth = -15; 
+    const distance = Math.abs(this.camera.position.z - depth);
+    const vFov = THREE.MathUtils.degToRad(this.camera.fov);
+    const height = 2 * Math.tan(vFov / 2) * distance;
+    const width = height * this.camera.aspect;
+    
+    // Scale bird down on mobile screens (baseline 1200px width)
+    this.birdScale = Math.max(0.4, Math.min(1.0, window.innerWidth / 1200));
+    
+    // 90% of viewport for waypoint spawning
+    this.boundX = (width / 2) * 0.9;
+    this.boundY = (height / 2) * 0.9;
+    // Exclusion radius area = 2.5% of total screen area
+    const screenArea = width * height;
+    const targetArea = screenArea * 0.025;
+    
+    for (const bird of this.birds) {
+      bird.exclusionRadius = Math.sqrt(targetArea / Math.PI);
+    }
+  }
+  private generateWaypoint(bird: PhoenixState) {
+    let newWaypoint = new THREE.Vector3();
+    let valid = false;
+    let attempts = 0;
+    while (!valid && attempts < 50) {
+      newWaypoint.x = (Math.random() - 0.5) * (this.boundX * 2);
+      newWaypoint.y = (Math.random() - 0.5) * (this.boundY * 2);
+      newWaypoint.z = -15 + (Math.random() - 0.5) * 5; // Kept tightly around -15
+      if (bird.targetWaypoint.lengthSq() === 0) {
+        valid = true;
+      } else {
+        const dist = newWaypoint.distanceTo(bird.targetWaypoint);
+        if (dist > bird.exclusionRadius) {
+          valid = true;
+        }
+      }
+      attempts++;
+    }
+    bird.targetWaypoint.copy(newWaypoint);
+  }
+  private createParticles() {
+    const geometry = new THREE.BufferGeometry();
+    const count = 7000;
+    const positions = new Float32Array(count * 3);
+    const colors = new Float32Array(count * 3);
+    for (let i = 0; i < count * 3; i += 3) {
+      positions[i] = (Math.random() - 0.5) * this.ambientBoxSize;
+      positions[i+1] = (Math.random() - 0.5) * this.ambientBoxSize;
+      
+      // Spawn 5000 in the background/midground, and 2000 specifically in the foreground
+      if (i < 5000 * 3) {
+        positions[i+2] = (Math.random() - 0.5) * 40 - 10; // Spans Z from -30 to +10
+      } else {
+        positions[i+2] = Math.random() * 8 - 4; // Spans Z from -4 to +4 (very close to camera at Z=5)
+      }
+      
+      const r = Math.random();
+      // Evenly distribute colors amongst Orange, Blue, and Purple
+      if (r > 0.66) {
+        const subR = Math.random();
+        if (subR > 0.7) { colors[i] = 1.0; colors[i+1] = 0.8; colors[i+2] = 0.2; } // Gold
+        else if (subR > 0.3) { colors[i] = 1.0; colors[i+1] = 0.4; colors[i+2] = 0.0; } // Orange
+        else { colors[i] = 0.8; colors[i+1] = 0.1; colors[i+2] = 0.0; } // Deep Red
+      } else if (r > 0.33) {
+        const subR = Math.random();
+        if (subR > 0.7) { colors[i] = 0.2; colors[i+1] = 0.8; colors[i+2] = 1.0; } // Cyan
+        else if (subR > 0.3) { colors[i] = 0.0; colors[i+1] = 0.4; colors[i+2] = 1.0; } // Blue
+        else { colors[i] = 0.0; colors[i+1] = 0.1; colors[i+2] = 0.8; } // Deep Blue
+      } else {
+        const subR = Math.random();
+        if (subR > 0.7) { colors[i] = 0.6; colors[i+1] = 0.0; colors[i+2] = 1.0; } // Vivid Purple Core
+        else if (subR > 0.3) { colors[i] = 0.3; colors[i+1] = 0.0; colors[i+2] = 0.8; } // Deep Purple
+        else { colors[i] = 0.1; colors[i+1] = 0.0; colors[i+2] = 0.5; } // Dark Void Purple
+      }
+    }
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    const material = new THREE.PointsMaterial({
+      size: 0.025,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.6,
+      blending: THREE.AdditiveBlending
+    });
+    this.particles = new THREE.Points(geometry, material);
+    this.scene.add(this.particles);
+  }
+  private initHistory(bird: PhoenixState) {
+    const depth = -15;
+    const distance = Math.abs(this.camera.position.z - depth);
+    const vFov = THREE.MathUtils.degToRad(this.camera.fov);
+    const height = 2 * Math.tan(vFov / 2) * distance;
+    const width = height * this.camera.aspect;
+    
+    // Scale exclusion radius
+    const screenArea = width * height;
+    bird.exclusionRadius = Math.sqrt((screenArea * 0.025) / Math.PI);
+    
+    const viewportRadius = Math.sqrt(Math.pow(width/2, 2) + Math.pow(height/2, 2));
+    const spawnRadius = viewportRadius * 1.25;
+    const spawnAngle = Math.random() * Math.PI * 2;
+    const spawnX = Math.cos(spawnAngle) * spawnRadius;
+    const spawnY = Math.sin(spawnAngle) * spawnRadius;
+    const startPos = new THREE.Vector3(spawnX, spawnY, depth);
+    
+    bird.targetWaypoint = new THREE.Vector3(); 
+    this.generateWaypoint(bird);
+    
+    const startDir = bird.targetWaypoint.clone().sub(startPos).normalize();
+    
+    bird.wanderTheta = Math.atan2(startDir.z, startDir.x);
+    bird.wanderPhi = Math.acos(startDir.y);
+    
+    const speed = 0.06; 
+    const startVel = startDir.clone().multiplyScalar(speed);
+    const dummy = new THREE.Object3D();
+    
+    for (let i = 0; i < this.MAX_HISTORY; i++) {
+        const p = startPos.clone().sub(startDir.clone().multiplyScalar(i * speed));
+        bird.historyPos.push(p);
+        
+        dummy.position.copy(p);
+        dummy.lookAt(p.clone().add(startVel));
+        dummy.rotateY(Math.PI);
+        bird.historyQuat.push(dummy.quaternion.clone());
+    }
+    
+    bird.position.copy(startPos);
+    bird.velocity.copy(startVel);
+  }
+  private createPhoenixMesh(bird: PhoenixState) {
+    const geometry = new THREE.BufferGeometry();
+    bird.basePositions = new Float32Array(bird.phoenixCount * 3);
+    const positions = new Float32Array(bird.phoenixCount * 3);
+    const colors = new Float32Array(bird.phoenixCount * 3);
+    for (let i = 0; i < bird.phoenixCount; i++) {
+      const idx = i * 3;
+      let x = 0, y = 0, z = 0;
+      let rand = Math.random();
+      if (rand < 0.5) {
+        x = (Math.random() - 0.5) * 20; 
+        z = 0.05 * (x * x) + Math.random() * 1.5 + 4; 
+        y = Math.sin(Math.abs(x) * 0.3) * 1.5 + (Math.random() - 0.5) * 0.1; 
+      } else if (rand < 0.7) {
+        const u = Math.random() * Math.PI * 2;
+        const v = Math.acos(2 * Math.random() - 1);
+        const r = Math.cbrt(Math.random()); 
+        x = r * Math.sin(v) * Math.cos(u) * 0.8; 
+        y = r * Math.sin(v) * Math.sin(u) * 0.8; 
+        z = r * Math.cos(v) * 3 + 6; 
+      } else if (rand < 0.85) {
+        z = Math.random() * 4; 
+        let radius = 0;
+        if (z < 0.8) radius = z * 0.3; 
+        else if (z < 1.8) radius = 0.6 - Math.abs(z - 1.3) * 0.4; 
+        else radius = 0.2 + (z - 1.8) * 0.1; 
+        
+        const angle = Math.random() * Math.PI * 2;
+        x = Math.cos(angle) * Math.random() * radius;
+        y = Math.sin(angle) * Math.random() * radius;
+      } else {
+        const feather = Math.floor(Math.random() * 5); 
+        z = 9 + Math.random() * 16; 
+        x = (feather - 2) * (z - 9) * 0.15 + (Math.random() - 0.5) * 0.2; 
+        y = -Math.pow(Math.abs(z - 9), 1.1) * 0.15 + (Math.random() - 0.5) * 0.2; 
+      }
+      
+      z += (Math.random() - 0.5) * 0.5;
+      if (z < 0) z = 0;
+      const scale = 0.4;
+      bird.basePositions[idx] = x * scale;
+      bird.basePositions[idx+1] = y * scale;
+      bird.basePositions[idx+2] = z * scale;
+      
+      positions[idx] = x;
+      positions[idx+1] = y;
+      positions[idx+2] = z;
+      const distFromCenter = Math.sqrt(x*x + z*z);
+      if (bird.theme === 'orange') {
+        if (distFromCenter < 2 && z < 2) {
+          colors[idx] = 1.0; colors[idx+1] = 0.9; colors[idx+2] = 0.5;
+        } else if (distFromCenter < 5 && z < 6) {
+          colors[idx] = 1.0; colors[idx+1] = 0.4; colors[idx+2] = 0.0;
+        } else {
+          colors[idx] = 0.8; colors[idx+1] = 0.1; colors[idx+2] = 0.0;
+        }
+      } else if (bird.theme === 'blue') {
+        if (distFromCenter < 2 && z < 2) {
+          colors[idx] = 0.5; colors[idx+1] = 0.9; colors[idx+2] = 1.0; // Cyan Core
+        } else if (distFromCenter < 5 && z < 6) {
+          colors[idx] = 0.0; colors[idx+1] = 0.4; colors[idx+2] = 1.0; // Vivid Blue
+        } else {
+          colors[idx] = 0.0; colors[idx+1] = 0.1; colors[idx+2] = 0.8; // Deep Blue edges
+        }
+      } else {
+        // Purple/Eclipse Theme
+        if (distFromCenter < 2 && z < 2) {
+          colors[idx] = 0.6; colors[idx+1] = 0.0; colors[idx+2] = 1.0; // Vivid Purple Core
+        } else if (distFromCenter < 5 && z < 6) {
+          colors[idx] = 0.3; colors[idx+1] = 0.0; colors[idx+2] = 0.8; // Deep Purple
+        } else {
+          colors[idx] = 0.1; colors[idx+1] = 0.0; colors[idx+2] = 0.5; // Dark Void Purple edges
+        }
+      }
+    }
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    const material = new THREE.PointsMaterial({
+      size: 0.15,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending
+    });
+    bird.particles = new THREE.Points(geometry, material);
+    bird.particles.frustumCulled = false; 
+    bird.group = new THREE.Group();
+    bird.group.add(bird.particles);
+    this.scene.add(bird.group);
+  }
+  private animate() {
+    this.ngZone.runOutsideAngular(() => {
+      const render = () => {
+        // Ambient background drifting
+        const positions = this.particles.geometry.attributes['position'].array as Float32Array;
+        const halfBox = this.ambientBoxSize / 2;
+        for (let i = 0; i < positions.length; i += 3) {
+          positions[i] += 0.005; positions[i+1] += 0.01; 
+          if (positions[i+1] > halfBox) { positions[i+1] = -halfBox; positions[i] = (Math.random() - 0.5) * this.ambientBoxSize; }
+          if (positions[i] > halfBox) positions[i] = -halfBox;
+        }
+        this.particles.geometry.attributes['position'].needsUpdate = true;
+        this.particles.rotation.y += 0.0001;
+        // Iterate over all Phoenix Birds
+        const speed = 0.06; 
+        
+        for (let i = 0; i < this.birds.length; i++) {
+          const bird = this.birds[i];
+          
+          if (bird.group) {
+            // Respect visibility toggles from Settings Service
+            const isVisible = (bird.theme === 'orange' && this.settings.fireEnabled()) ||
+                              (bird.theme === 'blue' && this.settings.iceEnabled()) ||
+                              (bird.theme === 'purple' && this.settings.eclipseEnabled());
+            // Check if waypoint reached
+            if (bird.position.distanceTo(bird.targetWaypoint) < 10.0) {
+                this.generateWaypoint(bird);
+            }
+            // 1. Fluid Wander Force
+            bird.wanderTheta += (Math.random() - 0.5) * 0.05; 
+            bird.wanderPhi += (Math.random() - 0.5) * 0.05;
+            bird.wanderPhi = Math.max(Math.PI / 3, Math.min(2 * Math.PI / 3, bird.wanderPhi));
+            const wanderForce = new THREE.Vector3(
+                Math.sin(bird.wanderPhi) * Math.cos(bird.wanderTheta), 
+                Math.cos(bird.wanderPhi), 
+                Math.sin(bird.wanderPhi) * Math.sin(bird.wanderTheta)
+            ).normalize().multiplyScalar(0.005); 
+            // 2. S-Curve Waypoint Pull
+            const directToTarget = bird.targetWaypoint.clone().sub(bird.position);
+            directToTarget.normalize();
+            
+            bird.curvePhase += 0.015; 
+            const curveIntensity = Math.sin(bird.curvePhase) * 0.8; 
+            
+            const up = new THREE.Vector3(0, 1, 0);
+            let curveRight = new THREE.Vector3().crossVectors(directToTarget, up).normalize();
+            if (curveRight.lengthSq() < 0.001) curveRight = new THREE.Vector3(1, 0, 0); 
+            
+            const curveVector = curveRight.multiplyScalar(curveIntensity);
+            const waypointForce = directToTarget.add(curveVector).normalize().multiplyScalar(0.005);
+            // 3. Loose Containment 
+            let containForce = new THREE.Vector3();
+            const distX = Math.abs(bird.position.x);
+            const distY = Math.abs(bird.position.y);
+            if (distX > this.boundX * 1.3 || distY > this.boundY * 1.3) {
+                const centerXY = new THREE.Vector3(0, 0, bird.position.z);
+                containForce = centerXY.sub(bird.position).normalize().multiplyScalar(0.01);
+            }
+            if (bird.position.z < -25) containForce.z += 0.01;
+            else if (bird.position.z > -10) containForce.z -= 0.01;
+            
+            // 4. Mutual Avoidance Force (Boid Separation)
+            let avoidForce = new THREE.Vector3();
+            for (let j = 0; j < this.birds.length; j++) {
+              if (i !== j) {
+                const otherBird = this.birds[j];
+                const distToOther = bird.position.distanceTo(otherBird.position);
+                  
+                // Only avoid other birds that are currently active!
+                const isOtherVisible = (otherBird.theme === 'orange' && this.settings.fireEnabled()) ||
+                                       (otherBird.theme === 'blue' && this.settings.iceEnabled()) ||
+                                       (otherBird.theme === 'purple' && this.settings.eclipseEnabled());
+                // If they get within 15 units of each other, strongly repel
+                if (isOtherVisible && distToOther < 15.0 && distToOther > 0) {
+                  const repel = bird.position.clone().sub(otherBird.position).normalize();
+                  // Closer they are, stronger the repel
+                  const repelStrength = (15.0 - distToOther) / 15.0; 
+                  avoidForce.add(repel.multiplyScalar(repelStrength * 0.015)); 
+                }
+              }
+            }
+            
+            // Combine forces
+            const combinedForce = wanderForce.add(waypointForce).add(containForce).add(avoidForce);
+            
+            // Dynamic Turn Radius
+            const ratioX = Math.min(1.0, distX / this.boundX);
+            const ratioY = Math.min(1.0, distY / this.boundY);
+            const edgeProximity = Math.max(ratioX, ratioY); 
+            
+            const baseTurn = 0.0001;
+            const edgeBonus = 0.0008;
+            let maxTurnForce = (baseTurn + (edgeProximity * edgeBonus)) / this.birdScale; 
+            
+            // Reynolds Steering Algorithm
+            const desiredVelocity = bird.velocity.clone().add(combinedForce).normalize().multiplyScalar(speed);
+            const steering = desiredVelocity.sub(bird.velocity);
+            if (steering.length() > maxTurnForce) steering.normalize().multiplyScalar(maxTurnForce);
+            bird.velocity.add(steering);
+            bird.velocity.normalize().multiplyScalar(speed);
+            bird.position.add(bird.velocity);
+            const lookTarget = bird.position.clone().add(bird.velocity.clone().multiplyScalar(100));
+            const dummy = new THREE.Object3D();
+            dummy.position.copy(bird.position);
+            dummy.lookAt(lookTarget);
+            dummy.rotateY(Math.PI); 
+            const vDiff = bird.velocity.clone().sub(bird.previousVelocity);
+            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(dummy.quaternion);
+            let targetBank = vDiff.dot(right) * 400; 
+            targetBank = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, targetBank));
+            bird.currentBank += (targetBank - bird.currentBank) * 0.05;
+            dummy.rotateZ(bird.currentBank);
+            bird.previousVelocity.copy(bird.velocity);
+            bird.historyPos.unshift(bird.position.clone());
+            bird.historyQuat.unshift(dummy.quaternion.clone());
+            if (bird.historyPos.length > this.MAX_HISTORY) {
+                bird.historyPos.pop(); bird.historyQuat.pop();
+            }
+            // Dragon Snake Particle Mapping
+            bird.flapTime += 0.04;
+            const pPositions = bird.particles.geometry.attributes['position'].array as Float32Array;
+            
+            for (let k = 0; k < bird.phoenixCount; k++) {
+              const idx = k * 3;
+              const baseX = bird.basePositions[idx];
+              const baseY = bird.basePositions[idx+1];
+              const baseZ = bird.basePositions[idx+2];
+              
+              const scaledBaseX = baseX * this.birdScale;
+              const scaledBaseY = baseY * this.birdScale;
+              const scaledBaseZ = baseZ * this.birdScale;
+              
+              let histIdx = Math.floor(scaledBaseZ / speed);
+              histIdx = Math.max(0, Math.min(bird.historyPos.length - 1, histIdx));
+              
+              const hPos = bird.historyPos[histIdx];
+              const hQuat = bird.historyQuat[histIdx];
+              
+              const flapAmount = Math.abs(scaledBaseX) * 0.5; 
+              const flapPhase = bird.flapTime - scaledBaseZ * 2.0; 
+              const flapOffset = Math.sin(flapPhase) * flapAmount;
+              
+              const flickerX = (Math.random() - 0.5) * 0.05 * this.birdScale;
+              const flickerY = (Math.random() - 0.5) * 0.05 * this.birdScale;
+              
+              const localOffset = new THREE.Vector3(scaledBaseX + flickerX, scaledBaseY + flapOffset + flickerY, 0);
+              localOffset.applyQuaternion(hQuat);
+              
+              pPositions[idx] = hPos.x + localOffset.x;
+              pPositions[idx+1] = hPos.y + localOffset.y;
+              pPositions[idx+2] = hPos.z + localOffset.z;
+            }
+            bird.particles.geometry.attributes['position'].needsUpdate = true;
+            
+            // Console Debugging
+            if (performance.now() - bird.lastLogTime > 1000) {
+                const wpDist = bird.position.distanceTo(bird.targetWaypoint);
+                console.log(`[Phoenix:${bird.theme}] Pos: (${bird.position.x.toFixed(1)}, ${bird.position.y.toFixed(1)}, ${bird.position.z.toFixed(1)}) | ` +
+                            `WP: (${bird.targetWaypoint.x.toFixed(1)}, ${bird.targetWaypoint.y.toFixed(1)}, ${bird.targetWaypoint.z.toFixed(1)}) | ` +
+                            `Dist: ${wpDist.toFixed(1)} | Turn: ${maxTurnForce.toFixed(5)}`);
+                bird.lastLogTime = performance.now();
+            }
+          }
+        }
+        
+        this.renderer.render(this.scene, this.camera);
+        this.animationId = requestAnimationFrame(render);
+      };
+      render();
+    });
+  }
+  private onResize() {
+    this.camera.aspect = window.innerWidth / window.innerHeight;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.updateBounds();
+  }
+}

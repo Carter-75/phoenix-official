@@ -1,0 +1,182 @@
+.codex-container {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(10, 10, 15, 0.95);
+  color: white;
+  padding: 2rem;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  backdrop-filter: blur(10px);
+  overflow-y: auto;
+}
+
+.back-btn {
+  position: absolute;
+  top: 1rem; left: 1rem;
+  background: none;
+  border: none;
+  color: #ffaa00;
+  font-size: 1.2rem;
+  font-weight: bold;
+  cursor: pointer;
+  text-transform: uppercase;
+}
+
+.title {
+  text-align: center;
+  font-size: 2.5rem;
+  margin-bottom: 2rem;
+  color: #f97316;
+  text-shadow: 0 0 10px rgba(249, 115, 22, 0.5);
+}
+
+.guide-section {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 1.5rem;
+  border-radius: 12px;
+  margin-bottom: 2rem;
+}
+
+.guide-section h2 {
+  margin-top: 0;
+  color: #38bdf8;
+}
+
+.guide-section p {
+  line-height: 1.6;
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.inline-icon {
+  height: 1.5rem;
+  width: auto;
+  vertical-align: middle;
+}
+
+.content-split {
+  display: flex;
+  gap: 2rem;
+  flex: 1;
+}
+
+.realms-list {
+  flex: 1;
+  max-width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.realm-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 1rem;
+  transition: all 0.2s;
+}
+
+.realm-card.locked {
+  opacity: 0.6;
+  border-color: rgba(255, 0, 0, 0.2);
+}
+
+.realm-card h3 {
+  margin: 0 0 0.5rem 0;
+  color: #fca5a5;
+}
+
+.status {
+  font-size: 0.8rem;
+  color: #ef4444;
+  text-transform: uppercase;
+  font-weight: bold;
+}
+
+.enemy-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.enemy-btn {
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid transparent;
+  padding: 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.enemy-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.enemy-btn.active {
+  border-color: #f97316;
+  background: rgba(249, 115, 22, 0.2);
+}
+
+.enemy-preview {
+  flex: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.canvas-wrapper {
+  position: relative;
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, rgba(0,0,0,0) 70%);
+  border-radius: 50%;
+  margin-bottom: 2rem;
+}
+
+canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.shadow-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.3);
+  text-align: center;
+}
+
+.shadow-overlay h2 {
+  color: #6b7280;
+  letter-spacing: 2px;
+}
+
+.enemy-info {
+  text-align: center;
+  max-width: 500px;
+}
+
+.enemy-info h2 {
+  color: #f97316;
+  font-size: 2rem;
+  margin-bottom: 1rem;
+}
+
+.enemy-info p {
+  color: #d1d5db;
+  font-size: 1.2rem;
+  line-height: 1.5;
+}

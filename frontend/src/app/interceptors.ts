@@ -1,0 +1,15 @@
+import { HttpInterceptorFn } from '@angular/common/http';
+
+export const withCredentialsInterceptor: HttpInterceptorFn = (req, next) => {
+  const token = localStorage.getItem('auth_token');
+  
+  if (token) {
+    const clonedReq = req.clone({
+      headers: req.headers.set('Authorization', `Bearer ${token}`),
+      withCredentials: true // Keeping this in case other legacy cookies are used
+    });
+    return next(clonedReq);
+  }
+  
+  return next(req.clone({ withCredentials: true }));
+};
