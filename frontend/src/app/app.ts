@@ -112,12 +112,12 @@ export class App {
 
   getLegalContent(): string {
       if (this.activeLegalDoc === 'tos') {
-          return "By accessing or using Phoenix Fall, you agree to be bound by these Terms of Service. You may not cheat, hack, or exploit bugs. We reserve the right to ban accounts without notice for any violation. All virtual items remain the property of the developer. We are not responsible for any emotional distress caused by our highly addictive gameplay loop.";
+          return "By accessing or using Phoenix Fall, you agree to these Terms of Service. Do not cheat, hack, exploit bugs, interfere with the service, or use unauthorized third-party software to gain an unfair advantage. Virtual currency, items, upgrades, and other virtual content have no cash value and cannot be exchanged for money. We may suspend or close an account that seriously or repeatedly violates these terms, subject to applicable law. The game is provided as available, without warranties beyond those required by law.";
       }
       if (this.activeLegalDoc === 'privacy') {
-          return "We collect your email, username, and gameplay analytics. We use this data to optimize monetization, track your engagement, and serve targeted offers. By agreeing, you consent to our use of third-party analytics trackers to monitor your session times and in-game currency balances. If you are under 13, you must have parental consent to play.";
+          return "If you create an account, we store your email address, username, a password hash or Google account identifier, gameplay progress, virtual currency balances, purchase entitlements, and leaderboard statistics. Guest progress is stored on your device unless you sign in. We do not sell personal data. We use account and gameplay data to operate, secure, sync, and support the game. Google AdMob may collect device and advertising identifiers and ad interaction data to provide and measure ads. Google Play processes purchases and payments. You can delete your account and associated server data from your profile. Contact hello@phoenixwebsites.ai with privacy questions.";
       }
-      return "ALL SALES ARE FINAL. Virtual currency (Gems) and in-game upgrades hold no real-world value and cannot be exchanged for fiat currency. We do not offer refunds for accidental purchases, account bans, or buyer's remorse, except where expressly mandated by statutory consumer rights in your jurisdiction. For Monthly Crate Subscriptions, you may upgrade or downgrade your tier at any time through your platform's app store (e.g., Google Play); however, mid-cycle changes will not be refunded. Please contact Google Play or Apple App Store for billing inquiries.";
+      return "In-app purchases are processed by Google Play. Refund requests are handled under Google Play policies and applicable consumer law. Virtual currency and items have no cash value and cannot be exchanged for money. The Monthly Crate Pass renews through Google Play until cancelled in Google Play settings; cancelling stops future renewals. Contact Google Play for payment and refund support.";
   }
 
   acceptPolicies() {

@@ -57,8 +57,9 @@ Locked October 25, 2026, from the full audit at ~/workspace/phoenix-fall-audit/
   Remove Ads, Monthly Crate Pass. All grants flow through server receipt
   verification once Carter's Play service account is configured.
 - Test ad units until Carter provides his AdMob IDs; swapping IDs is
-  config-only (frontend/src/app/config/monetization.config.ts and
-  backend env).
+  config-only (the app ID string in the Android resources and the ad unit
+  IDs in frontend/src/app/config/monetization.config.ts). The rewarded
+  SSV callback URL is set in the AdMob console, not in backend env.
 
 ## Accounts
 
