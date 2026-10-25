@@ -180,3 +180,11 @@ canvas {
   font-size: 1.2rem;
   line-height: 1.5;
 }
+
+.boss-line { color: #ffb347; margin: 4px 0; }
+.realm-desc { color: rgba(255,255,255,0.6); font-size: 0.9em; }
+.move-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; margin: 10px 0 20px; }
+.move-card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; }
+.move-card strong { color: #ffd27d; font-size: 0.95em; }
+.move-card span { color: rgba(255,255,255,0.65); font-size: 0.85em; }
+.move-card .move-stats { color: #7dd3fc; font-family: monospace; font-size: 0.8em; }

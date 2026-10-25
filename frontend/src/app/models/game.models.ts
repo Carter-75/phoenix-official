@@ -36,6 +36,9 @@ export interface World {
   theme: string;
   textColorClass: string;
   isComingSoon?: boolean;
+  // Boss identity ported from Temp-phoenix (see data/temp-catalog.ts)
+  bossName?: string;
+  bossTheme?: string;
 }
 
 export interface EnemyData {

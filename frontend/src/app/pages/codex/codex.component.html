@@ -6,12 +6,15 @@
   <section class="guide-section">
     <h2>How to Play</h2>
     <p>
-      Hold the <img src="assets/play_button.png" class="inline-icon" alt="Play"> button to ascend. 
+      Hold the <img src="assets/play_button.png" class="inline-icon" alt="Play"> button to ascend.
       Avoid or destroy enemies to stay alive. Defeating enemies drops <img src="assets/coin_icon.png" class="inline-icon" alt="Coin"> Coins.
     </p>
     <p>
       Defeating a Boss will yield precious <img src="assets/gem_icon.png" class="inline-icon" alt="Gem"> Gems.
       Use your currencies in the <img src="assets/shop_icon.png" class="inline-icon" alt="Shop"> Shop to unlock powerful upgrades!
+    </p>
+    <p>
+      Died? You can rise again: watch an ad to revive (up to twice per run), spend gems, or use a Revive Token earned from rewarded ads.
     </p>
   </section>
 
@@ -19,17 +22,18 @@
     <!-- Realms List -->
     <div class="realms-list">
       <h2>Realms</h2>
-      <div *ngFor="let realm of realms" class="realm-card" [class.locked]="realm.status === 'coming_soon'">
-        <h3>{{ realm.name }}</h3>
-        <span class="status" *ngIf="realm.status === 'coming_soon'">Coming Soon</span>
-        
-        <!-- Only show enemies for available realm -->
-        <div class="enemy-list" *ngIf="realm.status === 'available'">
-          <div *ngFor="let enemy of realmOneEnemies" 
-               class="enemy-btn" 
+      <div *ngFor="let realm of realms" class="realm-card" [class.locked]="!isRealmUnlocked(realm.id)">
+        <h3>Realm {{ realm.id + 1 }}: {{ realm.name }}</h3>
+        <span class="status" *ngIf="!isRealmUnlocked(realm.id)">Locked: clear the previous realm</span>
+        <p class="boss-line">Boss: <strong>{{ realm.bossName }}</strong> ({{ realm.bossTheme }})</p>
+        <p class="realm-desc" *ngIf="realm.description">{{ realm.description }}</p>
+
+        <!-- Enemy bestiary for the first realm -->
+        <div class="enemy-list" *ngIf="realm.id === 0">
+          <div *ngFor="let enemy of realmOneEnemies"
+               class="enemy-btn"
                [class.active]="selectedEnemy().id === enemy.id"
                (click)="selectEnemy(enemy)">
-               <!-- Lock Icon if not unlocked -->
             <span *ngIf="!isUnlocked(enemy.id)">🔒</span>
             {{ enemy.name }}
           </div>
@@ -46,11 +50,30 @@
           <p>Defeat this enemy in-game to reveal its true form.</p>
         </div>
       </div>
-      
+
       <div class="enemy-info" *ngIf="isUnlocked(selectedEnemy().id)">
         <h2>{{ selectedEnemy().name }}</h2>
         <p>{{ selectedEnemy().desc }}</p>
       </div>
     </div>
   </div>
+
+  <!-- Classic Move Archive: the 75-move Temp-phoenix catalog -->
+  <section class="guide-section">
+    <h2>Classic Move Archive</h2>
+    <p>
+      The 75 legendary moves of the first Phoenix, preserved in full. This game's
+      playable abilities are in the Shop; the archive is the collection record.
+    </p>
+    <div *ngFor="let group of moveTypes">
+      <h3>{{ group.label }}</h3>
+      <div class="move-grid">
+        <div *ngFor="let move of moveArchive[group.key]" class="move-card">
+          <strong>{{ move.name }}</strong>
+          <span>{{ move.description }}</span>
+          <span class="move-stats">DMG {{ move.damage }} · CD {{ (move.cooldownMs / 1000) }}s<span *ngIf="move.cost > 0"> · {{ move.cost }} coins</span></span>
+        </div>
+      </div>
+    </div>
+  </section>
 </div>

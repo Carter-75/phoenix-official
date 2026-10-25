@@ -1,6 +1,8 @@
 import { Component, ElementRef, OnInit, OnDestroy, ViewChild, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { GameStateService } from '../../services/game-state.service';
+import { WORLDS } from '../../constants/game.constants';
+import { TEMP_WORLDS, TEMP_MOVES_BY_TYPE, TempMoveType } from '../../data/temp-catalog';
 import * as THREE from 'three';
 
 @Component({
@@ -15,11 +17,28 @@ export class CodexComponent implements OnInit, OnDestroy {
 
   gameState = inject(GameStateService);
   
-  realms = [
-    { id: 1, name: 'Volcanic Crags', status: 'available' },
-    { id: 2, name: 'Abyssal Depths', status: 'coming_soon' },
-    { id: 3, name: 'Celestial Peaks', status: 'coming_soon' },
-    { id: 4, name: 'Void Nexus', status: 'coming_soon' },
+  // The real 10 realms, with the boss identities ported from Temp-phoenix.
+  realms = WORLDS.map(w => ({
+    id: w.id,
+    name: w.name,
+    bossName: w.bossName,
+    bossTheme: w.bossTheme,
+    origin: TEMP_WORLDS[w.id]?.name,
+    description: TEMP_WORLDS[w.id]?.description,
+    status: 'available' as const
+  }));
+
+  isRealmUnlocked(id: number): boolean {
+    return this.gameState.unlockedWorlds().includes(id);
+  }
+
+  // The classic 75-move archive (Temp-phoenix catalog, kept as collection
+  // lore; this game's playable abilities live in the shop).
+  moveArchive = TEMP_MOVES_BY_TYPE;
+  moveTypes: Array<{ key: TempMoveType, label: string }> = [
+    { key: 'hold', label: 'Hold (channeled)' },
+    { key: 'double', label: 'Double-tap' },
+    { key: 'triple', label: 'Triple-tap' }
   ];
 
   realmOneEnemies = [
