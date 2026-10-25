@@ -5,6 +5,7 @@ import { AudioService } from '../../services/audio.service';
 import { WORLDS } from '../../constants/game.constants';
 import { CommonModule } from '@angular/common';
 import { SettingsComponent } from '../../pages/settings/settings.component';
+import { AdsService } from '../../services/ads.service';
 
 @Component({
   selector: 'app-main-menu',
@@ -46,6 +47,16 @@ import { SettingsComponent } from '../../pages/settings/settings.component';
     <!-- Settings Button - Fixed to bottom right -->
     <button (click)="showSettings = true" class="fixed bottom-6 right-6 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-white/50 hover:text-white font-bold transition pointer-events-auto z-50">
        SETTINGS ⚙️
+    </button>
+
+    <!-- Deliberate 2x boost (rewarded ad, opt-in only) - bottom left -->
+    <button (click)="watchBoostAd()" class="fixed bottom-6 left-6 px-4 py-2 rounded-full border font-bold transition pointer-events-auto z-50"
+            [ngClass]="gameState.tempCoinMultiplier() > 1 ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300' : 'bg-blue-500/10 border-blue-400/30 text-blue-200 hover:bg-blue-500/20'">
+       @if (gameState.tempCoinMultiplier() > 1) {
+          ⚡ 2x Boost Active
+       } @else {
+          📺 Watch Ad: 2x Coins + XP (5 min)
+       }
     </button>
 
     <div class="fixed inset-0 w-full h-[200vh] transition-transform duration-500 ease-in-out"
@@ -156,6 +167,19 @@ export class MainMenuComponent {
   gameState = inject(GameStateService);
   auth = inject(AuthService);
   audio = inject(AudioService);
+  private adsService = inject(AdsService);
+
+  // Deliberate rewarded placement (audit 6.3): the player chooses to watch
+  // an ad for a 2x coins and XP boost for 5 minutes. Never damage, never
+  // auto-shown. If a boost is already active, the button shows it instead.
+  async watchBoostAd() {
+    if (this.gameState.tempCoinMultiplier() > 1) return;
+    const rewarded = await this.adsService.showRewarded('boost');
+    if (rewarded) {
+      this.gameState.grantTemporaryMultiplier('coin', 2, 5);
+      this.gameState.grantTemporaryMultiplier('xp', 2, 5);
+    }
+  }
 
   campaignWorldIndex = signal(0);
   currentWorld = computed(() => WORLDS[this.campaignWorldIndex()]);

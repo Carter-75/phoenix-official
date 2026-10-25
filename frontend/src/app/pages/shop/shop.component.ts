@@ -3,6 +3,7 @@ import { GameStateService } from '../../services/game-state.service';
 import { ABILITIES, WORLDS } from '../../constants/game.constants';
 import { WorldStats } from '../../models/game.models';
 import { IapService } from '../../services/iap.service';
+import { AdsService } from '../../services/ads.service';
 import { environment } from '../../../environments/environment';
 import { CommonModule } from '@angular/common';
 
@@ -737,6 +738,7 @@ import { CommonModule } from '@angular/common';
 export class ShopComponent implements OnInit {
   activeTab = signal<'passives' | 'abilities' | 'gems'>('passives');
   iapService = inject(IapService);
+  private adsService = inject(AdsService);
   isGachaSpinning = signal<boolean>(false);
   currentWorld = computed(() => WORLDS[this.gameState.selectedWorldIndex()]);
 
@@ -781,8 +783,7 @@ export class ShopComponent implements OnInit {
   get abilitiesList() { return Object.values(ABILITIES); }
 
   
-  buyWithAd(type: string) {
-    const win = window as any;
+  async buyWithAd(type: string) {
     const executeUpgrade = () => {
         if (type.startsWith('unlock_')) {
             const id = type.replace('unlock_', '');
@@ -807,30 +808,10 @@ export class ShopComponent implements OnInit {
         }
     };
 
-    if (typeof win.adBreak === 'function') {
-        win.adBreak({
-            type: 'reward',
-            name: 'upgrade_ad',
-            beforeReward: (showAdFn: any) => { showAdFn(); },
-            adViewed: () => { executeUpgrade(); },
-            adDismissed: () => { },
-            beforeAd: () => {
-                this.gameState.audio.pauseAudioForAd();
-            },
-            afterAd: () => {
-                this.gameState.audio.resumeAudioAfterAd();
-            }
-        });
-    } else {
-        console.warn("Google AdSense adBreak API not found. Mocking ad watch...");
-        this.gameState.audio.pauseAudioForAd();
-        
-        setTimeout(() => {
-            this.gameState.audio.resumeAudioAfterAd();
-            
-            executeUpgrade();
-        }, 2000);
-    }
+    // Real rewarded ad via AdsService (AdMob with SSV). The SSV callback
+    // also grants a revive token server-side for logged-in players.
+    const rewarded = await this.adsService.showRewarded('upgrade');
+    if (rewarded) executeUpgrade();
   }
 
   closeShop() {
@@ -1245,6 +1226,14 @@ export class ShopComponent implements OnInit {
           }
       }, 100);
     }
+  }
+
+  buyGems(amount: number, tierIndex: number) {
+    let sku = environment.googlePlay.skuTier1;
+    if (tierIndex === 1) sku = environment.googlePlay.skuTier2;
+    if (tierIndex === 2) sku = environment.googlePlay.skuTier3;
+
+    this.iapService.orderProduct(sku, amount);
   }
 
   buyRemoveAds() {

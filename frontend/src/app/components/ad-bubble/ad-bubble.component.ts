@@ -2,6 +2,7 @@ import { Component, inject, signal, OnInit, OnDestroy, ElementRef, ViewChild } f
 import { CommonModule } from '@angular/common';
 import { GameStateService } from '../../services/game-state.service';
 import { AudioService } from '../../services/audio.service';
+import { AdsService } from '../../services/ads.service';
 import anime from 'animejs';
 
 @Component({
@@ -51,6 +52,7 @@ export class AdBubbleComponent implements OnInit, OnDestroy {
 
   private gameState = inject(GameStateService);
   private audioService = inject(AudioService);
+  private adsService = inject(AdsService);
 
   public isVisible = signal<boolean>(false);
   public isPopped = signal<boolean>(false);
@@ -155,36 +157,12 @@ export class AdBubbleComponent implements OnInit, OnDestroy {
       this.triggerPopAnimation();
   }
   
-  public acceptOffer() {
-      this.audioService.pauseCurrentBgm();
-      
-      const win = window as any;
-      if (typeof win.adBreak === 'function') {
-          win.adBreak({
-              type: 'reward',
-              name: 'bubble_reward',
-              beforeReward: (showAdFn: any) => { showAdFn(); },
-              adViewed: () => {
-                  this.grantReward();
-              },
-              adDismissed: () => {
-                  this.declineOffer();
-              },
-              beforeAd: () => {
-                  this.audioService.pauseAudioForAd();
-              },
-              afterAd: () => {
-                  this.audioService.resumeAudioAfterAd();
-                  this.showOfferPrompt.set(false);
-                  this.triggerPopAnimation();
-              }
-          });
+  public async acceptOffer() {
+      const rewarded = await this.adsService.showRewarded('bubble');
+      if (rewarded) {
+          this.grantReward(); // also hides the prompt and pops the bubble
       } else {
-          // Mock ad
-          setTimeout(() => {
-              this.audioService.resumeAudioAfterAd();
-              this.grantReward();
-          }, 2000);
+          this.declineOffer();
       }
   }
   

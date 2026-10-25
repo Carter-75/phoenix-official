@@ -11,6 +11,7 @@ import anime from 'animejs';
 import { MlAiService } from '../../services/ml-ai.service';
 import { BattleAiService, BattleContext } from '../../services/battle-ai.service';
 import { EntitySpawnerService } from '../../services/entity-spawner.service';
+import { AdsService } from '../../services/ads.service';
 
 interface EnemyData {
   id: string;
@@ -299,6 +300,7 @@ export class GameComponent implements OnInit, OnDestroy {
   private audioService = inject(AudioService);
 
   public mlAi = inject(MlAiService);
+  private adsService = inject(AdsService);
   public battleAi = inject(BattleAiService);
   public spawner = inject(EntitySpawnerService);
 
@@ -544,6 +546,7 @@ export class GameComponent implements OnInit, OnDestroy {
     this.gameEnded.set(false);
     this.reviveCount = 0;
     this.adRevivesUsed = 0;
+    this.runCountedForAds = false;
     this.bossSpawned.set(false);
     this.inBossDefeatSequence.set(false);
     this.gameState.isDeadMenuOpen.set(false);
@@ -2361,45 +2364,19 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   }
 
 
-  public reviveWithAd() {
+  public async reviveWithAd() {
     if (this.adRevivesUsed >= this.maxAdRevivesPerRun) return;
-    // Pause the countdown while ad plays
+    // Pause the countdown while the ad plays
     clearInterval(this.reviveInterval);
-    
-    const win = window as any;
-    if (typeof win.adBreak === 'function') {
-        win.adBreak({
-            type: 'reward',
-            name: 'revive_ad',
-            beforeReward: (showAdFn: any) => { showAdFn(); },
-            adViewed: () => {
-                this.adRevivesUsed++;
-                this.reviveCount++;
-                this.executeRevival();
-            },
-            adDismissed: () => {
-                // User skipped ad, resume countdown
-                this.startReviveCountdown();
-            },
-            beforeAd: () => {
-                this.audioService.pauseAudioForAd();
-            },
-            afterAd: () => {
-                this.audioService.resumeAudioAfterAd();
-            }
-        });
-    } else {
-        console.warn("Google AdSense adBreak API not found. Mocking ad watch...");
-        // Mock 2 second ad watch
-        this.audioService.pauseAudioForAd();
-        
-        setTimeout(() => {
-            this.audioService.resumeAudioAfterAd();
 
-            this.adRevivesUsed++;
-            this.reviveCount++;
-            this.executeRevival();
-        }, 2000);
+    const rewarded = await this.adsService.showRewarded('revive');
+    if (rewarded) {
+        this.adRevivesUsed++;
+        this.reviveCount++;
+        this.executeRevival();
+    } else {
+        // Ad skipped or failed: resume the countdown
+        this.startReviveCountdown();
     }
   }
 
@@ -2441,9 +2418,23 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   }
 
 
+  private runCountedForAds = false;
+
+  // A run has ended: count it for the interstitial rules and, at this
+  // natural break (results screen or leaving to the menu), consider one
+  // interstitial. The AdsService enforces every cap and exemption. This is
+  // never called from the death/revive flow.
+  private finishRunForAds() {
+    if (this.runCountedForAds) return;
+    this.runCountedForAds = true;
+    this.adsService.onRunFinished();
+    this.adsService.maybeShowInterstitial();
+  }
+
   private winGame() {
     this.gameEnded.set(true);
     this.gameWon.set(true);
+    this.finishRunForAds();
     
     this.gameState.phoenixOverridePosition.set({ x: window.innerWidth / 2, y: window.innerHeight / 2 }); 
 
@@ -3262,7 +3253,8 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   }
 
 
-  public quitGame() { 
+  public quitGame() {
+      this.finishRunForAds();
       if (this.gameState.currentGameMode() === 'battle') {
           // If we quit without dying, still add the collected coins
           if (!this.isDead()) {
