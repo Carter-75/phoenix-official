@@ -108,16 +108,48 @@ export function phoenixSkinById(id: string): PhoenixSkin {
   return PHOENIX_SKINS.find(s => s.id === id) || PHOENIX_SKINS[0];
 }
 
+// The player bird's skin is derived from the world being played
+// (visual spec addendum, Oct 25, 2026): each WORLDS entry carries the
+// skinId it assigns, and there is no player selection or stored state
+// anywhere. The menu bird and the Battle player bird read the same
+// derivation from the menu-selected world; the rival never does.
+export function phoenixSkinForWorld(worldIndex: number): PhoenixSkin {
+  const world = WORLDS[Math.max(0, Math.min(WORLDS.length - 1, worldIndex))];
+  return phoenixSkinById(world ? world.skinId : 'ember');
+}
+
 // Canonical phoenix outline in normalized bird space: nx is the wing
-// axis (-1..1), nz is the body axis (0 at the head, 1 at the tail tip).
-// One outline for every skin: it drives both the inner-fill particle
-// sampling and the core sprite glyph, so the two layers always agree.
-// Right half from the head, clockwise; the full outline mirrors it.
+// axis (-1..1), nz is the body axis (0 at the beak tip, 1 at the tail
+// plume tips). One outline for every skin: it drives both the
+// inner-fill particle sampling and the core sprite glyph, so the two
+// layers always agree. Drawn to read as an actual phoenix (visual spec
+// addendum, Oct 25, 2026): a narrow beak spike, a round head clearly
+// wider than the pinched neck behind it, swept wings with scalloped
+// primary feathers on the trailing edge, a tapering body, and a tail
+// that fans into five layered plumes (outer, mid, and the centre tip
+// on the axis). Right half from the beak, clockwise; the full outline
+// mirrors it.
 const GLYPH_HALF: Array<[number, number]> = [
-  [0.0, 0.0], [0.06, 0.02], [0.10, 0.08], [0.22, 0.13], [0.60, 0.15],
-  [1.0, 0.24], [0.82, 0.40], [0.64, 0.33], [0.50, 0.44], [0.36, 0.38],
-  [0.27, 0.46], [0.16, 0.55], [0.15, 0.68], [0.12, 0.97], [0.06, 0.80],
-  [0.035, 1.0], [0.0, 0.84],
+  // Beak: a narrow spike ahead of the head.
+  [0.0, 0.0], [0.040, 0.045],
+  // Head: round and wide, widest at the cheek, then the pinched neck.
+  // The head and neck sit clearly ahead of the wings: the first
+  // in-game iteration merged them into the wing dome and the bird
+  // read as a mushroom, so the wing roots start further back now.
+  [0.085, 0.055], [0.130, 0.100], [0.118, 0.145], [0.072, 0.180],
+  // Chest and shoulder, widening into the wing root.
+  [0.095, 0.215], [0.150, 0.245],
+  // Wing leading edge, sweeping out and back to the pointed tip.
+  [0.340, 0.245], [0.560, 0.275], [0.760, 0.325], [0.925, 0.390], [1.0, 0.455],
+  // Wing trailing edge: three scalloped primary feathers back to the
+  // rear wing root.
+  [0.865, 0.510], [0.780, 0.462], [0.682, 0.535], [0.600, 0.485],
+  [0.500, 0.548], [0.425, 0.502], [0.350, 0.555], [0.245, 0.525], [0.180, 0.565],
+  // Body side, tapering to the hips.
+  [0.152, 0.615], [0.136, 0.665],
+  // Tail fan: outer plume, notch, mid plume, notch, centre plume tip.
+  [0.155, 0.705], [0.238, 0.800], [0.332, 0.900], [0.410, 0.968],
+  [0.298, 0.882], [0.233, 1.0], [0.128, 0.902], [0.0, 1.0],
 ];
 export const GLYPH_OUTLINE: Array<[number, number]> = (() => {
   const pts: Array<[number, number]> = [...GLYPH_HALF];
@@ -218,14 +250,15 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
   private static readonly TRAIL_SECONDS = 0.45;
 
   constructor(private ngZone: NgZone) {
+    // The world drives both the ambient palette and the player bird's
+    // skin (addendum: skins are per-world). This fires on menu world
+    // selection and on mid-run realm transitions alike, so the bird
+    // always wears the world it is flying through.
     effect(() => {
       const worldIndex = this.gameState.selectedWorldIndex();
       const theme = WORLDS[worldIndex].theme;
       this.updateColors(theme);
-    });
-    effect(() => {
-      const skinId = this.gameState.selectedSkinId();
-      if (this.bird) this.applySkin(phoenixSkinById(skinId));
+      if (this.bird) this.applySkin(phoenixSkinForWorld(worldIndex));
     });
   }
   
@@ -236,7 +269,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     
     this.bird = this.createBirdState('orange');
     this.initHistory(this.bird);
-    this.createPhoenixMesh(this.bird, phoenixSkinById(this.gameState.selectedSkinId()));
+    this.createPhoenixMesh(this.bird, phoenixSkinForWorld(this.gameState.selectedWorldIndex()));
 
     this.aiBird = this.createBirdState('crimson'); // Different theme for AI
     this.initHistory(this.aiBird);
@@ -283,12 +316,12 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     else if (theme === 'void') { p1 = [0.2, 0.0, 0.4]; p2 = [0.1, 0.0, 0.2]; p3 = [0.0, 0.0, 0.0]; }
 
     // Skin and world hue collision (spec Section 2.4): where the
-    // equipped skin shares the world's hue family, the ambient field's
-    // mid band shifts one step toward its deep band so the player bird
-    // stays the brightest object (rule 1.2.1). The bird itself is not
-    // recolored by the world: skins override the world palette for the
-    // bird only.
-    const skin = phoenixSkinById(this.gameState.selectedSkinId());
+    // world's own skin shares the world's hue family, the ambient
+    // field's mid band shifts one step toward its deep band so the
+    // player bird stays the brightest object (rule 1.2.1). The bird
+    // itself is not recolored by the world palette: its per-world
+    // skin record overrides it for the bird only.
+    const skin = phoenixSkinForWorld(this.gameState.selectedWorldIndex());
     const collideThemes: Record<string, string[]> = {
       frost: ['blue', 'cyan'], eclipse: ['purple', 'void'], solar: ['yellow'],
       verdant: ['green'], celestial: ['cyan', 'void'],
@@ -513,16 +546,23 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
   // as the particle fill, in the skin's palette with a bright core
   // gradient; the skin's edge treatment (angular, serrated, crest,
   // dark heart, facets, sparkles) is applied here, inside the same
-  // bounding box for every skin.
+  // bounding box for every skin. The canvas is 256 by 320, matching
+  // the core plane's 1 by 1.25 aspect, so a normalized unit covers the
+  // same pixels on both axes and the drawn glyph lands exactly on the
+  // sampled fill. The beak gets an explicit bright wedge and the head
+  // a pair of eyes on top of the fill, so the front of the bird reads
+  // as a head even where path smoothing rounds the outline's beak
+  // spike (addendum: the bird must read as an actual phoenix).
   private glyphTexture(skin: PhoenixSkin): THREE.Texture {
     const cached = this.glyphTextures.get(skin.id);
     if (cached) return cached;
     const S = 256;
+    const H = 320;
     const canvas = document.createElement('canvas');
-    canvas.width = S; canvas.height = S;
+    canvas.width = S; canvas.height = H;
     const ctx = canvas.getContext('2d')!;
     const px = (nx: number) => S / 2 + nx * (S * 0.46);
-    const py = (nz: number) => 8 + nz * (S - 16);
+    const py = (nz: number) => 10 + nz * (H - 20);
     // Canvas-space outline; broad-winged skins (Solar) drop the wingtip
     // line lower inside the same box.
     const outline = GLYPH_OUTLINE.map(([nx, nz]): [number, number] => {
@@ -548,7 +588,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     }
     // Mid-dominant fill with a bright core (spec 2.1): the deep band is
     // only the rim, so the silhouette never reads dark against the sky.
-    const grad = ctx.createRadialGradient(S / 2, S * 0.36, 6, S / 2, S * 0.42, S * 0.88);
+    const grad = ctx.createRadialGradient(S / 2, py(0.30), 6, S / 2, py(0.36), H * 0.52);
     grad.addColorStop(0, `rgb(${Math.round(skin.bright[0] * 255)},${Math.round(skin.bright[1] * 255)},${Math.round(skin.bright[2] * 255)})`);
     grad.addColorStop(0.38, `rgb(${Math.round(skin.mid[0] * 255)},${Math.round(skin.mid[1] * 255)},${Math.round(skin.mid[2] * 255)})`);
     grad.addColorStop(1, `rgb(${Math.round(skin.deep[0] * 255)},${Math.round(skin.deep[1] * 255)},${Math.round(skin.deep[2] * 255)})`);
@@ -560,15 +600,25 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     ctx.restore();
     ctx.save();
     ctx.clip(path);
+    // Head bead: a soft bright highlight centred on the head, so the
+    // front of the bird carries a distinct bright bead the eye can
+    // lock onto as a head (the fill gradient centres lower, on the
+    // body). Without it the head, the smallest part of the outline,
+    // disappears into the wing dome at gameplay size.
+    const hg = ctx.createRadialGradient(px(0), py(0.10), 2, px(0), py(0.10), 30);
+    hg.addColorStop(0, 'rgba(255,255,255,0.50)');
+    hg.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = hg;
+    ctx.fillRect(0, 0, S, H);
     if (skin.glyph.darkHeart) {
       // Eclipse: a dark heart under a bright rim and core (spec 2.4).
-      const dg = ctx.createRadialGradient(S / 2, S * 0.40, 4, S / 2, S * 0.40, S * 0.30);
+      const dg = ctx.createRadialGradient(S / 2, py(0.32), 4, S / 2, py(0.32), S * 0.30);
       dg.addColorStop(0, 'rgba(10,4,24,0.88)');
       dg.addColorStop(1, 'rgba(10,4,24,0)');
       ctx.fillStyle = dg;
-      ctx.fillRect(0, 0, S, S);
+      ctx.fillRect(0, 0, S, H);
       ctx.fillStyle = `rgba(${Math.round(skin.bright[0] * 255)},${Math.round(skin.bright[1] * 255)},${Math.round(skin.bright[2] * 255)},0.95)`;
-      ctx.beginPath(); ctx.arc(S / 2, S * 0.30, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(S / 2, py(0.25), 5, 0, Math.PI * 2); ctx.fill();
     }
     if (skin.glyph.facets) {
       // Frost: faint facet lines, like light through ice.
@@ -576,8 +626,8 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       ctx.lineWidth = 1.5;
       for (let i = 0; i < 7; i++) {
         ctx.beginPath();
-        ctx.moveTo(S * (0.15 + i * 0.11), S * 0.08);
-        ctx.lineTo(S * (0.30 + i * 0.09), S * 0.55);
+        ctx.moveTo(S * (0.15 + i * 0.11), H * 0.06);
+        ctx.lineTo(S * (0.30 + i * 0.09), H * 0.44);
         ctx.stroke();
       }
     }
@@ -587,7 +637,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       let seed = 42;
       const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
       for (let i = 0; i < 26; i++) {
-        const x = S * (0.2 + rnd() * 0.6), y = S * (0.1 + rnd() * 0.8), r = 1 + rnd() * 1.8;
+        const x = S * (0.2 + rnd() * 0.6), y = H * (0.08 + rnd() * 0.84), r = 1 + rnd() * 1.8;
         ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
       }
     }
@@ -596,23 +646,46 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     ctx.strokeStyle = `rgba(${Math.round(skin.bright[0] * 255)},${Math.round(skin.bright[1] * 255)},${Math.round(skin.bright[2] * 255)},${skin.glyph.darkHeart ? 0.95 : 0.45})`;
     ctx.lineWidth = skin.glyph.darkHeart ? 3 : 1.5;
     ctx.stroke(path);
-    // Crest treatment at the head (canvas top centre).
-    ctx.fillStyle = `rgb(${Math.round(skin.bright[0] * 255)},${Math.round(skin.bright[1] * 255)},${Math.round(skin.bright[2] * 255)})`;
-    const hx = S / 2, hy = py(0.02);
-    const tri = (dx: number, h: number, w: number) => {
+    const brightCss = `rgb(${Math.round(skin.bright[0] * 255)},${Math.round(skin.bright[1] * 255)},${Math.round(skin.bright[2] * 255)})`;
+    // The beak: a bright wedge at the outline's spike, drawn over the
+    // fill so the head ends in a visible point, not a rounded blob.
+    ctx.fillStyle = brightCss;
+    ctx.beginPath();
+    ctx.moveTo(px(-0.058), py(0.050)); ctx.lineTo(px(0), py(-0.012)); ctx.lineTo(px(0.058), py(0.050));
+    ctx.closePath(); ctx.fill();
+    // Eyes: a dark pair on the head (bright on Eclipse, whose head is
+    // the dark heart), small in flight and clear in the large capture.
+    ctx.fillStyle = skin.glyph.darkHeart ? 'rgba(240,235,255,0.92)' : 'rgba(26,10,6,0.82)';
+    for (const side of [-1, 1]) {
+      ctx.beginPath(); ctx.arc(px(0.055 * side), py(0.095), 3.1, 0, Math.PI * 2); ctx.fill();
+    }
+    // Crest treatment on the head: a fan of slim spikes sweeping back
+    // over the neck (toward the tail), per skin style. Only Celestial's
+    // crown stands forward off the head, as a crown should.
+    ctx.fillStyle = brightCss;
+    const hx = S / 2, hy = py(0.095);
+    const spike = (dx: number, len: number, w: number, splay: number) => {
       ctx.beginPath();
-      ctx.moveTo(hx + dx - w, hy + 4); ctx.lineTo(hx + dx, hy - h); ctx.lineTo(hx + dx + w, hy + 4);
+      ctx.moveTo(hx + dx - w, hy - 2); ctx.lineTo(hx + dx + splay, hy + len); ctx.lineTo(hx + dx + w, hy - 2);
       ctx.closePath(); ctx.fill();
     };
-    if (skin.glyph.crest === 'tuft') { ctx.beginPath(); ctx.arc(hx, hy - 4, 5, 0, Math.PI * 2); ctx.fill(); }
-    else if (skin.glyph.crest === 'spikes') { tri(-7, 15, 3); tri(0, 19, 3); tri(7, 15, 3); }
-    else if (skin.glyph.crest === 'rays') { for (let i = -2; i <= 2; i++) tri(i * 7, 20 - Math.abs(i) * 3, 2.5); }
-    else if (skin.glyph.crest === 'crown') { tri(-8, 13, 4); tri(0, 18, 4); tri(8, 13, 4); }
+    const crownTri = (dx: number, h: number, w: number) => {
+      ctx.beginPath();
+      ctx.moveTo(hx + dx - w, hy + 2); ctx.lineTo(hx + dx, hy - h); ctx.lineTo(hx + dx + w, hy + 2);
+      ctx.closePath(); ctx.fill();
+    };
+    if (skin.glyph.crest === 'tuft') {
+      ctx.beginPath(); ctx.arc(hx, hy - 3, 4.5, 0, Math.PI * 2); ctx.fill();
+      spike(-6, 11, 3.5, -3); spike(6, 11, 3.5, 3);
+    } else if (skin.glyph.crest === 'spikes') { spike(-8, 20, 3, -5); spike(0, 24, 3, 0); spike(8, 20, 3, 5); }
+    else if (skin.glyph.crest === 'rays') { for (let i = -2; i <= 2; i++) spike(i * 7, 23 - Math.abs(i) * 3, 2.6, i * 4); }
+    else if (skin.glyph.crest === 'crown') { crownTri(-8, 13, 4); crownTri(0, 18, 4); crownTri(8, 13, 4); }
     else if (skin.glyph.crest === 'swept') {
-      ctx.beginPath(); ctx.moveTo(hx - 3, hy + 5); ctx.lineTo(hx - 20, hy - 12); ctx.lineTo(hx - 6, hy - 2); ctx.closePath(); ctx.fill();
-      ctx.beginPath(); ctx.moveTo(hx + 3, hy + 5); ctx.lineTo(hx + 20, hy - 12); ctx.lineTo(hx + 6, hy - 2); ctx.closePath(); ctx.fill();
+      spike(0, 15, 3, 0);
+      ctx.beginPath(); ctx.moveTo(hx - 2, hy - 2); ctx.lineTo(hx - 27, hy + 19); ctx.lineTo(hx - 5, hy + 6); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(hx + 2, hy - 2); ctx.lineTo(hx + 27, hy + 19); ctx.lineTo(hx + 5, hy + 6); ctx.closePath(); ctx.fill();
     } else if (skin.glyph.crest === 'leaf') {
-      ctx.beginPath(); ctx.ellipse(hx, hy - 8, 4, 10, 0.3, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(hx, hy + 9, 4.5, 11, 0.15, 0, Math.PI * 2); ctx.fill();
     }
     const tex = new THREE.CanvasTexture(canvas);
     this.glyphTextures.set(skin.id, tex);
@@ -917,9 +990,12 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     // sprite on top in this build, renderOrder 999) and the particle
     // body (renderOrder 2). The plane is rotated so its texture up maps
     // to the bird's local forward (+Z after the history quaternion's
-    // half-turn), its width to the wing axis. Oriented per frame from
-    // the head history quaternion, like the particles.
-    const coreGeo = new THREE.PlaneGeometry(1, 1);
+    // half-turn), its width to the wing axis. The plane is 1 by 1.25,
+    // the bird's own aspect (20 units wide, 25 long), so the glyph is
+    // not compressed head-to-tail against the particle fill that
+    // samples the same outline. Oriented per frame from the head
+    // history quaternion, like the particles.
+    const coreGeo = new THREE.PlaneGeometry(1, 1.25);
     coreGeo.rotateX(Math.PI / 2);
     const coreMat = new THREE.MeshBasicMaterial({
       map: this.glyphTexture(skin), transparent: true, opacity: 0.9,
@@ -1581,11 +1657,19 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
         // Silhouette core sprite: rides the head history entry with the
         // same orientation as the particles, sized to about 0.85 times
         // wingspan (spec 2.1), blinking in sync with the particle layers.
+        // The plane is anchored by its head, not its centre: the glyph's
+        // beak sits just ahead of the bird position (where the particle
+        // head rides) and the body and tail plumes extend backward over
+        // the particle body, so the sprite and the fill draw one bird
+        // instead of a glyph floating ahead of a particle stream.
         if (bird.core) {
             bird.core.position.copy(bird.position);
             if (bird.historyQuat.length > 0) bird.core.quaternion.copy(bird.historyQuat[0]);
             const coreSpan = 8 * this.birdScale * 0.85;
             bird.core.scale.set(coreSpan, coreSpan, coreSpan);
+            const coreLen = coreSpan * 1.25;
+            const anchorBack = new THREE.Vector3(0, 0, -0.44 * coreLen).applyQuaternion(bird.core.quaternion);
+            bird.core.position.add(anchorBack);
             bird.core.visible = bird.group.visible && !(!isAi && this.gameState.isRebirthing());
             if (!isAi && this.visState === 'alive') {
                 (bird.core.material as THREE.MeshBasicMaterial).opacity = 0.9 * (bird.particles.material as THREE.PointsMaterial).opacity;

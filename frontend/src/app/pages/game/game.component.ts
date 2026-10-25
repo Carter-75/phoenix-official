@@ -1,7 +1,7 @@
 import { Component, ElementRef, OnInit, OnDestroy, ViewChild, inject, NgZone, signal, computed, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { GameStateService, STAMINA, createMovementState } from '../../services/game-state.service';
-import { phoenixSkinById } from '../../components/particle-bg/particle-bg.component';
+import { phoenixSkinForWorld } from '../../components/particle-bg/particle-bg.component';
 import { PhysicsEntity, WorldStats } from '../../models/game.models';
 import { ABILITIES, BASE_STATS, REALM_ABILITIES } from '../../constants/game.constants';
 import { AudioService } from '../../services/audio.service';
@@ -949,7 +949,7 @@ export class GameComponent implements OnInit, OnDestroy {
           if (smallestIdx === -1) return; // the new number is the smallest: drop it
           sprites.splice(smallestIdx, 1);
         }
-        const skin = phoenixSkinById(this.gameState.selectedSkinId());
+        const skin = phoenixSkinForWorld(this.gameState.selectedWorldIndex());
         const bright = skin.bright;
         const size = Math.round(Math.max(10, Math.min(18, 13 * this.speedScale)) * (entry.isBoss ? 1.3 : 1));
         sprites.push({
@@ -997,7 +997,7 @@ export class GameComponent implements OnInit, OnDestroy {
   public staminaArcBackground(): string {
     void this.fxNow();
     const frac = Math.max(0, Math.min(1, this.gameState.playerMovement.stamina / STAMINA.max));
-    const skin = phoenixSkinById(this.gameState.selectedSkinId());
+    const skin = phoenixSkinForWorld(this.gameState.selectedWorldIndex());
     const mid = skin.mid;
     const midCss = `rgb(${Math.round(mid[0] * 255)}, ${Math.round(mid[1] * 255)}, ${Math.round(mid[2] * 255)})`;
     const color = frac > 0.35 ? midCss : 'rgb(255, 46, 107)';

@@ -289,24 +289,31 @@ export class MainMenuComponent {
     let idx = this.campaignWorldIndex() + 1;
     if (idx >= WORLDS.length) idx = 0;
     this.campaignWorldIndex.set(idx);
+    // The menu bird wears the selected world's skin (per-world
+    // skins): keep the shared selected-world signal in step with the
+    // carousel so browsing realms reskins the bird live.
+    this.gameState.selectedWorldIndex.set(idx);
   }
 
   prevWorld() {
     let idx = this.campaignWorldIndex() - 1;
     if (idx < 0) idx = WORLDS.length - 1;
     this.campaignWorldIndex.set(idx);
+    this.gameState.selectedWorldIndex.set(idx);
   }
 
   nextBattleWorld() {
     let idx = this.selectedBattleWorldIndex() + 1;
     if (idx >= WORLDS.length) idx = 0;
     this.selectedBattleWorldIndex.set(idx);
+    this.gameState.selectedWorldIndex.set(idx);
   }
 
   prevBattleWorld() {
     let idx = this.selectedBattleWorldIndex() - 1;
     if (idx < 0) idx = this.gameState.worlds.length - 1;
     this.selectedBattleWorldIndex.set(idx);
+    this.gameState.selectedWorldIndex.set(idx);
   }
 
   openShop() {

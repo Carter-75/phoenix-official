@@ -89,6 +89,11 @@ export interface World {
   // Boss identity ported from Temp-phoenix (see data/temp-catalog.ts)
   bossName?: string;
   bossTheme?: string;
+  // The phoenix skin this world assigns to the player bird (visual
+  // spec addendum, Oct 25, 2026): skins are automatic per world, never
+  // player-selected and never stored. The id resolves through
+  // phoenixSkinById in particle-bg.component.ts.
+  skinId: string;
   // Full theme record (visual spec Section 1.5). WORLDS names are canonical;
   // Temp-phoenix realm names are retired as display names.
   themeData: WorldTheme;

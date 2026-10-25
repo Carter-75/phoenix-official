@@ -150,11 +150,10 @@ export class GameStateService {
   public playerMovement: MovementState = createMovementState();
   public aiMovement: MovementState = createMovementState();
   public ai2Movement: MovementState = createMovementState();
-  // Equipped phoenix skin id (visual spec Section 2.4). Additive save
-  // field: older saves have no selectedSkinId and fall back to the
-  // default 'ember' skin. Skins are palette and glyph records only;
-  // this value never affects stats, collision, or economy.
-  public selectedSkinId = signal<string>('ember');
+  // The player bird's skin is not state: it is derived from the
+  // selected world (visual spec addendum, Oct 25, 2026; each WORLDS
+  // entry carries its skinId, resolved by phoenixSkinForWorld). There
+  // is no skin selection and nothing about skins is stored or synced.
   public speedBoostUntil = 0;
   public immortalUntil = 0;
   
