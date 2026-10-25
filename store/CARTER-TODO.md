@@ -6,19 +6,16 @@ Complete these steps in order. Send Muse only public IDs and URLs. Never send pa
 
 The public repo exists at https://github.com/Carter-75/phoenix-official and both branches are pushed and verified: `main` and the preserved `expo-prototype` branch (not the official release path). The repo also carries the GitHub Actions Android build workflow; run #2 on October 25, 2026 produced a verified debug APK and release bundle.
 
-## 2. Publish the two public policy pages
+## 2. Publish the two public policy pages - BUILT, goes live with the backend deploy
 
-Publish these files as stable public web pages:
+The policy text from `store/PRIVACY-POLICY.md` and `store/ACCOUNT-DELETION.md` is now served by the game backend itself as HTML pages (`backend/public-pages/`), verified locally on October 25, 2026 (both routes return 200 with the correct content).
 
-- `store/PRIVACY-POLICY.md`
-- `store/ACCOUNT-DELETION.md`
+Once the production backend is deployed from this repo (step 3), the Play Console URLs are:
 
-Good final paths would be:
+- Privacy policy: `https://phoenix-fall.onrender.com/privacy`
+- Account deletion: `https://phoenix-fall.onrender.com/delete-account`
 
-- `https://phoenixwebsites.ai/phoenix-fall/privacy`
-- `https://phoenixwebsites.ai/phoenix-fall/delete-account`
-
-Those URLs are examples, not live links yet. After the pages are live, send Muse the two actual URLs only. Play Console needs both URLs, and the account deletion URL is required because the app allows account creation.
+Play Console needs both URLs, and the account deletion URL is required because the app allows account creation. If the backend host changes, the same two paths apply on the new host; tell Muse the new host before entering the URLs in Play Console.
 
 ## 3. Prepare the production backend
 

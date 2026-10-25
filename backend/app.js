@@ -57,6 +57,14 @@ app.get('/api/health', async (req, res) => {
   });
 });
 
+// --- Public legal pages (linked from Google Play Console) ---
+app.get('/privacy', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public-pages', 'privacy.html'));
+});
+app.get('/delete-account', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public-pages', 'delete-account.html'));
+});
+
 // --- MongoDB Setup ---
 const mongoURI = process.env.pf_MONGODB_URI || process.env.MONGODB_URI;
 
