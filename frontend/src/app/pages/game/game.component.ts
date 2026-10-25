@@ -1110,7 +1110,7 @@ export class GameComponent implements OnInit, OnDestroy {
             const force = Matter.Vector.sub(this.playerBody.position, otherBody.position);
             const normalized = Matter.Vector.normalise(force);
             if (data.type !== 'boss') {
-                const kick = (data.type === 'golem' ? 3 : data.type === 'bat' ? 100 : data.type === 'slime' ? 60 : 40) * this.speedScale;
+                const kick = (data.type === 'golem' ? 1.5 : data.type === 'bat' ? 50 : data.type === 'slime' ? 30 : 20) * this.speedScale;
                 const kv = Matter.Body.getVelocity(otherBody);
                 Matter.Body.setVelocity(otherBody, { x: kv.x - normalized.x * kick, y: kv.y - normalized.y * kick });
             }
@@ -1351,7 +1351,7 @@ export class GameComponent implements OnInit, OnDestroy {
       // 1.5 AI vs AI Bot Logic for Player
       if (this.gameState.currentGameMode() === 'ai_vs_ai' && !this.isDead() && !this.entranceActive()) {
           const ai2SpeedMult = this.gameState.currentStats().speed || 1;
-          const mouseSpeed = 3.0 * ai2SpeedMult * this.speedScale;
+          const mouseSpeed = 1.5 * ai2SpeedMult * this.speedScale;
           const currentMouse = this.gameState.ai2MousePos();
           
           let threatX = 0, threatY = 0;
@@ -1557,17 +1557,18 @@ export class GameComponent implements OnInit, OnDestroy {
         if (!data) return;
 
         // Chase speed cap in logical units per second (see the steering
-        // block at the end of this loop). Values are the old force
-        // model's terminal velocities on the 412 px reference phone,
-        // converted from Matter's integration (v = F/mass * step^2 /
-        // frictionAir) so each enemy keeps its tuned reference feel:
-        // slime about 196 px/s, bat about 1390 px/s, golem about 4 px/s
-        // (a near-stationary ranged turret), boss about 3 px/s creep.
-        let chaseSpeed = 1.0;
-        if (data.type === 'bat') chaseSpeed = 3.37;
-        if (data.type === 'slime') chaseSpeed = 0.48;
+        // block at the end of this loop). Values descend from the old
+        // force model's terminal velocities on the 412 px reference
+        // phone, converted from Matter's integration (v = F/mass *
+        // step^2 / frictionAir). The Oct 25, 2026 speed retune halved
+        // every cap with the bird's cruise (relative geometry kept):
+        // slime about 98 px/s, bat about 694 px/s, golem about 2 px/s
+        // (a near-stationary ranged turret), boss about 1.4 px/s creep.
+        let chaseSpeed = 0.5;
+        if (data.type === 'bat') chaseSpeed = 1.685;
+        if (data.type === 'slime') chaseSpeed = 0.24;
         if (data.type === 'golem') {
-            chaseSpeed = 0.01;
+            chaseSpeed = 0.005;
             // Golem Ranged Attack
             if (now - (data.lastAttackTime || 0) > 3000) {
                 data.lastAttackTime = now;
@@ -1575,7 +1576,7 @@ export class GameComponent implements OnInit, OnDestroy {
             }
         }
         if (data.type === 'boss') {
-            chaseSpeed = this.rageModeActive() ? 0.017 : 0.007; // Much faster in rage
+            chaseSpeed = this.rageModeActive() ? 0.0085 : 0.0035; // Much faster in rage
             
             const intensity = this.audioService.getAudioIntensity();
             
@@ -1613,7 +1614,7 @@ export class GameComponent implements OnInit, OnDestroy {
             // combat brain (no targeting, no firing, no movement forces) until intro ends.
             if (this.entranceActive()) return;
             const aiSpeedMult = this.battleAi.ai1.stats?.speed || 1;
-            const mouseSpeed = 3.0 * aiSpeedMult * this.speedScale;
+            const mouseSpeed = 1.5 * aiSpeedMult * this.speedScale;
             const currentMouse = this.gameState.aiMousePos();
             
             let threatX = 0, threatY = 0;
@@ -1887,14 +1888,14 @@ export class GameComponent implements OnInit, OnDestroy {
                           const force = Matter.Vector.sub(nearest.position, body.position);
                           const normalized = Matter.Vector.normalise(force);
                           // Capped linear scaling for stable physics
-                          const pullStrength = 0.00003 + (0.000015 * Math.min(homingLvl, 50));
+                          const pullStrength = 0.0000075 + (0.00000375 * Math.min(homingLvl, 50));
                           Matter.Body.applyForce(body, body.position, Matter.Vector.mult(normalized, pullStrength));
                       }
                   } else if (data && data.type === 'annihilation_fire') {
                       // Homing onto player
                       const force = Matter.Vector.sub(this.playerBody.position, body.position);
                       const normalized = Matter.Vector.normalise(force);
-                      Matter.Body.applyForce(body, body.position, Matter.Vector.mult(normalized, 0.0002));
+                      Matter.Body.applyForce(body, body.position, Matter.Vector.mult(normalized, 0.00005));
                   }
               }
           });
@@ -2345,7 +2346,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
               label: 'projectile', isSensor: true,
               plugin: { data: { id: Math.random().toString(), type: 'annihilation_fire', health: 1, maxHealth: 1 } as EnemyData }
           });
-          Matter.Body.setVelocity(proj, Matter.Vector.mult(fireDir, this.scaledSpeed(15)));
+          Matter.Body.setVelocity(proj, Matter.Vector.mult(fireDir, this.scaledSpeed(7.5)));
           Matter.Composite.add(this.engine.world, proj);
           
       }, 200);
@@ -2380,7 +2381,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
               label: 'projectile', isSensor: true,
               plugin: { data: { id: Math.random().toString(), type: 'projectile_enemy', health: 1, maxHealth: 1, owner: 'enemy', burstDamage: 10 } as EnemyData }
           });
-          Matter.Body.setVelocity(proj, Matter.Vector.mult(dir, this.scaledSpeed(8)));
+          Matter.Body.setVelocity(proj, Matter.Vector.mult(dir, this.scaledSpeed(4)));
           Matter.Composite.add(this.engine.world, proj);
 
           setTimeout(() => {
@@ -2391,7 +2392,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
                           const boss = this.enemies.find(e => e.plugin['data']?.type === 'boss');
                           if (boss) {
                               const returnDir = Matter.Vector.normalise(Matter.Vector.sub(boss.position, proj.position));
-                              Matter.Body.setVelocity(proj, Matter.Vector.mult(returnDir, this.scaledSpeed(12)));
+                              Matter.Body.setVelocity(proj, Matter.Vector.mult(returnDir, this.scaledSpeed(6)));
                               setTimeout(() => { if (proj.parent) Matter.Composite.remove(this.engine.world, proj); }, 2000);
                           } else {
                               Matter.Composite.remove(this.engine.world, proj);
@@ -2755,7 +2756,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
              // Volcanic fire rebirth particles
              for (let i = 0; i < 30; i++) {
                  const angle = (i / 30) * Math.PI * 2;
-                 const speed = this.scaledSpeed(8 + Math.random() * 8);
+                 const speed = this.scaledSpeed(4 + Math.random() * 4);
                  const fireDir = { x: Math.cos(angle), y: Math.sin(angle) };
                  const proj = Matter.Bodies.circle(this.playerBody.position.x, this.playerBody.position.y, 15, {
                      isSensor: true, label: 'projectile',
@@ -3308,7 +3309,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       }
     });
 
-    Matter.Body.setVelocity(projectile, Matter.Vector.mult(dir, this.scaledSpeed(15)));
+    Matter.Body.setVelocity(projectile, Matter.Vector.mult(dir, this.scaledSpeed(7.5)));
     Matter.Composite.add(this.engine.world, projectile);
     
     this.audioService.playSFX('shoot');
@@ -3338,7 +3339,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       }
     });
 
-    Matter.Body.setVelocity(projectile, Matter.Vector.mult(finalDir, this.scaledSpeed(15)));
+    Matter.Body.setVelocity(projectile, Matter.Vector.mult(finalDir, this.scaledSpeed(7.5)));
     Matter.Composite.add(this.engine.world, projectile);
     setTimeout(() => { if (projectile.parent) Matter.Composite.remove(this.engine.world, projectile); }, 2000);
   }
@@ -3403,7 +3404,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       const firingDurationSec = (ammo * fireIntervalMs) / 1000;
       
       const damage = stats.damage * 0.5 * mods['damage'];
-      const range = this.scaledSpeed(12 * mods['range']);
+      const range = this.scaledSpeed(6 * mods['range']);
       
       const incomingDamage = new Map<string, number>();
 
@@ -3511,7 +3512,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
               
               for (let i = 0; i < 40; i++) {
                   const angle = Math.random() * Math.PI * 2;
-                  const speed = this.scaledSpeed(Math.random() * 8 + 4);
+                  const speed = this.scaledSpeed(Math.random() * 4 + 2);
                   const fireDir = { x: Math.cos(angle), y: Math.sin(angle) };
                   const proj = Matter.Bodies.circle(egg.position.x, egg.position.y, 15, {
                       isSensor: true, label: 'projectile',
@@ -3548,7 +3549,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
                   return;
               }
               
-              const speed = (isReturning ? 4 : (eggData.aggroTarget ? 3 : 2)) * this.speedScale;
+              const speed = (isReturning ? 2 : (eggData.aggroTarget ? 1.5 : 1)) * this.speedScale;
               const maxTurnForce = 0.5;
               let combinedForce = { x: 0, y: 0 };
               
@@ -3649,7 +3650,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
                                   isSensor: true, label: 'projectile',
                                   plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: baseDamage, ownerId: ownerId } as EnemyData }
                               });
-                              Matter.Body.setVelocity(proj, Matter.Vector.mult(fireDir, this.scaledSpeed(15)));
+                              Matter.Body.setVelocity(proj, Matter.Vector.mult(fireDir, this.scaledSpeed(7.5)));
                               Matter.Composite.add(this.engine.world, proj);
                               setTimeout(() => { if (proj.parent) Matter.Composite.remove(this.engine.world, proj) }, 1000);
                           }, i * 50);
@@ -3702,7 +3703,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
               isSensor: true,
               plugin: { data: { id: Math.random().toString(), type: ownerId === 'player' ? 'projectile_player' : 'projectile_enemy', ownerId: ownerId, burstDamage: damage, health: 1, maxHealth: 1 } as EnemyData }
           });
-          Matter.Body.setVelocity(projectile, Matter.Vector.mult(rotDir, this.scaledSpeed(20)));
+          Matter.Body.setVelocity(projectile, Matter.Vector.mult(rotDir, this.scaledSpeed(10)));
           Matter.Composite.add(this.engine.world, projectile);
           setTimeout(() => { if (projectile.parent) Matter.Composite.remove(this.engine.world, projectile); }, 2000);
       }

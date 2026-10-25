@@ -39,7 +39,7 @@ export const AUTO_FIRE = {
 export const PLAYER_ANCHORS = {
   cruiseCrossingSeconds: 1.4, // one full-width crossing at base speed stat
   turnRateCapRadPerSec: 5.5,
-  enemySpeedCeilingLuPerSec: 3.37, // the bat; nothing may exceed it
+  enemySpeedCeilingLuPerSec: 1.685, // the bat; nothing may exceed it (halved with cruise in the Oct 25, 2026 speed retune; was 3.37)
   contactDamageStandard: 10,
   contactDamageBoss: 50,
   heartDropChance: 0.1,
@@ -60,10 +60,10 @@ export interface EnemyClassAnchor {
 
 // World 0 values; HP scales by ENEMY_HP_WORLD_GROWTH per world index.
 export const ENEMY_CLASS_ANCHORS: EnemyClassAnchor[] = [
-  { id: 'bat', displayName: 'Bat (Gloomwing)', ttkClass: 'fragile', hpWorld0: 10, speedCapLuPerSec: 3.37, xp: 5, notes: 'Fastest thing in the game; the speed ceiling.' },
-  { id: 'slime', displayName: 'Slime (Ember Glob)', ttkClass: 'standard', hpWorld0: 20, speedCapLuPerSec: 0.48, xp: 2, notes: '' },
-  { id: 'golem', displayName: 'Golem (Bastion Golem)', ttkClass: 'armored', hpWorld0: 200, speedCapLuPerSec: 0.01, xp: 20, notes: 'Aimed shot every 3 s.' },
-  { id: 'boss_minion', displayName: 'Boss minion (bat variant)', ttkClass: 'minion', hpWorld0: 5, speedCapLuPerSec: 3.37, xp: 5, notes: 'Summoned only.' },
+  { id: 'bat', displayName: 'Bat (Gloomwing)', ttkClass: 'fragile', hpWorld0: 10, speedCapLuPerSec: 1.685, xp: 5, notes: 'Fastest thing in the game; the speed ceiling.' },
+  { id: 'slime', displayName: 'Slime (Ember Glob)', ttkClass: 'standard', hpWorld0: 20, speedCapLuPerSec: 0.24, xp: 2, notes: '' },
+  { id: 'golem', displayName: 'Golem (Bastion Golem)', ttkClass: 'armored', hpWorld0: 200, speedCapLuPerSec: 0.005, xp: 20, notes: 'Aimed shot every 3 s.' },
+  { id: 'boss_minion', displayName: 'Boss minion (bat variant)', ttkClass: 'minion', hpWorld0: 5, speedCapLuPerSec: 1.685, xp: 5, notes: 'Summoned only.' },
 ];
 
 // ---------------------------------------------------------------------------

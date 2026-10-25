@@ -221,6 +221,14 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
   // of about 1.4 s. All bird motion is delta-time integrated against
   // this, so 90/120 Hz phones and landscape tablets now match it.
   private static readonly BIRD_CROSSING_SECONDS = 1.4;
+  private static readonly BASE_SPEED_STAT = 2.0;
+  // The shipped speed stat is anchored at 2.0 (BASE_STATS.speed): before
+  // the Oct 25, 2026 speed retune the stat fed the cruise multiplier raw,
+  // so base stats cruised at (visibleWidth / 1.4) x 2.0, a nominal 0.70 s
+  // crossing. The retune normalizes every stat-derived multiplier by
+  // this base, so base stats yield exactly the canonical crossing and
+  // each upgrade step keeps its relative size (a step that raised pace
+  // by X percent before still raises it by X percent).
   private lastFrameTime = 0;
   private trailAccumulator = 0;
   private glowTexture: THREE.Texture | null = null;
@@ -1404,9 +1412,9 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
                   if (this.gameState.activeScreen() === 'menu') {
                       speedMult = 1.0; // Menu: plain mouse-follow regardless of saved mode
                   } else if (this.gameState.currentGameMode() === 'ai_vs_ai') {
-                      speedMult = this.gameState.ai2PhoenixSpeed();
+                      speedMult = this.gameState.ai2PhoenixSpeed() / ParticleBgComponent.BASE_SPEED_STAT;
                   } else {
-                      speedMult = this.gameState.currentStats().speed;
+                      speedMult = this.gameState.currentStats().speed / ParticleBgComponent.BASE_SPEED_STAT;
                       if (Date.now() < this.gameState.speedBoostUntil) speedMult *= 2.0;
                       if (this.gameState.isDrilling()) {
                           const modifiers = this.gameState.currentStats().unlockedAbilities['drill_attack']?.modifiers;
@@ -1414,7 +1422,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
                       }
                   }
               } else {
-                  speedMult = this.gameState.aiPhoenixSpeed(); 
+                  speedMult = this.gameState.aiPhoenixSpeed() / ParticleBgComponent.BASE_SPEED_STAT;
               }
 
               // Cruise speed for this bird in world units per second.

@@ -154,7 +154,7 @@ export class EntitySpawnerService {
         const hp = Math.floor(5 * Math.pow(1.5, worldIndex));
         const data = { id: Math.random().toString(), type: 'bat', health: hp, maxHealth: hp } as EnemyData;
         const minion = this.createEnemyBody(x, y, 10, 'bat', data);
-        Matter.Body.setVelocity(minion, { x: (Math.random()-0.5)*10*this.speedScale, y: (Math.random()-0.5)*10*this.speedScale });
+        Matter.Body.setVelocity(minion, { x: (Math.random()-0.5)*5*this.speedScale, y: (Math.random()-0.5)*5*this.speedScale });
         ctx.enemies.push(minion);
         Matter.Composite.add(ctx.engine.world, minion);
     }
@@ -171,7 +171,7 @@ export class EntitySpawnerService {
                 data: { id: Math.random().toString(), type: type, value: value } as any
             }
         });
-        Matter.Body.setVelocity(item, { x: (Math.random() - 0.5) * 5 * this.speedScale, y: (Math.random() - 0.5) * 5 * this.speedScale });
+        Matter.Body.setVelocity(item, { x: (Math.random() - 0.5) * 2.5 * this.speedScale, y: (Math.random() - 0.5) * 2.5 * this.speedScale });
         Matter.Composite.add(ctx.engine.world, item);
         ctx.items.push(item);
     }
