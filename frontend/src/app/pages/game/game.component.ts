@@ -3,7 +3,6 @@ import { CommonModule } from '@angular/common';
 import { GameStateService } from '../../services/game-state.service';
 import { PhysicsEntity, WorldStats } from '../../models/game.models';
 import { ABILITIES, BASE_STATS, REALM_ABILITIES } from '../../constants/game.constants';
-import { Capacitor } from '@capacitor/core';
 import { AudioService } from '../../services/audio.service';
 import { SettingsComponent } from '../settings/settings.component';
 import * as Matter from 'matter-js';
@@ -313,6 +312,26 @@ export class GameComponent implements OnInit, OnDestroy {
       return Math.max(0.4, Math.min(1.0, window.innerWidth / 1000));
   }
 
+  // Logical playfield unit for speeds (playtest round 1, speed
+  // consistency): the smaller viewport dimension in px. Every gameplay
+  // speed is defined against it, so play feels the same on a small
+  // phone, a landscape phone, and a tablet. At the 412 px reference
+  // phone the factor is exactly 1 and speeds equal the historical
+  // pixel values the game was tuned with.
+  private get logicalUnit(): number {
+      return Math.min(window.innerWidth, window.innerHeight);
+  }
+
+  private get speedScale(): number {
+      return this.logicalUnit / 412;
+  }
+
+  // Convert a speed tuned on the reference phone (px per 1/60 s step,
+  // the unit Matter velocities use) into the current viewport's value.
+  private scaledSpeed(pxPerStepAtRef: number): number {
+      return pxPerStepAtRef * this.speedScale;
+  }
+
   
   public maxHealth = signal<number>(100);
 
@@ -433,6 +452,10 @@ export class GameComponent implements OnInit, OnDestroy {
 
   private reviveInterval: any;
 
+  // True while a revive rewarded ad is on screen. The revive countdown
+  // is paused for the whole flight of the ad (playtest round 1, Bug 4).
+  private adReviveInFlight = false;
+
 
   // Abilities
   public tapCooldown = signal<number>(0);
@@ -448,8 +471,6 @@ export class GameComponent implements OnInit, OnDestroy {
   public cheatPrepared = signal<boolean>(false);
 
   
-  private lastUpdateTime = Date.now();
-
   private tapAbilityEndTime = 0;
 
   private holdAbilityEndTime = 0;
@@ -475,7 +496,15 @@ export class GameComponent implements OnInit, OnDestroy {
   // Matter.js
   private engine!: Matter.Engine;
 
-  private runner!: Matter.Runner;
+  // Fixed-step physics driver (playtest round 1, speed consistency). The
+  // engine is advanced in exact 1/60 s steps accumulated from wall-clock
+  // time, so physics runs at the same rate on 60, 90, and 120 Hz screens.
+  // Matter.Runner cannot do this: it clamps its step delta to a minimum
+  // of 16.7 ms, which makes the whole world run about 2x fast at 120 Hz.
+  private readonly PHYSICS_STEP_MS = 1000 / 60;
+  private physicsRafId: number | null = null;
+  private physicsLastTime = 0;
+  private physicsAccumulator = 0;
 
   private playerBody!: Matter.Body;
 
@@ -692,18 +721,50 @@ export class GameComponent implements OnInit, OnDestroy {
   }
 
 
+  // Start the fixed-step physics driver. No-op if already running.
+  private startPhysics() {
+    if (this.physicsRafId !== null || !this.engine) return;
+    this.physicsLastTime = performance.now();
+    this.physicsAccumulator = 0;
+    const tick = (now: number) => {
+      this.physicsRafId = requestAnimationFrame(tick);
+      let frameMs = now - this.physicsLastTime;
+      this.physicsLastTime = now;
+      if (frameMs > 250) frameMs = 250; // tab was hidden: do not fast-forward
+      if (frameMs < 0) frameMs = 0;
+      this.physicsAccumulator += frameMs;
+      let steps = 0;
+      while (this.physicsAccumulator >= this.PHYSICS_STEP_MS && steps < 3) {
+        Matter.Engine.update(this.engine, this.PHYSICS_STEP_MS);
+        this.physicsAccumulator -= this.PHYSICS_STEP_MS;
+        steps++;
+      }
+      // Under heavy lag, drop the backlog instead of spiralling.
+      if (steps === 3) this.physicsAccumulator = 0;
+    };
+    this.physicsRafId = requestAnimationFrame(tick);
+  }
+
+  // Stop the fixed-step physics driver (pause, death, teardown).
+  private stopPhysics() {
+    if (this.physicsRafId !== null) {
+      cancelAnimationFrame(this.physicsRafId);
+      this.physicsRafId = null;
+    }
+  }
+
   private initPhysics() {
     const Engine = Matter.Engine,
-          Runner = Matter.Runner,
           Bodies = Matter.Bodies,
           Composite = Matter.Composite;
 
     this.engine = Engine.create({ gravity: { x: 0, y: 0 } });
-    
-    // Speed up physics engine if running natively on a mobile device
-    if (Capacitor.isNativePlatform()) {
-        this.engine.timing.timeScale = 1.35;
-    }
+
+    // No platform-specific time scaling (playtest round 1): the old code
+    // set engine.timing.timeScale = 1.35 on native Android, so the
+    // shipped app played about 35 percent faster than the web build at
+    // identical settings. There was no design reason for the divergence
+    // beyond the comment "speed up if native"; one game, one speed.
 
     // Invisible player hitbox (Compound Body for Bird Shape)
     const scale = this.screenScale;
@@ -759,11 +820,19 @@ export class GameComponent implements OnInit, OnDestroy {
             }
             this.takeDamage(data.type === 'boss' || data.type === 'enemy_phoenix' ? 50 : 10);
             
-            // Knockback logic
+            // Knockback logic: an explicit velocity kick instead of a
+            // force impulse, so the knockback is the same on every
+            // screen size (a force impulse varies with body mass, which
+            // scales with the viewport). Per-type values preserve the
+            // old reference-phone feel: light enemies get launched,
+            // golems barely budge. The kick is in px per 1/60 s step at
+            // the reference size and decays through the steering blend.
             const force = Matter.Vector.sub(this.playerBody.position, otherBody.position);
             const normalized = Matter.Vector.normalise(force);
             if (data.type !== 'boss') {
-                Matter.Body.applyForce(otherBody, otherBody.position, Matter.Vector.mult(normalized, -0.05));
+                const kick = (data.type === 'golem' ? 3 : data.type === 'bat' ? 100 : data.type === 'slime' ? 60 : 40) * this.speedScale;
+                const kv = Matter.Body.getVelocity(otherBody);
+                Matter.Body.setVelocity(otherBody, { x: kv.x - normalized.x * kick, y: kv.y - normalized.y * kick });
             }
           } else if (otherBody.label === 'projectile' && (data.type === 'projectile_enemy' || data.type === 'projectile_player' || data.type === 'annihilation_fire' || data.type === 'fire' || data.type === 'aura')) {
             if (data.owner === 'player') continue;
@@ -963,12 +1032,13 @@ export class GameComponent implements OnInit, OnDestroy {
     });
 
     // Update Loop
-    Matter.Events.on(this.engine, 'beforeUpdate', () => {
+    Matter.Events.on(this.engine, 'beforeUpdate', (event: any) => {
       // Hard pause (pause menu / tab hidden): freeze everything.
-      if (this.gameState.isPaused()) { this.lastUpdateTime = Date.now(); return; }
+      if (this.gameState.isPaused()) return;
       const now = Date.now();
-      const delta = Math.min(0.1, (now - this.lastUpdateTime) / 1000); // exact real-time delta
-      this.lastUpdateTime = now;
+      // Fixed-step driver: event.delta is the step size in ms (always
+      // 1000/60), identical on every device and refresh rate.
+      const delta = Math.min(0.1, (event?.delta ?? 1000 / 60) / 1000);
       
       // Cooldowns
       if (now > this.tapAbilityEndTime) {
@@ -989,7 +1059,7 @@ export class GameComponent implements OnInit, OnDestroy {
       // 1.5 AI vs AI Bot Logic for Player
       if (this.gameState.currentGameMode() === 'ai_vs_ai' && !this.isDead() && !this.entranceActive()) {
           const ai2SpeedMult = this.gameState.currentStats().speed || 1;
-          const mouseSpeed = 3.0 * ai2SpeedMult;
+          const mouseSpeed = 3.0 * ai2SpeedMult * this.speedScale;
           const currentMouse = this.gameState.ai2MousePos();
           
           let threatX = 0, threatY = 0;
@@ -1164,11 +1234,18 @@ export class GameComponent implements OnInit, OnDestroy {
         const data = enemy.plugin['data'] as EnemyData;
         if (!data) return;
 
-        let moveSpeed = 0.00025;
-        if (data.type === 'bat') moveSpeed = 0.0005;
-        if (data.type === 'slime') moveSpeed = 0.00012;
+        // Chase speed cap in logical units per second (see the steering
+        // block at the end of this loop). Values are the old force
+        // model's terminal velocities on the 412 px reference phone,
+        // converted from Matter's integration (v = F/mass * step^2 /
+        // frictionAir) so each enemy keeps its tuned reference feel:
+        // slime about 196 px/s, bat about 1390 px/s, golem about 4 px/s
+        // (a near-stationary ranged turret), boss about 3 px/s creep.
+        let chaseSpeed = 1.0;
+        if (data.type === 'bat') chaseSpeed = 3.37;
+        if (data.type === 'slime') chaseSpeed = 0.48;
         if (data.type === 'golem') {
-            moveSpeed = 0.00005;
+            chaseSpeed = 0.01;
             // Golem Ranged Attack
             if (now - (data.lastAttackTime || 0) > 3000) {
                 data.lastAttackTime = now;
@@ -1176,7 +1253,7 @@ export class GameComponent implements OnInit, OnDestroy {
             }
         }
         if (data.type === 'boss') {
-            moveSpeed = this.rageModeActive() ? 0.0005 : 0.0002; // Much faster
+            chaseSpeed = this.rageModeActive() ? 0.017 : 0.007; // Much faster in rage
             
             const intensity = this.audioService.getAudioIntensity();
             
@@ -1199,20 +1276,22 @@ export class GameComponent implements OnInit, OnDestroy {
             }
             
             // If the song is quiet, slowly creep. If loud, move faster
-            moveSpeed *= (1 + intensity);
+            chaseSpeed *= (1 + intensity);
 
-            // Strict Bounds Checking for Boss
-            if (enemy.position.x < 100) Matter.Body.setPosition(enemy, { x: 100, y: enemy.position.y });
-            if (enemy.position.x > window.innerWidth - 100) Matter.Body.setPosition(enemy, { x: window.innerWidth - 100, y: enemy.position.y });
-            if (enemy.position.y < 100) Matter.Body.setPosition(enemy, { x: enemy.position.x, y: 100 });
-            if (enemy.position.y > window.innerHeight - 100) Matter.Body.setPosition(enemy, { x: enemy.position.x, y: window.innerHeight - 100 });
+            // Strict Bounds Checking for Boss (margin scales with the
+            // logical unit so it is the same screen fraction everywhere)
+            const bossMargin = 100 * this.speedScale;
+            if (enemy.position.x < bossMargin) Matter.Body.setPosition(enemy, { x: bossMargin, y: enemy.position.y });
+            if (enemy.position.x > window.innerWidth - bossMargin) Matter.Body.setPosition(enemy, { x: window.innerWidth - bossMargin, y: enemy.position.y });
+            if (enemy.position.y < bossMargin) Matter.Body.setPosition(enemy, { x: enemy.position.x, y: bossMargin });
+            if (enemy.position.y > window.innerHeight - bossMargin) Matter.Body.setPosition(enemy, { x: enemy.position.x, y: window.innerHeight - bossMargin });
         }
         if (data.type === 'enemy_phoenix') {
             // During the entrance the AI is flown in by the entrance RAF override; skip its
             // combat brain (no targeting, no firing, no movement forces) until intro ends.
             if (this.entranceActive()) return;
             const aiSpeedMult = this.battleAi.ai1.stats?.speed || 1;
-            const mouseSpeed = 3.0 * aiSpeedMult; 
+            const mouseSpeed = 3.0 * aiSpeedMult * this.speedScale;
             const currentMouse = this.gameState.aiMousePos();
             
             let threatX = 0, threatY = 0;
@@ -1377,13 +1456,28 @@ export class GameComponent implements OnInit, OnDestroy {
             return; // Skip normal force-based movement
         }
         
-        // Delta-time scaled enemy forces for consistent cross-device behavior
-        const dtScale = delta / (1 / 60); // Normalize to 60fps baseline
-        Matter.Body.applyForce(enemy, enemy.position, Matter.Vector.mult(normalized, moveSpeed * dtScale));
+        // Velocity steering (playtest round 1, speed consistency): the
+        // enemy blends toward a capped chase velocity defined in logical
+        // units per second. The old model applied a fixed Matter force,
+        // whose terminal velocity is inversely proportional to body
+        // mass; enemy masses scale with screen size (about 6x slower on
+        // a wide screen than on a phone) and with the Runner's delta
+        // clamping it also ran about 2x slower at 120 Hz. Steering makes
+        // the approach speed a direct, testable number on every screen.
+        // The blend rate gives a spin-up time constant of about 0.4 s,
+        // matching the old force model's acceleration feel.
+        const maxSpeedPx = chaseSpeed * this.logicalUnit; // px per second
+        const vel = Matter.Body.getVelocity(enemy); // px per 1/60 s step
+        const curX = vel.x * 60;
+        const curY = vel.y * 60;
+        const blend = 1 - Math.exp(-2.5 * delta);
+        const newX = curX + (normalized.x * maxSpeedPx - curX) * blend;
+        const newY = curY + (normalized.y * maxSpeedPx - curY) * blend;
+        Matter.Body.setVelocity(enemy, { x: newX / 60, y: newY / 60 });
       });
 
       // 4. Magnetism for items
-      const magnetRadius = 150 * this.gameState.currentStats().magnetism;
+      const magnetRadius = 150 * this.speedScale * this.gameState.currentStats().magnetism;
       this.items.forEach(item => {
          const data = item.plugin['data'];
          const isBossGem = this.inBossDefeatSequence() && data && data.type === 'gem';
@@ -1398,7 +1492,7 @@ export class GameComponent implements OnInit, OnDestroy {
          } else if (data) {
              // Normal Magnetism
              const isXpOrb = data.type === 'xp_orb';
-             const activeRadius = (isXpOrb ? 300 : 150) * this.gameState.currentStats().magnetism;
+             const activeRadius = (isXpOrb ? 300 : 150) * this.speedScale * this.gameState.currentStats().magnetism;
              let targetPos = this.playerBody.position;
              
              if (this.gameState.currentGameMode() === 'ai_vs_ai') {
@@ -1436,7 +1530,7 @@ export class GameComponent implements OnInit, OnDestroy {
                           const dist = Matter.Vector.magnitude(Matter.Vector.sub(e.position, body.position));
                           if (dist < minDist) { minDist = dist; nearest = e; }
                       });
-                      if (minDist < 600) {
+                      if (minDist < 600 * this.speedScale) {
                           const force = Matter.Vector.sub(nearest.position, body.position);
                           const normalized = Matter.Vector.normalise(force);
                           // Capped linear scaling for stable physics
@@ -1498,8 +1592,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       this.gameState.activeEntities.set(uniqueEntities);
     });
 
-    this.runner = Runner.create();
-    Runner.run(this.runner, this.engine);
+    this.startPhysics();
   }
 
 
@@ -1611,7 +1704,6 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
               setTimeout(() => {
                   if (!this.gameEnded() && !this.isDead()) {
                       this.entranceActive.set(false);
-                      this.lastUpdateTime = Date.now();
                       this.lastClickTime = Date.now();
                   }
               }, 1000);
@@ -1880,7 +1972,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
               label: 'projectile', isSensor: true,
               plugin: { data: { id: Math.random().toString(), type: 'annihilation_fire', health: 1, maxHealth: 1 } as EnemyData }
           });
-          Matter.Body.setVelocity(proj, Matter.Vector.mult(fireDir, 15));
+          Matter.Body.setVelocity(proj, Matter.Vector.mult(fireDir, this.scaledSpeed(15)));
           Matter.Composite.add(this.engine.world, proj);
           
       }, 200);
@@ -1915,9 +2007,9 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
               label: 'projectile', isSensor: true,
               plugin: { data: { id: Math.random().toString(), type: 'projectile_enemy', health: 1, maxHealth: 1, owner: 'enemy', burstDamage: 10 } as EnemyData }
           });
-          Matter.Body.setVelocity(proj, Matter.Vector.mult(dir, 8));
+          Matter.Body.setVelocity(proj, Matter.Vector.mult(dir, this.scaledSpeed(8)));
           Matter.Composite.add(this.engine.world, proj);
-          
+
           setTimeout(() => {
               if (proj.parent) {
                   Matter.Body.setVelocity(proj, { x: 0, y: 0 }); // Pause
@@ -1926,7 +2018,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
                           const boss = this.enemies.find(e => e.plugin['data']?.type === 'boss');
                           if (boss) {
                               const returnDir = Matter.Vector.normalise(Matter.Vector.sub(boss.position, proj.position));
-                              Matter.Body.setVelocity(proj, Matter.Vector.mult(returnDir, 12));
+                              Matter.Body.setVelocity(proj, Matter.Vector.mult(returnDir, this.scaledSpeed(12)));
                               setTimeout(() => { if (proj.parent) Matter.Composite.remove(this.engine.world, proj); }, 2000);
                           } else {
                               Matter.Composite.remove(this.engine.world, proj);
@@ -2273,7 +2365,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
              // Volcanic fire rebirth particles
              for (let i = 0; i < 30; i++) {
                  const angle = (i / 30) * Math.PI * 2;
-                 const speed = 8 + Math.random() * 8;
+                 const speed = this.scaledSpeed(8 + Math.random() * 8);
                  const fireDir = { x: Math.cos(angle), y: Math.sin(angle) };
                  const proj = Matter.Bodies.circle(this.playerBody.position.x, this.playerBody.position.y, 15, {
                      isSensor: true, label: 'projectile',
@@ -2331,6 +2423,9 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   private startReviveCountdown() {
       if (this.reviveInterval) clearInterval(this.reviveInterval);
       this.reviveInterval = setInterval(() => {
+          // Paused while a revive ad is showing: the tick does nothing,
+          // so the countdown can never expire mid-ad (Bug 4).
+          if (this.adReviveInFlight) return;
           this.reviveCountdown.update(c => c - 1);
           if (this.reviveCountdown() <= 0) {
               clearInterval(this.reviveInterval);
@@ -2366,16 +2461,31 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
   public async reviveWithAd() {
     if (this.adRevivesUsed >= this.maxAdRevivesPerRun) return;
-    // Pause the countdown while the ad plays
-    clearInterval(this.reviveInterval);
+    if (this.adReviveInFlight) return;
+    // Pause the countdown for the whole flight of the ad: clear the
+    // interval AND raise the in-flight flag, so no countdown path can
+    // end the run while the ad is on screen (playtest round 1, Bug 4).
+    this.adReviveInFlight = true;
+    if (this.reviveInterval) clearInterval(this.reviveInterval);
 
-    const rewarded = await this.adsService.showRewarded('revive');
+    let rewarded = false;
+    try {
+        rewarded = await this.adsService.showRewarded('revive');
+    } finally {
+        this.adReviveInFlight = false;
+    }
+
+    // If the run ended while the ad played (for example the player gave
+    // up from the death screen underneath a web simulated ad), do not
+    // resurrect into a run that no longer exists.
+    if (!this.isDead() || this.gameState.activeScreen() !== 'game') return;
+
     if (rewarded) {
         this.adRevivesUsed++;
         this.reviveCount++;
         this.executeRevival();
     } else {
-        // Ad skipped or failed: resume the countdown
+        // Ad skipped or failed: resume the countdown from where it paused
         this.startReviveCountdown();
     }
   }
@@ -2392,7 +2502,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
     this.clearEnemies();
     this.rageModeActive.set(false); // Reset rage mode on revive
     this.killScreenTimer.set(10); // Reset timer just in case
-    if (this.runner && this.engine) Matter.Runner.run(this.runner, this.engine); // Unfreeze physics
+    if (this.engine) this.startPhysics(); // Unfreeze physics
     if (this.bossSpawned()) {
         // Boss fight continues: reset timer so rage mode doesn't trigger instantly
         this.timeRemaining.set(this.totalTimeSignal());
@@ -2525,10 +2635,10 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
     this.gameState.isPaused.set(!this.gameState.isPaused());
     
     if (this.gameState.isPaused()) {
-        Matter.Runner.stop(this.runner);
+        this.stopPhysics();
         this.audioService.pauseCurrentBgm();
     } else {
-        Matter.Runner.run(this.runner, this.engine);
+        this.startPhysics();
         this.audioService.resumeCurrentBgm();
     }
   }
@@ -2622,10 +2732,10 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       if (dist < minDist) { minDist = dist; nearest = e; }
     });
 
-    if (minDist > 500) return; 
+    if (minDist > 500 * this.speedScale) return;
 
     const dir = Matter.Vector.normalise(Matter.Vector.sub(nearest.position, this.playerBody.position));
-    
+
     // Projectiles spawn EXACTLY at the player body (which is now exactly the Phoenix 3D visual position)
     const projectile = Matter.Bodies.circle(this.playerBody.position.x, this.playerBody.position.y, 8, {
       label: 'projectile',
@@ -2635,7 +2745,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       }
     });
 
-    Matter.Body.setVelocity(projectile, Matter.Vector.mult(dir, 15));
+    Matter.Body.setVelocity(projectile, Matter.Vector.mult(dir, this.scaledSpeed(15)));
     Matter.Composite.add(this.engine.world, projectile);
     
     this.audioService.playSFX('shoot');
@@ -2665,7 +2775,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       }
     });
 
-    Matter.Body.setVelocity(projectile, Matter.Vector.mult(finalDir, 15));
+    Matter.Body.setVelocity(projectile, Matter.Vector.mult(finalDir, this.scaledSpeed(15)));
     Matter.Composite.add(this.engine.world, projectile);
     setTimeout(() => { if (projectile.parent) Matter.Composite.remove(this.engine.world, projectile); }, 2000);
   }
@@ -2723,14 +2833,14 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
               if (dist < minDist) { minDist = dist; nearest = e; }
           });
       }
-      if (minDist > 500 || !nearest) return cd; 
+      if (minDist > 500 * this.speedScale || !nearest) return cd;
 
       const ammo = Math.floor(20 * (mods['ammo'] || 1.0));
       const fireIntervalMs = 50;
       const firingDurationSec = (ammo * fireIntervalMs) / 1000;
       
       const damage = stats.damage * 0.5 * mods['damage'];
-      const range = 12 * mods['range'];
+      const range = this.scaledSpeed(12 * mods['range']);
       
       const incomingDamage = new Map<string, number>();
 
@@ -2838,7 +2948,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
               
               for (let i = 0; i < 40; i++) {
                   const angle = Math.random() * Math.PI * 2;
-                  const speed = Math.random() * 8 + 4;
+                  const speed = this.scaledSpeed(Math.random() * 8 + 4);
                   const fireDir = { x: Math.cos(angle), y: Math.sin(angle) };
                   const proj = Matter.Bodies.circle(egg.position.x, egg.position.y, 15, {
                       isSensor: true, label: 'projectile',
@@ -2875,7 +2985,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
                   return;
               }
               
-              const speed = isReturning ? 4 : (eggData.aggroTarget ? 3 : 2);
+              const speed = (isReturning ? 4 : (eggData.aggroTarget ? 3 : 2)) * this.speedScale;
               const maxTurnForce = 0.5;
               let combinedForce = { x: 0, y: 0 };
               
@@ -2976,7 +3086,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
                                   isSensor: true, label: 'projectile',
                                   plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: baseDamage, ownerId: ownerId } as EnemyData }
                               });
-                              Matter.Body.setVelocity(proj, Matter.Vector.mult(fireDir, 15));
+                              Matter.Body.setVelocity(proj, Matter.Vector.mult(fireDir, this.scaledSpeed(15)));
                               Matter.Composite.add(this.engine.world, proj);
                               setTimeout(() => { if (proj.parent) Matter.Composite.remove(this.engine.world, proj) }, 1000);
                           }, i * 50);
@@ -3026,7 +3136,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
               isSensor: true,
               plugin: { data: { id: Math.random().toString(), type: ownerId === 'player' ? 'projectile_player' : 'projectile_enemy', ownerId: ownerId, burstDamage: damage, health: 1, maxHealth: 1 } as EnemyData }
           });
-          Matter.Body.setVelocity(projectile, Matter.Vector.mult(rotDir, 20));
+          Matter.Body.setVelocity(projectile, Matter.Vector.mult(rotDir, this.scaledSpeed(20)));
           Matter.Composite.add(this.engine.world, projectile);
           setTimeout(() => { if (projectile.parent) Matter.Composite.remove(this.engine.world, projectile); }, 2000);
       }
@@ -3070,6 +3180,10 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
 
   private triggerDeathSequence() {
+    // Never run two death sequences at once: a second countdown interval
+    // would orphan the first, and the orphan would end the run from
+    // under the player (playtest round 1, Bug 4 root cause chain).
+    if (this.isDead()) return;
     this.isDead.set(true);
     this.gameState.isDeadMenuOpen.set(true);
     this.gameState.phoenixOverridePosition.set({ x: window.innerWidth / 2, y: window.innerHeight + 200 });
@@ -3085,23 +3199,19 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
         this.gameState.syncProgressToServer();
     }
 
-    if (this.runner) Matter.Runner.stop(this.runner);
-    
+    this.stopPhysics();
+
     // Disable revive if player dies in Annihilation Phase
     if (this.annihilationModeActive()) {
         setTimeout(() => this.quitGame(), 3000);
         return;
     }
-    
-    // Revive mechanic logic
+
+    // Revive mechanic logic: the countdown has exactly one owner,
+    // startReviveCountdown, which always clears any previous interval
+    // before creating its own.
     this.reviveCountdown.set(10);
-    this.reviveInterval = setInterval(() => {
-        this.reviveCountdown.update(c => c - 1);
-        if (this.reviveCountdown() <= 0) {
-            clearInterval(this.reviveInterval);
-            this.quitGame();
-        }
-    }, 1000);
+    this.startReviveCountdown();
   }
 
   
@@ -3245,15 +3355,17 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
         Matter.Events.off(this.engine, 'collisionStart');
         Matter.Engine.clear(this.engine);
     }
-    if (this.runner) {
-        Matter.Runner.stop(this.runner);
-    }
+    this.stopPhysics();
     
     this.audioService.stopIntenseBgm();
   }
 
 
   public quitGame() {
+      // The revive countdown dies with the run: it must never fire into
+      // the menu or into a later run (playtest round 1, Bug 4 chain).
+      if (this.reviveInterval) clearInterval(this.reviveInterval);
+      this.adReviveInFlight = false;
       this.finishRunForAds();
       if (this.gameState.currentGameMode() === 'battle') {
           // If we quit without dying, still add the collected coins

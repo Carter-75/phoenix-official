@@ -2,6 +2,11 @@ import { Capacitor } from '@capacitor/core';
 
 export const environment = {
   production: true,
+  // Simulated/local purchase grants are a developer tool only. In the
+  // production environment this is false and must stay false: a
+  // production build may only grant purchases the server has verified
+  // (playtest round 1, Bug 3: the web fallback handed out free gems).
+  allowSimulatedPurchases: false,
   // Force the API to ALWAYS point to the standalone Render backend for both Web AND Native!
   apiUrl: 'https://phoenix-fall.onrender.com',
   

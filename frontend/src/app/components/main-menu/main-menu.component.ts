@@ -11,6 +11,39 @@ import { AdsService } from '../../services/ads.service';
   selector: 'app-main-menu',
   standalone: true,
   imports: [CommonModule, SettingsComponent],
+  styles: [`
+    /* Safety net: a menu screen may scroll rather than clip content. */
+    .menu-screen { overflow-y: auto; }
+
+    /* Boost pill label: short form on narrow screens (Bug 2). */
+    .boost-label-short { display: none; }
+    @media (max-width: 560px) {
+      .boost-label-full { display: none; }
+      .boost-label-short { display: inline; }
+    }
+
+    /* Compact layout for short viewports (playtest round 1, Bug 1):
+       landscape phones are 360 to 430 px tall, where the standard menu
+       is about 500 px tall and the Play button fell off screen under
+       the Battle Mode toggle. Below 540 px of height everything
+       shrinks to fit with room to spare, the content centres with auto
+       margins (so the scroll fallback can never clip the top), and the
+       mode toggle drops into the empty centre of the bottom bar row. */
+    @media (max-height: 540px) {
+      .menu-center {
+        margin-top: auto !important;
+        margin-bottom: auto !important;
+        gap: 0.35rem !important;
+        transform: none !important;
+      }
+      .menu-title { font-size: 2rem !important; line-height: 1.05 !important; }
+      .menu-selector { margin-top: 0.15rem !important; padding-top: 0.35rem !important; padding-bottom: 0.35rem !important; }
+      .menu-play { margin-top: 0.35rem !important; }
+      .menu-play img { width: 4.25rem !important; height: 4.25rem !important; }
+      .menu-play p { bottom: -1.1rem !important; font-size: 0.6rem !important; }
+      .menu-mode-toggle { bottom: 0.9rem !important; }
+    }
+  `],
   template: `
     <!-- Global Header (Currencies & Navigation) - Fixed to screen -->
     <div class="fixed top-0 left-0 w-full p-4 md:p-6 flex flex-col md:flex-row justify-between items-start gap-4 pointer-events-none z-50 text-white">
@@ -44,20 +77,28 @@ import { AdsService } from '../../services/ads.service';
       </div>
     </div>
 
-    <!-- Settings Button - Fixed to bottom right -->
-    <button (click)="showSettings = true" class="fixed bottom-6 right-6 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-white/50 hover:text-white font-bold transition pointer-events-auto z-50">
-       SETTINGS ⚙️
-    </button>
+    <!-- Bottom bar: the boost pill (left) and SETTINGS (right) share one
+         flex row, so they can never overlap each other or the mode toggle
+         (playtest round 1, Bug 2: the wide free-floating pill covered
+         part of SETTINGS and the Battle Mode chevron at phone widths).
+         The centre of the row stays empty for the mode toggle. -->
+    <div class="fixed bottom-0 inset-x-0 z-50 flex items-end justify-between gap-3 p-4 md:p-6 pointer-events-none">
+      <!-- Deliberate 2x boost (rewarded ad, opt-in only) -->
+      <button (click)="watchBoostAd()" class="pointer-events-auto px-4 py-2 rounded-full border font-bold transition max-w-[52vw]"
+              [ngClass]="gameState.tempCoinMultiplier() > 1 ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300' : 'bg-blue-500/10 border-blue-400/30 text-blue-200 hover:bg-blue-500/20'">
+         @if (gameState.tempCoinMultiplier() > 1) {
+            ⚡ 2x Boost Active
+         } @else {
+            <span class="boost-label-full">📺 Watch Ad: 2x Coins + XP (5 min)</span>
+            <span class="boost-label-short">📺 2x Boost Ad</span>
+         }
+      </button>
 
-    <!-- Deliberate 2x boost (rewarded ad, opt-in only) - bottom left -->
-    <button (click)="watchBoostAd()" class="fixed bottom-6 left-6 px-4 py-2 rounded-full border font-bold transition pointer-events-auto z-50"
-            [ngClass]="gameState.tempCoinMultiplier() > 1 ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300' : 'bg-blue-500/10 border-blue-400/30 text-blue-200 hover:bg-blue-500/20'">
-       @if (gameState.tempCoinMultiplier() > 1) {
-          ⚡ 2x Boost Active
-       } @else {
-          📺 Watch Ad: 2x Coins + XP (5 min)
-       }
-    </button>
+      <!-- Settings Button -->
+      <button (click)="showSettings = true" class="pointer-events-auto shrink-0 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-white/50 hover:text-white font-bold transition">
+         SETTINGS ⚙️
+      </button>
+    </div>
 
     <div class="fixed inset-0 w-full h-[200vh] transition-transform duration-500 ease-in-out"
          [style.transform]="activeMenuMode === 'campaign' ? 'translateY(0)' : 'translateY(-50%)'"
@@ -66,17 +107,17 @@ import { AdsService } from '../../services/ads.service';
          (wheel)="onWheel($event)">
          
       <!-- Campaign Screen (top 100vh) -->
-      <div class="w-full h-[100vh] relative flex flex-col items-center justify-center text-white pointer-events-none">
-        
+      <div class="menu-screen w-full h-[100vh] relative flex flex-col items-center justify-center text-white pointer-events-none">
+
         <!-- Center Content -->
-        <div class="flex flex-col items-center gap-4 pointer-events-auto transform mt-24 md:-translate-y-8 md:mt-0">
-          <h1 class="text-6xl md:text-9xl font-black tracking-tighter bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(255,100,0,0.5)] transition-all duration-500 bg-gradient-to-b text-center"
+        <div class="menu-center flex flex-col items-center gap-4 pointer-events-auto transform mt-24 md:-translate-y-8 md:mt-0">
+          <h1 class="menu-title text-6xl md:text-9xl font-black tracking-tighter bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(255,100,0,0.5)] transition-all duration-500 bg-gradient-to-b text-center"
               [ngClass]="currentWorld().textColorClass">
             PHOENIX<br/>FALL
           </h1>
-          
+
           <!-- World Selector -->
-          <div class="flex items-center gap-6 mt-4 bg-black/40 backdrop-blur-md px-6 py-3 rounded-full border border-white/10">
+          <div class="menu-selector flex items-center gap-6 mt-4 bg-black/40 backdrop-blur-md px-6 py-3 rounded-full border border-white/10">
             <button (click)="prevWorld()" class="text-white/50 hover:text-white transition text-2xl hover:-translate-x-1">&larr;</button>
             <div class="w-48 text-center flex flex-col items-center justify-center">
               <span class="text-sm text-white/50 uppercase tracking-widest font-bold">Realm {{ currentWorld().id + 1 }}</span>
@@ -92,8 +133,8 @@ import { AdsService } from '../../services/ads.service';
           </div>
           
           <!-- Play Button -->
-          <button (click)="startGame('campaign')" 
-                  class="relative group mt-8 transition-transform hover:scale-105 active:scale-95"
+          <button (click)="startGame('campaign')"
+                  class="menu-play relative group mt-8 transition-transform hover:scale-105 active:scale-95"
                   [class.opacity-50]="!isWorldUnlocked()"
                   [class.grayscale]="!isWorldUnlocked()">
             <div class="absolute inset-0 bg-white/20 rounded-full blur-2xl opacity-50 group-hover:opacity-80 transition-opacity"></div>
@@ -103,28 +144,28 @@ import { AdsService } from '../../services/ads.service';
             </p>
           </button>
         </div>
-        
-        <button (click)="activeMenuMode = 'battle'" class="absolute bottom-6 animate-bounce pointer-events-auto text-white/50 hover:text-white transition group flex flex-col items-center z-10">
+
+        <button (click)="activeMenuMode = 'battle'" class="menu-mode-toggle absolute bottom-24 animate-bounce pointer-events-auto text-white/50 hover:text-white transition group flex flex-col items-center z-10">
            <span class="text-xs uppercase tracking-widest font-bold mb-1 group-hover:text-red-400 transition-colors">Battle Mode</span>
            <span class="text-2xl group-hover:text-red-400 transition-colors">v</span>
         </button>
       </div>
       
       <!-- Battle Screen (bottom 100vh) -->
-      <div class="w-full h-[100vh] relative flex flex-col items-center justify-center text-white pointer-events-none">
+      <div class="menu-screen w-full h-[100vh] relative flex flex-col items-center justify-center text-white pointer-events-none">
          <button (click)="activeMenuMode = 'campaign'" class="absolute top-6 animate-bounce pointer-events-auto text-white/50 hover:text-white transition group flex flex-col items-center z-10">
              <span class="text-2xl group-hover:text-orange-400 transition-colors">^</span>
              <span class="text-xs uppercase tracking-widest font-bold mt-1 group-hover:text-orange-400 transition-colors">Campaign</span>
          </button>
-         
+
          <!-- Center Content for Battle Mode -->
-         <div class="flex flex-col items-center gap-4 pointer-events-auto transform mt-24 md:-translate-y-8 md:mt-0">
-          <h1 class="text-6xl md:text-9xl font-black tracking-tighter bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(255,0,0,0.5)] transition-all duration-500 bg-gradient-to-b text-center from-red-500 to-red-900">
+         <div class="menu-center flex flex-col items-center gap-4 pointer-events-auto transform mt-24 md:-translate-y-8 md:mt-0">
+          <h1 class="menu-title text-6xl md:text-9xl font-black tracking-tighter bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(255,0,0,0.5)] transition-all duration-500 bg-gradient-to-b text-center from-red-500 to-red-900">
             BATTLE<br/>MODE
           </h1>
-          
+
           <!-- World Selector -->
-          <div class="flex items-center gap-6 mt-4 bg-black/40 backdrop-blur-md px-6 py-3 rounded-full border border-red-500/20 shadow-[0_0_15px_rgba(255,0,0,0.2)]">
+          <div class="menu-selector flex items-center gap-6 mt-4 bg-black/40 backdrop-blur-md px-6 py-3 rounded-full border border-red-500/20 shadow-[0_0_15px_rgba(255,0,0,0.2)]">
             <button (click)="prevBattleWorld()" class="text-red-500/50 hover:text-red-400 transition text-2xl hover:-translate-x-1">&larr;</button>
             <div class="w-48 text-center flex flex-col items-center justify-center">
               <span class="text-sm text-red-400/50 uppercase tracking-widest font-bold">Realm {{ currentBattleWorld().id + 1 }}</span>
@@ -142,8 +183,8 @@ import { AdsService } from '../../services/ads.service';
           <!-- Play Button -->
           <button (mousedown)="startBattleHold()" (mouseup)="endBattleHold()" (mouseleave)="endBattleHold()"
                   (touchstart)="startBattleHold()" (touchend)="endBattleHold()" (touchcancel)="endBattleHold()"
-                  (click)="startGame('battle')" 
-                  class="relative group mt-8 transition-transform hover:scale-105 active:scale-95"
+                  (click)="startGame('battle')"
+                  class="menu-play relative group mt-8 transition-transform hover:scale-105 active:scale-95"
                   [class.opacity-50]="!isBattleWorldUnlocked()"
                   [class.grayscale]="!isBattleWorldUnlocked()">
             <div class="absolute inset-0 bg-red-600/20 rounded-full blur-2xl opacity-50 group-hover:opacity-80 transition-opacity"></div>

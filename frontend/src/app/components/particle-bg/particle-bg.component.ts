@@ -8,6 +8,7 @@ interface PhoenixState {
   theme: string;
   group: THREE.Group;
   particles: THREE.Points;
+  glow: THREE.Sprite | null;
   basePositions: Float32Array;
   phoenixCount: number;
   currentBank: number;
@@ -74,6 +75,18 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
   private boundY = 10;
   private birdScale = 0.5; // Scaled down
   private readonly ambientBoxSize = 80;
+
+  // Canonical bird speed (playtest round 1, speed consistency). The bird
+  // crosses the full visible width at its flight plane in this many
+  // seconds at base stats, on every viewport and every refresh rate.
+  // 1.4 s preserves the historical feel of the reference portrait phone
+  // (412x915 at 60 Hz), where the old per-frame speed produced a crossing
+  // of about 1.4 s. All bird motion is delta-time integrated against
+  // this, so 90/120 Hz phones and landscape tablets now match it.
+  private static readonly BIRD_CROSSING_SECONDS = 1.4;
+  private lastFrameTime = 0;
+  private trailAccumulator = 0;
+  private glowTexture: THREE.Texture | null = null;
 
   private mouseTarget = new THREE.Vector3(0, -10, -15);
   private entityPool = new Map<string, ParticleEntity>();
@@ -163,6 +176,10 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     }
     this.bird.particles.geometry.attributes['color'].needsUpdate = true;
 
+    if (this.bird.glow) {
+        (this.bird.glow.material as THREE.SpriteMaterial).color.setRGB(p1[0], p1[1], p1[2]);
+    }
+
     // AI Bird uses Crimson theme statically to differentiate
     const aiColors = this.aiBird.particles.geometry.attributes['color'].array as Float32Array;
     const aiPositions = this.aiBird.particles.geometry.attributes['position'].array as Float32Array;
@@ -213,11 +230,34 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
 
   private createBirdState(theme: string): PhoenixState {
     return {
-      theme, group: new THREE.Group(), particles: new THREE.Points(), basePositions: new Float32Array(0),
+      theme, group: new THREE.Group(), particles: new THREE.Points(), glow: null, basePositions: new Float32Array(0),
       phoenixCount: 4000, currentBank: 0, flapTime: 0, position: new THREE.Vector3(0, -5, -15),
       velocity: new THREE.Vector3(0, 1, 0), previousVelocity: new THREE.Vector3(0, 1, 0),
       targetWaypoint: new THREE.Vector3(), historyPos: [], historyQuat: []
     };
+  }
+
+  // Bird cruise speed in world units per second at speed multiplier 1:
+  // the visible width at the flight plane divided by the canonical
+  // crossing time.
+  private nominalBirdSpeed(): number {
+    return (this.boundX * 2) / ParticleBgComponent.BIRD_CROSSING_SECONDS;
+  }
+
+  private createGlowTexture(): THREE.Texture {
+    const size = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+    const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    gradient.addColorStop(0, 'rgba(255,255,255,0.9)');
+    gradient.addColorStop(0.35, 'rgba(255,255,255,0.35)');
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, size, size);
+    const texture = new THREE.CanvasTexture(canvas);
+    return texture;
   }
 
   private initThree() {
@@ -239,11 +279,19 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
   }
 
   private updateBounds() {
-    this.birdScale = Math.max(0.15, Math.min(0.4, window.innerWidth / 1500));
     const vFOV = THREE.MathUtils.degToRad(this.camera.fov);
     const height = 2 * Math.tan(vFOV / 2) * Math.abs(this.camera.position.z + 15);
     this.boundY = height / 2;
     this.boundX = (height * this.camera.aspect) / 2;
+    // Bird size is defined in logical units (playtest round 1, phoenix
+    // visibility): the wingspan is a fixed share (about 26 percent) of
+    // the smaller visible dimension, so the phoenix reads at the same
+    // relative size on a small phone, a landscape phone, and a tablet.
+    // The old formula scaled off window.innerWidth alone, which shrank
+    // the bird to a faint dotted outline of about 65 px on phones.
+    // Wingspan in world units is 8 * birdScale (base x spans -4..4).
+    const minVisible = Math.min(this.boundX * 2, this.boundY * 2);
+    this.birdScale = Math.max(0.45, Math.min(0.9, (minVisible * 0.26) / 8));
   }
 
   private createParticles() {
@@ -372,19 +420,23 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     const depth = -15;
     const startPos = new THREE.Vector3(0, -10, depth);
     const startDir = new THREE.Vector3(0, 1, 0);
-    const speed = 0.06; 
+    // Velocity is in world units per second; history entries are spaced
+    // by the nominal distance travelled in one 60 fps frame.
+    const speed = this.nominalBirdSpeed();
+    const frameTravel = speed / 60;
     const startVel = startDir.clone().multiplyScalar(speed);
     const dummy = new THREE.Object3D();
     for (let i = 0; i < this.MAX_HISTORY; i++) {
-        const p = startPos.clone().sub(startDir.clone().multiplyScalar(i * speed));
+        const p = startPos.clone().sub(startDir.clone().multiplyScalar(i * frameTravel));
         bird.historyPos.push(p);
         dummy.position.copy(p);
-        dummy.lookAt(p.clone().add(startVel));
+        dummy.lookAt(p.clone().add(startDir));
         dummy.rotateY(Math.PI);
         bird.historyQuat.push(dummy.quaternion.clone());
     }
     bird.position.copy(startPos);
     bird.velocity.copy(startVel);
+    bird.targetWaypoint.copy(startPos);
     this.mouseTarget.copy(startPos);
   }
 
@@ -407,30 +459,64 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     }
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    const material = new THREE.PointsMaterial({ size: 0.15, vertexColors: true, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending });
+    // Point size doubled (0.15 to 0.30 world units) and opacity raised so
+    // the bird reads as a solid fiery shape instead of a sparse dotted
+    // outline (playtest round 1, phoenix visibility).
+    const material = new THREE.PointsMaterial({ size: 0.3, vertexColors: true, transparent: true, opacity: 1.0, blending: THREE.AdditiveBlending });
     bird.particles = new THREE.Points(geometry, material);
-    bird.particles.frustumCulled = false; 
+    bird.particles.frustumCulled = false;
     bird.group = new THREE.Group();
     bird.group.add(bird.particles);
     this.scene.add(bird.group);
+
+    // Visibility core: a soft radial glow sprite rides at the bird's
+    // centre so the player can always find their phoenix at a glance.
+    // Purely visual: physics and collision live in the game component's
+    // Matter body and are unaffected by anything here.
+    if (!this.glowTexture) this.glowTexture = this.createGlowTexture();
+    const glowMat = new THREE.SpriteMaterial({
+      map: this.glowTexture,
+      color: bird.theme === 'crimson' ? 0xff5540 : 0xffa040,
+      transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending,
+      depthWrite: false, depthTest: false
+    });
+    bird.glow = new THREE.Sprite(glowMat);
+    bird.glow.renderOrder = 999;
+    bird.glow.position.copy(bird.position);
+    this.scene.add(bird.glow);
   }
 
   private animate() {
     this.ngZone.runOutsideAngular(() => {
       const render = () => {
-        // Ambient particles moving downward
+        // Delta time in seconds. All motion in this loop is integrated
+        // against dt, so speeds are identical at 60, 90, and 120 Hz.
+        // (The old code advanced the bird by a fixed amount per
+        // animation frame, which doubled its speed at 120 Hz.) The bird
+        // updates below run in substeps of at most 1/30 s: a single
+        // clamped step would make the bird run slow whenever a device
+        // dips under 30 fps, which the harness measured at large
+        // viewports (crossing times ballooned to about 3.5 s there
+        // while small screens stayed near 1.6 s).
+        const nowMs = performance.now();
+        const dt = this.lastFrameTime ? Math.min(0.25, (nowMs - this.lastFrameTime) / 1000) : 1 / 60;
+        this.lastFrameTime = nowMs;
+
+        // Ambient particles moving downward (1.8 units per second)
         const positions = this.particles.geometry.attributes['position'].array as Float32Array;
         const halfBox = this.ambientBoxSize / 2;
         for (let i = 0; i < positions.length; i += 3) {
-          positions[i+1] -= 0.03; 
+          positions[i+1] -= 1.8 * dt;
           if (positions[i+1] < -halfBox) { positions[i+1] = halfBox; positions[i] = (Math.random() - 0.5) * this.ambientBoxSize; }
         }
         this.particles.geometry.attributes['position'].needsUpdate = true;
-        this.particles.rotation.y += 0.0001;
+        this.particles.rotation.y += 0.006 * dt;
 
-        const screenFactor = Math.max(1.0, 1000 / (window.innerWidth || 1000));
-        const speed = 0.068 * screenFactor;  
-        
+        // Cruise speed in world units per second at multiplier 1, from
+        // the canonical crossing time. No window.innerWidth factor: the
+        // visible width already encodes the screen size.
+        const baseSpeed = this.nominalBirdSpeed();
+
         let targetForMainBird = this.mouseTarget;
         if (this.gameState.currentGameMode() === 'ai_vs_ai' && this.gameState.activeScreen() === 'game') {
             const ai2Mouse = this.gameState.ai2MousePos();
@@ -445,11 +531,10 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
             targetForMainBird = this.camera.position.clone().add(ai2Vec.multiplyScalar(dist));
         }
         
-        this.updateBirdPhysics(this.bird, targetForMainBird, speed, screenFactor, false);
-        
         // Hide AI Bird if not in battle mode or not playing
         const isBattle = (this.gameState.currentGameMode() === 'battle' || this.gameState.currentGameMode() === 'ai_vs_ai') && this.gameState.activeScreen() === 'game';
         this.aiBird.group.visible = isBattle;
+        let aiTarget3D: THREE.Vector3 | null = null;
         if (isBattle) {
             const aiMouse = this.gameState.aiMousePos();
             const aiVec = new THREE.Vector3(
@@ -460,9 +545,20 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
             aiVec.unproject(this.camera);
             aiVec.sub(this.camera.position).normalize();
             const dist = (-15 - this.camera.position.z) / aiVec.z;
-            const aiTarget3D = this.camera.position.clone().add(aiVec.multiplyScalar(dist));
-            
-            this.updateBirdPhysics(this.aiBird, aiTarget3D, speed, screenFactor, true);
+            aiTarget3D = this.camera.position.clone().add(aiVec.multiplyScalar(dist));
+        }
+
+        // Substepped bird updates: simulate the full frame time in
+        // slices of at most 1/30 s so wall-clock speed stays exact at
+        // any frame rate, high or low.
+        const subSteps = Math.min(8, Math.max(1, Math.ceil(dt / (1 / 30))));
+        const sdt = dt / subSteps;
+        const sFrameScale = sdt * 60;
+        for (let s = 0; s < subSteps; s++) {
+            this.updateBirdPhysics(this.bird, targetForMainBird, baseSpeed, sdt, sFrameScale, false);
+            if (isBattle && aiTarget3D) {
+                this.updateBirdPhysics(this.aiBird, aiTarget3D, baseSpeed, sdt, sFrameScale, true);
+            }
         }
 
         this.syncEntities();
@@ -478,7 +574,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
 
   private wasGameScreen = false;
 
-  private updateBirdPhysics(bird: PhoenixState, targetWaypoint: THREE.Vector3, speed: number, screenFactor: number, isAi: boolean) {
+  private updateBirdPhysics(bird: PhoenixState, targetWaypoint: THREE.Vector3, baseSpeed: number, dt: number, frameScale: number, isAi: boolean) {
       if (!this.gameState.isPaused() && !this.gameState.isDeadMenuOpen()) {
           
           if (!this.wasGameScreen && this.gameState.activeScreen() === 'game') {
@@ -517,25 +613,22 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
                       mat.color.setRGB(1, 1, 1); // Normal color
                   }
                   if (Date.now() < this.gameState.immortalUntil) {
-                      mat.opacity = Math.floor(Date.now() / 250) % 2 === 0 ? 0.1 : 0.9;
+                      mat.opacity = Math.floor(Date.now() / 250) % 2 === 0 ? 0.15 : 1.0;
                   } else {
-                      mat.opacity = 0.9;
+                      mat.opacity = 1.0;
                   }
               }
 
-              bird.flapTime += 0.04;
-              
-              bird.targetWaypoint.lerp(targetWaypoint, 0.1);
+              bird.flapTime += 0.04 * frameScale;
 
-              const directToTarget = bird.targetWaypoint.clone().sub(bird.position);
-              
-              if (directToTarget.lengthSq() < 0.1) {
-                directToTarget.set(0,0,0);
-              } else {
-                directToTarget.normalize().multiplyScalar(0.015);
-              }
+              // Frame-rate independent waypoint smoothing: the old fixed
+              // 0.1 lerp per frame converged twice as fast at 120 Hz.
+              bird.targetWaypoint.lerp(targetWaypoint, 1 - Math.pow(0.9, frameScale));
 
-              let speedMult = 1.0; 
+              const toTarget = bird.targetWaypoint.clone().sub(bird.position);
+              const distSqToTarget = toTarget.lengthSq();
+
+              let speedMult = 1.0;
               if (!isAi) {
                   if (this.gameState.activeScreen() === 'menu') {
                       speedMult = 1.0; // Menu: plain mouse-follow regardless of saved mode
@@ -553,17 +646,54 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
                   speedMult = this.gameState.aiPhoenixSpeed(); 
               }
 
-              const maxTurnForce = (0.002 / this.birdScale) * speedMult * screenFactor; 
-              const desiredVelocity = bird.velocity.clone().add(directToTarget.multiplyScalar(speedMult)).normalize().multiplyScalar(speed * speedMult);
-              const steering = desiredVelocity.sub(bird.velocity);
-              if (steering.length() > maxTurnForce) steering.normalize().multiplyScalar(maxTurnForce);
-              bird.velocity.add(steering);
-              // Top speed must include speedMult (stat upgrades, boosts).
-              // Renormalizing to the base `speed` here is why Agility
-              // upgrades never made the phoenix faster (audit major bug).
-              if (bird.velocity.lengthSq() > 0) bird.velocity.normalize().multiplyScalar(speed * speedMult);
-              
-              bird.position.add(bird.velocity);
+              // Cruise speed for this bird in world units per second.
+              const cruiseSpeed = baseSpeed * speedMult;
+
+              // Steering: rotate the heading toward the target at a
+              // capped turn rate, integrated over dt. The old code (and
+              // the first draft of this fix) blended the heading a few
+              // percent toward the target each frame, which has a trap:
+              // when the heading points almost exactly AWAY from the
+              // target, the blend pull is parallel to the heading, the
+              // steering cancels out, and the bird flies off in a
+              // straight line and never comes back. The round 4-13
+              // harness caught exactly that on game entry: the phoenix
+              // left the screen and gameplay had no visible bird.
+              // Angle-based steering always makes progress, with an
+              // explicit perpendicular escape for the exactly-opposite
+              // case. All flight stays in the z = -15 plane: every
+              // target lives in that plane, so z drift is clamped out.
+              const toTargetPlanar = toTarget.clone(); toTargetPlanar.z = 0;
+              const currentDir = bird.velocity.lengthSq() > 0
+                  ? bird.velocity.clone() : new THREE.Vector3(0, cruiseSpeed, 0);
+              currentDir.z = 0;
+              if (currentDir.lengthSq() < 1e-9) currentDir.set(0, cruiseSpeed, 0);
+              currentDir.normalize();
+              let newDir = currentDir.clone();
+              if (distSqToTarget >= 0.1 && toTargetPlanar.lengthSq() > 1e-9) {
+                  const desiredDir = toTargetPlanar.normalize();
+                  const dot = Math.max(-1, Math.min(1, currentDir.dot(desiredDir)));
+                  if (dot < -0.999) {
+                      // Exactly opposite: escape sideways first.
+                      newDir.set(-currentDir.y, currentDir.x, 0).normalize();
+                  } else {
+                      const alpha = 1 - Math.exp(-4.5 * dt);
+                      newDir = currentDir.clone().lerp(desiredDir, alpha).normalize();
+                      const angle = Math.acos(Math.max(-1, Math.min(1, currentDir.dot(newDir))));
+                      const maxAngle = 5.5 * dt;
+                      if (angle > maxAngle && angle > 1e-6) {
+                          newDir = currentDir.clone().lerp(newDir, maxAngle / angle).normalize();
+                      }
+                  }
+              }
+              // Top speed includes speedMult (stat upgrades, boosts).
+              bird.velocity.copy(newDir.multiplyScalar(cruiseSpeed));
+              bird.velocity.z = 0;
+
+              // Delta-time integration: this is the line that makes the
+              // crossing time identical on every screen and refresh rate.
+              bird.position.add(bird.velocity.clone().multiplyScalar(dt));
+              bird.position.z = -15;
           }
         }
         
@@ -589,20 +719,25 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
         targetQuat.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI));
         
         if (bird.historyQuat.length > 0) {
-            dummy.quaternion.copy(bird.historyQuat[0]).slerp(targetQuat, 0.075);
+            dummy.quaternion.copy(bird.historyQuat[0]).slerp(targetQuat, 1 - Math.pow(1 - 0.075, frameScale));
         } else {
             dummy.quaternion.copy(targetQuat);
         }
 
         const vDiff = bird.velocity.clone().sub(bird.previousVelocity);
         const right = new THREE.Vector3(1, 0, 0).applyQuaternion(dummy.quaternion);
-        let targetBank = vDiff.dot(right) * 600; 
+        // Velocity is in units per second now (about 60x the old per-frame
+        // values at the reference size), so the bank gain drops from 600
+        // to 10, normalised by frameScale so the response per second is
+        // the same at any refresh rate.
+        const bankGain = 10 / Math.max(0.2, Math.min(frameScale, 5));
+        let targetBank = vDiff.dot(right) * bankGain;
         targetBank = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, targetBank));
-        
+
         if (!isAi && this.gameState.isDrilling()) {
-            bird.currentBank += 0.5;
+            bird.currentBank += 0.5 * frameScale;
         } else {
-            bird.currentBank += (targetBank - bird.currentBank) * 0.025;
+            bird.currentBank += (targetBank - bird.currentBank) * (1 - Math.pow(1 - 0.025, frameScale));
         }
         
         dummy.rotateZ(bird.currentBank);
@@ -614,8 +749,21 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
             bird.historyPos.pop(); bird.historyQuat.pop();
         }
 
+        // Keep the visibility glow centred on the bird, sized to the
+        // wingspan, blinking in step with the particles during i-frames.
+        if (bird.glow) {
+            bird.glow.position.copy(bird.position);
+            const glowSpan = 8 * this.birdScale * 1.35;
+            bird.glow.scale.set(glowSpan, glowSpan, 1);
+            bird.glow.visible = !(!isAi && this.gameState.isRebirthing());
+            if (!isAi) {
+                const gm = bird.glow.material as THREE.SpriteMaterial;
+                gm.opacity = 0.5 * (bird.particles.material as THREE.PointsMaterial).opacity;
+            }
+        }
+
         if (!this.gameState.isPaused() && (!this.gameState.isRebirthing() || isAi)) {
-            bird.flapTime += 0.04;
+            bird.flapTime += 0.04 * frameScale;
         }
         const pPositions = bird.particles.geometry.attributes['position'].array as Float32Array;
         
@@ -637,7 +785,11 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
               const scaledBaseY = baseY * this.birdScale;
               const scaledBaseZ = baseZ * this.birdScale;
               
-              let histIdx = Math.floor(scaledBaseZ / speed);
+              // History entries are one per rendered frame; convert the
+              // particle's body offset into a frame count using the
+              // distance actually travelled this frame.
+              const travelPerFrame = Math.max(0.001, bird.velocity.length() * dt);
+              let histIdx = Math.floor(scaledBaseZ / travelPerFrame);
               histIdx = Math.max(0, Math.min(bird.historyPos.length - 1, histIdx));
               
               const hPos = bird.historyPos[histIdx];
@@ -698,10 +850,10 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
                 this.celestialShieldMesh.visible = this.gameState.hasCelestialShield() && this.gameState.toggleCelestialShield() && !this.gameState.isRebirthing();
                 if (this.celestialShieldMesh.visible) {
                     const targetPos = (this.celestialShieldMesh as any).targetPos;
-                    targetPos.lerp(bird.position, 0.1);
+                    targetPos.lerp(bird.position, 1 - Math.pow(0.9, frameScale));
                     this.celestialShieldMesh.position.copy(targetPos);
-                    this.celestialShieldMesh.rotation.y += 0.01;
-                    this.celestialShieldMesh.rotation.x += 0.005;
+                    this.celestialShieldMesh.rotation.y += 0.01 * frameScale;
+                    this.celestialShieldMesh.rotation.x += 0.005 * frameScale;
                     const shieldPos = this.celestialShieldMesh.geometry.attributes['position'].array as Float32Array;
                     const shieldBase = this.celestialShieldMesh.geometry.attributes['basePosition'].array as Float32Array;
                     const pulse = 1 + Math.sin(Date.now() * 0.003) * 0.05;
@@ -715,15 +867,21 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
             if (this.cosmicTrailMesh) {
                 this.cosmicTrailMesh.visible = this.gameState.hasCosmicTrail() && this.gameState.toggleCosmicTrail() && !this.gameState.isRebirthing();
                 if (this.cosmicTrailMesh.visible) {
-                    const tPos = this.cosmicTrailMesh.geometry.attributes['position'].array as Float32Array;
-                    for (let i = tPos.length - 1; i >= 3; i--) {
-                        tPos[i] = tPos[i - 3];
+                    // Shift the trail at a fixed 60 Hz cadence so its
+                    // length in seconds does not shrink at 120 Hz.
+                    this.trailAccumulator += dt;
+                    if (this.trailAccumulator >= 1 / 60) {
+                        this.trailAccumulator = 0;
+                        const tPos = this.cosmicTrailMesh.geometry.attributes['position'].array as Float32Array;
+                        for (let i = tPos.length - 1; i >= 3; i--) {
+                            tPos[i] = tPos[i - 3];
+                        }
+                        const backward = new THREE.Vector3(0, 0, 1).applyQuaternion(dummy.quaternion).multiplyScalar(2);
+                        tPos[0] = bird.position.x + backward.x + (Math.random() - 0.5) * 1.5;
+                        tPos[1] = bird.position.y + backward.y + (Math.random() - 0.5) * 1.5;
+                        tPos[2] = bird.position.z + backward.z + (Math.random() - 0.5) * 1.5;
+                        this.cosmicTrailMesh.geometry.attributes['position'].needsUpdate = true;
                     }
-                    const backward = new THREE.Vector3(0, 0, 1).applyQuaternion(dummy.quaternion).multiplyScalar(2);
-                    tPos[0] = bird.position.x + backward.x + (Math.random() - 0.5) * 1.5;
-                    tPos[1] = bird.position.y + backward.y + (Math.random() - 0.5) * 1.5;
-                    tPos[2] = bird.position.z + backward.z + (Math.random() - 0.5) * 1.5;
-                    this.cosmicTrailMesh.geometry.attributes['position'].needsUpdate = true;
                 }
             }
         }

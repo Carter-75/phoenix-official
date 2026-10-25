@@ -436,6 +436,15 @@ import { CommonModule } from '@angular/common';
 
       <!-- Gems Tab -->
       @if (activeTab() === 'gems') {
+        @if (!iapService.purchasesEnabled()) {
+          <div class="w-full max-w-4xl mb-6 px-6 py-4 rounded-2xl bg-amber-500/10 border border-amber-400/40 text-amber-200 text-center font-semibold animate-fade-in">
+            Purchases are not available in this version yet. Nothing here can be bought or charged.
+          </div>
+        } @else if (iapService.purchasesUnavailable()) {
+          <div class="w-full max-w-4xl mb-6 px-6 py-4 rounded-2xl bg-amber-500/10 border border-amber-400/40 text-amber-200 text-center font-semibold animate-fade-in">
+            That purchase could not be completed because billing is not configured yet. Nothing was granted.
+          </div>
+        }
         <div class="w-full max-w-4xl grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in">
           
           <!-- Package 1 -->
@@ -445,7 +454,7 @@ import { CommonModule } from '@angular/common';
               <h3 class="text-2xl font-bold text-white">Single Gem</h3>
               <p class="text-purple-400 font-bold text-xl mt-1">{{ calculatedGems()[0] }} Gem</p>
             </div>
-            <button (click)="buyGems(calculatedGems()[0], 0)" class="mt-4 w-full py-3 bg-white/10 border border-purple-500/50 rounded-xl font-bold text-lg text-white hover:bg-purple-600/50 hover:border-purple-500 active:scale-95 transition flex justify-center gap-2" [disabled]="iapService.isProcessing()">
+            <button (click)="buyGems(calculatedGems()[0], 0)" class="mt-4 w-full py-3 bg-white/10 border border-purple-500/50 rounded-xl font-bold text-lg text-white hover:bg-purple-600/50 hover:border-purple-500 active:scale-95 transition flex justify-center gap-2" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
 &dollar;{{ basePrices[0] }}
             </button>
           </div>
@@ -465,7 +474,7 @@ import { CommonModule } from '@angular/common';
                   <h3 class="text-2xl font-bold text-white">Handful of Gems</h3>
                   <p class="text-purple-400 font-bold text-xl mt-1">{{ calculatedGems()[1] }} Gems</p>
                 </div>
-                <button (click)="buyGems(calculatedGems()[1], 1)" class="mt-4 w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl font-bold text-lg text-white hover:brightness-110 active:scale-95 transition shadow-lg shadow-purple-500/30 flex justify-center gap-2" [disabled]="iapService.isProcessing()">
+                <button (click)="buyGems(calculatedGems()[1], 1)" class="mt-4 w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl font-bold text-lg text-white hover:brightness-110 active:scale-95 transition shadow-lg shadow-purple-500/30 flex justify-center gap-2" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
 &dollar;{{ basePrices[1] }}
                 </button>
             </div>
@@ -481,7 +490,7 @@ import { CommonModule } from '@angular/common';
               <h3 class="text-2xl font-bold text-white">Chest of Gems</h3>
               <p class="text-purple-400 font-bold text-xl mt-1">{{ calculatedGems()[2] }} Gems</p>
             </div>
-            <button (click)="buyGems(calculatedGems()[2], 2)" class="mt-4 w-full py-3 bg-white/10 border border-purple-500/50 rounded-xl font-bold text-lg text-white hover:bg-purple-600/50 hover:border-purple-500 active:scale-95 transition flex justify-center gap-2" [disabled]="iapService.isProcessing()">
+            <button (click)="buyGems(calculatedGems()[2], 2)" class="mt-4 w-full py-3 bg-white/10 border border-purple-500/50 rounded-xl font-bold text-lg text-white hover:bg-purple-600/50 hover:border-purple-500 active:scale-95 transition flex justify-center gap-2" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
 &dollar;{{ basePrices[2] }}
             </button>
           </div>
@@ -532,7 +541,7 @@ import { CommonModule } from '@angular/common';
                  </div>
               </div>
               @if (!gameState.hasRemoveAds()) {
-                 <button (click)="buyRemoveAds()" class="px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition flex items-center gap-2 whitespace-nowrap shadow-lg shadow-emerald-500/30" [disabled]="iapService.isProcessing()">
+                 <button (click)="buyRemoveAds()" class="px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition flex items-center gap-2 whitespace-nowrap shadow-lg shadow-emerald-500/30" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
                     Buy $4.99
                  </button>
               }
@@ -556,7 +565,7 @@ import { CommonModule } from '@angular/common';
                        }
                     </div>
                  </div>
-                 <button (click)="buySubscription()" class="px-8 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition flex items-center gap-2 whitespace-nowrap shadow-lg shadow-indigo-500/30" [disabled]="iapService.isProcessing()">
+                 <button (click)="buySubscription()" class="px-8 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition flex items-center gap-2 whitespace-nowrap shadow-lg shadow-indigo-500/30" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
                     Subscribe $2.99/mo
                  </button>
                </div>
@@ -580,7 +589,7 @@ import { CommonModule } from '@angular/common';
                        }
                     </div>
                  </div>
-                 <button (click)="buyTempMultiplier(2)" class="px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition whitespace-nowrap shadow-lg" [disabled]="iapService.isProcessing()">
+                 <button (click)="buyTempMultiplier(2)" class="px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition whitespace-nowrap shadow-lg" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
                     Buy $0.99
                  </button>
                </div>
@@ -595,7 +604,7 @@ import { CommonModule } from '@angular/common';
                        <p class="text-fuchsia-300/80 text-sm">Massive 10x Coins & XP for 5 full minutes.</p>
                     </div>
                  </div>
-                 <button (click)="buyTempMultiplier(10)" class="px-6 py-3 bg-gradient-to-r from-fuchsia-600 to-pink-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition whitespace-nowrap shadow-lg" [disabled]="iapService.isProcessing()">
+                 <button (click)="buyTempMultiplier(10)" class="px-6 py-3 bg-gradient-to-r from-fuchsia-600 to-pink-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition whitespace-nowrap shadow-lg" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
                     Buy $4.99
                  </button>
                </div>

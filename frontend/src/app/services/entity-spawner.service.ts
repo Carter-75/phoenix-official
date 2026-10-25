@@ -29,6 +29,14 @@ export interface SpawnerContext {
 export class EntitySpawnerService {
     private spawnInterval: any;
 
+    // Spawn distances scale with the logical playfield unit (the smaller
+    // viewport dimension, 412 px on the reference phone) so enemies
+    // enter from the same relative distance on every screen size
+    // (playtest round 1, speed consistency).
+    private get speedScale(): number {
+        return Math.min(window.innerWidth, window.innerHeight) / 412;
+    }
+
     public createEnemyBody(x: number, y: number, size: number, type: string, data: any): Matter.Body {
         const options = {
             label: type === 'boss' ? 'boss' : 'enemy',
@@ -56,7 +64,7 @@ export class EntitySpawnerService {
         const hp = Math.floor(1000 * Math.pow(1.5, worldIndex));
         const data = { id: Math.random().toString(), type: 'boss', health: hp, maxHealth: hp } as EnemyData;
         const scale = ctx.screenScale;
-        const boss = this.createEnemyBody(window.innerWidth / 2, -100, 100 * scale, 'boss', data);
+        const boss = this.createEnemyBody(window.innerWidth / 2, -100 * this.speedScale, 100 * scale, 'boss', data);
 
         ctx.enemies.push(boss);
         Matter.Composite.add(ctx.engine.world, boss);
@@ -91,7 +99,7 @@ export class EntitySpawnerService {
         // by world index below. (Was hard-gated to world 0: audit bug 3.)
 
         let x, y;
-        const padding = 100;
+        const padding = 100 * this.speedScale;
         if (Math.random() < 0.5) {
             x = Math.random() * window.innerWidth;
             y = Math.random() < 0.5 ? -padding : window.innerHeight + padding;
@@ -136,7 +144,7 @@ export class EntitySpawnerService {
         const hp = Math.floor(5 * Math.pow(1.5, worldIndex));
         const data = { id: Math.random().toString(), type: 'bat', health: hp, maxHealth: hp } as EnemyData;
         const minion = this.createEnemyBody(x, y, 10, 'bat', data);
-        Matter.Body.setVelocity(minion, { x: (Math.random()-0.5)*10, y: (Math.random()-0.5)*10 });
+        Matter.Body.setVelocity(minion, { x: (Math.random()-0.5)*10*this.speedScale, y: (Math.random()-0.5)*10*this.speedScale });
         ctx.enemies.push(minion);
         Matter.Composite.add(ctx.engine.world, minion);
     }
@@ -153,7 +161,7 @@ export class EntitySpawnerService {
                 data: { id: Math.random().toString(), type: type, value: value } as any
             }
         });
-        Matter.Body.setVelocity(item, { x: (Math.random() - 0.5) * 5, y: (Math.random() - 0.5) * 5 });
+        Matter.Body.setVelocity(item, { x: (Math.random() - 0.5) * 5 * this.speedScale, y: (Math.random() - 0.5) * 5 * this.speedScale });
         Matter.Composite.add(ctx.engine.world, item);
         ctx.items.push(item);
     }

@@ -15,6 +15,32 @@ export class IapService {
   public storeReady = signal<boolean>(false);
   public isProcessing = signal<boolean>(false);
   public isSubscribed = signal<boolean>(false);
+  // Set when a purchase is attempted but cannot be granted because
+  // billing is not configured. The shop surfaces this to the player
+  // instead of silently granting (or silently eating) a purchase.
+  public purchasesUnavailable = signal<boolean>(false);
+
+  // Purchase safety gate (playtest round 1, Bug 3). The local grant
+  // fallback and the web simulated checkout exist ONLY so the game
+  // stays testable before Play billing is configured. They are allowed
+  // in development builds (environment.development sets
+  // allowSimulatedPurchases) or when a developer sets the localStorage
+  // flag phoenix_dev_purchases=1 in their own browser. In a production
+  // build they never grant anything: a purchase either verifies with
+  // the server or grants nothing.
+  private localFallbackAllowed(): boolean {
+    if (environment.allowSimulatedPurchases) return true;
+    if (!environment.production) return true;
+    try { return localStorage.getItem('phoenix_dev_purchases') === '1'; } catch (e) { return false; }
+  }
+
+  // Can this build take a purchase at all right now? Native builds go
+  // through Google Play. Web builds can only take (simulated) purchases
+  // where the developer fallback is allowed; production web shows
+  // purchases as unavailable until billing is configured.
+  public purchasesEnabled(): boolean {
+    return Capacitor.isNativePlatform() || this.localFallbackAllowed();
+  }
 
   // Gems to grant for the in-flight gem-pack purchase (the amount the store
   // displayed, which already includes the first-purchase double bonus).
@@ -25,8 +51,11 @@ export class IapService {
   constructor(private gameState: GameStateService) {
     if (Capacitor.isNativePlatform()) {
       this.initStore();
+    } else if (this.localFallbackAllowed()) {
+      console.warn('IapService: Not running on native platform, Google Play billing is simulated (developer build).');
+      this.storeReady.set(true);
     } else {
-      console.warn('IapService: Not running on native platform, Google Play billing is simulated.');
+      console.warn('IapService: Not running on native platform; purchases are unavailable in this production web build until billing is configured.');
       this.storeReady.set(true);
     }
   }
@@ -87,9 +116,16 @@ export class IapService {
         return;
       }
       // 'unconfigured': verification backend not set up yet (Carter's Play
-      // service account step). Fall back to the local grant so the game
-      // stays testable; /auth/sync still cannot mint these server-side.
-      this.applyLocalGrant(productId);
+      // service account step). Developer builds may fall back to the
+      // local grant so the game stays testable. Production builds grant
+      // NOTHING without server verification (Bug 3); /auth/sync cannot
+      // mint these server-side either.
+      if (this.localFallbackAllowed()) {
+        this.applyLocalGrant(productId);
+      } else {
+        console.warn('Purchase finished but billing is not configured on the server; nothing granted in a production build.');
+        this.purchasesUnavailable.set(true);
+      }
     });
 
     // Check existing purchases on startup
@@ -182,6 +218,13 @@ export class IapService {
 
   public orderProduct(sku: string, gemsToReward: number = 0) {
     if (!Capacitor.isNativePlatform()) {
+      if (!this.localFallbackAllowed()) {
+        // Production web: purchases are unavailable until billing is
+        // configured. Never grant without a payment (Bug 3).
+        console.warn('Purchases are unavailable in this build until billing is configured.');
+        this.purchasesUnavailable.set(true);
+        return;
+      }
       console.log(`[SIMULATED] Ordering SKU: ${sku} for ${gemsToReward} gems.`);
       this.isProcessing.set(true);
       setTimeout(() => {
@@ -213,6 +256,11 @@ export class IapService {
 
   public orderSubscription(sku: string) {
     if (!Capacitor.isNativePlatform()) {
+      if (!this.localFallbackAllowed()) {
+        console.warn('Purchases are unavailable in this build until billing is configured.');
+        this.purchasesUnavailable.set(true);
+        return;
+      }
       console.log(`[SIMULATED] Ordering Subscription: ${sku}`);
       this.isProcessing.set(true);
       setTimeout(() => {
