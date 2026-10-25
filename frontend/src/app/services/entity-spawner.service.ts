@@ -16,6 +16,8 @@ export interface SpawnerContext {
     gameEnded: () => boolean;
     isDead: () => boolean;
     bossSpawned: WritableSignal<boolean>;
+    bossMaxHealth?: WritableSignal<number>;
+    bossHealth?: WritableSignal<number>;
     clearEnemies: () => void;
     battleDropReady?: WritableSignal<boolean>;
     battleDropGrace?: WritableSignal<boolean>;
@@ -62,6 +64,11 @@ export class EntitySpawnerService {
 
         const worldIndex = ctx.gameState.selectedWorldIndex();
         const hp = Math.floor(1000 * Math.pow(1.5, worldIndex));
+        // Keep the HUD boss bar honest for every world: without this the
+        // bar kept the 1000 HP defaults, so worlds 2 to 10 showed a full
+        // (or over-100 percent) bar regardless of the real boss health.
+        if (ctx.bossMaxHealth) ctx.bossMaxHealth.set(hp);
+        if (ctx.bossHealth) ctx.bossHealth.set(hp);
         const data = { id: Math.random().toString(), type: 'boss', health: hp, maxHealth: hp } as EnemyData;
         const scale = ctx.screenScale;
         const boss = this.createEnemyBody(window.innerWidth / 2, -100 * this.speedScale, 100 * scale, 'boss', data);

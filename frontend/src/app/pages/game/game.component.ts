@@ -641,6 +641,8 @@ export class GameComponent implements OnInit, OnDestroy {
           gameEnded: () => this.gameEnded(),
           isDead: () => this.isDead(),
           bossSpawned: this.bossSpawned,
+          bossMaxHealth: this.bossMaxHealth,
+          bossHealth: this.bossHealth,
           clearEnemies: () => this.clearEnemies(),
           battleDropReady: this.battleDropReady,
           battleDropGrace: this.battleDropGrace,
@@ -923,7 +925,7 @@ export class GameComponent implements OnInit, OnDestroy {
                 this.mlAi.addReward(1);
             }
             Matter.Composite.remove(this.engine.world, otherBody);
-            this.items = this.items.filter(i => i !== otherBody);
+            this.spliceRemove(this.items, otherBody);
           }
         }
 
@@ -951,7 +953,7 @@ export class GameComponent implements OnInit, OnDestroy {
                     this.mlAi.addReward(5);
                 }
                 Matter.Composite.remove(this.engine.world, itemBody);
-                this.items = this.items.filter(i => i !== itemBody);
+                this.spliceRemove(this.items, itemBody);
                 continue;
             }
         }
@@ -1547,8 +1549,10 @@ export class GameComponent implements OnInit, OnDestroy {
           });
       }
 
-      // 4.6 Cleanup off-screen items
-      this.items = this.items.filter(item => {
+      // 4.6 Cleanup off-screen items (in place, never reassigned: the
+      // spawner context holds this.items by reference)
+      for (let i = this.items.length - 1; i >= 0; i--) {
+          const item = this.items[i];
           if (item.position.y > window.innerHeight + 200) {
               // Audit bug 7 (ascension soft-lock): a boss gem that falls past
               // the bottom must still count as collected, or the collected
@@ -1564,10 +1568,9 @@ export class GameComponent implements OnInit, OnDestroy {
                   }
               }
               if (item.parent) Matter.Composite.remove(this.engine.world, item);
-              return false;
+              this.items.splice(i, 1);
           }
-          return true;
-      });
+      }
 
       // 5. Publish bodies to ParticleBg rendering service
       const entities: PhysicsEntity[] = [];
@@ -1947,7 +1950,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
               Matter.Composite.remove(this.engine.world, e);
           }
       });
-      this.enemies = [boss];
+      this.spliceOut(this.enemies, e => e === boss);
       
       // Clear existing projectiles
       const currentBodies = Matter.Composite.allBodies(this.engine.world);
@@ -2162,8 +2165,8 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       }
       
       Matter.Composite.remove(this.engine.world, enemy);
-      this.enemies = this.enemies.filter(e => e !== enemy);
-      
+      this.spliceRemove(this.enemies, enemy);
+
       if (this.gameState.currentGameMode() === 'ai_vs_ai') {
           this.mlAi.addReward(2);
       }
@@ -2247,7 +2250,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
         
         // Remove the boss completely so it doesn't trigger damage or blocks anymore
         Matter.Composite.remove(this.engine.world, enemy);
-        this.enemies = this.enemies.filter(e => e !== enemy);
+        this.spliceRemove(this.enemies, enemy);
         
         // Stop the normal timers so enemies stop spawning
         clearInterval(this.timerInterval);
@@ -2516,15 +2519,36 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   }
 
 
+  // this.enemies and this.items are captured BY REFERENCE in the spawner
+  // and battle contexts, and scheduleNextSpawn reuses one captured
+  // context for the whole run. Reassigning either array (filter, = [])
+  // orphans the captured reference: everything the spawner adds
+  // afterwards lands in a dead array, invisible to steering, auto-fire
+  // targeting, and item magnetism. Worst case (playtest round 2):
+  // spawnBoss called clearEnemies (a reassignment) and then pushed the
+  // boss into the orphaned array, so the boss sat off-screen at its
+  // spawn point forever and no campaign boss could ever be fought.
+  // These arrays must only ever be mutated in place.
+  private spliceOut<T>(arr: T[], keep: (item: T) => boolean) {
+      for (let i = arr.length - 1; i >= 0; i--) {
+          if (!keep(arr[i])) arr.splice(i, 1);
+      }
+  }
+
+  private spliceRemove<T>(arr: T[], item: T) {
+      const idx = arr.indexOf(item);
+      if (idx >= 0) arr.splice(idx, 1);
+  }
+
   private clearEnemies() {
     this.enemies.forEach(e => {
         if (e.plugin['data']?.type !== 'boss') {
             Matter.Composite.remove(this.engine.world, e);
         }
     });
-    this.enemies = this.enemies.filter(e => e.plugin['data']?.type === 'boss');
+    this.spliceOut(this.enemies, e => e.plugin['data']?.type === 'boss');
     this.items.forEach(i => Matter.Composite.remove(this.engine.world, i));
-    this.items = [];
+    this.items.length = 0;
   }
 
 
@@ -2592,6 +2616,15 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       this.animatingAscension.set(false);
       this.bossSpawned.set(false);
       this.clearEnemies();
+
+      // Start the new realm's world BGM NOW, not after the entrance
+      // animation: playWorldBgm resets the audio service's ended flag,
+      // and the still-running game loop checks that flag every tick.
+      // While it stays latched from the previous realm's finished
+      // track, the loop spawns the new realm's boss during the 1.5 s
+      // entrance (playtest round 2, probe6: the realm 2 boss spawned
+      // instantly and the run blew through realm 2 in seconds).
+      this.audioService.playWorldBgm(nextIdx);
       
       // 3. Animate Phoenix entering from bottom
       const startY = window.innerHeight + 200; // Off screen bottom
@@ -2611,8 +2644,9 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
               requestAnimationFrame(animateEntrance);
           } else {
               this.gameState.phoenixOverridePosition.set(null); // Return to mouse control
-              
-              // 4. Restart Level fully
+
+              // 4. Restart Level fully (the new realm's BGM was already
+              // started in the reset step above).
               this.timeRemaining.set(this.totalTimeSignal());
               this.startGameLoop();
           }

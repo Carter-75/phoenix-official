@@ -42,12 +42,28 @@ import { AdsService } from '../../services/ads.service';
       .menu-play img { width: 4.25rem !important; height: 4.25rem !important; }
       .menu-play p { bottom: -1.1rem !important; font-size: 0.6rem !important; }
       .menu-mode-toggle { bottom: 0.9rem !important; }
+
+      /* Header at short heights (fix round 1 leftover): at 640x360 the
+         stacked two-row header (currencies over nav) was about 130 px
+         tall and its second row overlapped the top of the PHOENIX
+         title. Collapse it into one compact row here, and reserve the
+         space above the centred menu content so the two can never
+         meet. */
+      .menu-header { flex-direction: row !important; align-items: center !important; padding: 0.5rem 0.75rem !important; gap: 0.5rem !important; }
+      .menu-header-row { width: auto !important; justify-content: flex-start !important; gap: 0.4rem !important; }
+      .menu-header-row > div { padding: 0.2rem 0.55rem !important; gap: 0.35rem !important; }
+      .menu-header-row img { width: 1rem !important; height: 1rem !important; }
+      .menu-header-row span { font-size: 0.95rem !important; }
+      .menu-header-nav { width: auto !important; flex-wrap: nowrap !important; justify-content: flex-end !important; gap: 0.4rem !important; }
+      .menu-header-nav button { padding: 0.3rem 0.6rem !important; font-size: 0.72rem !important; white-space: nowrap; }
+      .menu-header-nav img { width: 2rem !important; height: 2rem !important; }
+      .menu-screen { padding-top: 3.25rem; }
     }
   `],
   template: `
     <!-- Global Header (Currencies & Navigation) - Fixed to screen -->
-    <div class="fixed top-0 left-0 w-full p-4 md:p-6 flex flex-col md:flex-row justify-between items-start gap-4 pointer-events-none z-50 text-white">
-      <div class="flex items-center gap-2 md:gap-4 w-full md:w-auto justify-center md:justify-start pointer-events-auto">
+    <div class="menu-header fixed top-0 left-0 w-full p-4 md:p-6 flex flex-col md:flex-row justify-between items-start gap-4 pointer-events-none z-50 text-white">
+      <div class="menu-header-row flex items-center gap-2 md:gap-4 w-full md:w-auto justify-center md:justify-start pointer-events-auto">
         <!-- Coins -->
         <div class="flex items-center gap-2 bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/10">
           <img src="assets/coin_icon.png" alt="Coins" class="w-6 h-6 object-contain" />
@@ -61,7 +77,7 @@ import { AdsService } from '../../services/ads.service';
       </div>
       
       <!-- Navigation -->
-      <div class="flex flex-wrap items-center justify-center md:justify-end gap-2 md:gap-4 w-full md:w-auto pointer-events-auto">
+      <div class="menu-header-nav flex flex-wrap items-center justify-center md:justify-end gap-2 md:gap-4 w-full md:w-auto pointer-events-auto">
         <button (click)="openCodex()" class="px-3 py-1.5 md:px-4 md:py-2 text-sm md:text-base bg-white/5 hover:bg-white/10 border border-white/10 rounded-full font-semibold transition backdrop-blur-md text-amber-400">
           Codex
         </button>

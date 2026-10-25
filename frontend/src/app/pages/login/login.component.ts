@@ -1,4 +1,4 @@
-import { Component, inject, OnInit } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
 import { GameStateService } from '../../services/game-state.service';
 import { AuthService, User } from '../../services/auth.service';
 import { AudioService } from '../../services/audio.service';
@@ -16,17 +16,17 @@ import { FormsModule } from '@angular/forms';
 
       <div class="bg-black/60 backdrop-blur-xl border border-white/10 rounded-3xl p-8 w-full max-w-md shadow-[0_0_50px_rgba(255,100,0,0.1)]">
         <h2 class="text-3xl font-black text-center mb-8 text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-red-500">
-           {{ mode === 'email' ? 'ACCOUNT ACCESS' : 'CHOOSE USERNAME' }}
+           {{ mode() === 'email' ? 'ACCOUNT ACCESS' : 'CHOOSE USERNAME' }}
         </h2>
         
-        @if (error) {
+        @if (error()) {
           <div class="bg-red-500/20 text-red-400 p-3 rounded-lg text-sm mb-4 border border-red-500/20">
-            {{ error }}
+            {{ error() }}
           </div>
         }
 
         <div class="space-y-4">
-          @if (mode === 'email') {
+          @if (mode() === 'email') {
               <button (click)="loginWithGoogle()" 
                       class="w-full p-4 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center hover:bg-white/10 transition-colors text-white font-semibold gap-3">
                 <svg class="w-5 h-5" viewBox="0 0 24 24">
@@ -44,19 +44,19 @@ import { FormsModule } from '@angular/forms';
               </div>
           }
 
-          @if (mode === 'email') {
+          @if (mode() === 'email') {
             <input [(ngModel)]="email" type="email" placeholder="Email Address" class="w-full p-4 bg-black/40 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none focus:border-orange-500/50 transition">
             <input [(ngModel)]="password" type="password" placeholder="Password" class="w-full p-4 bg-black/40 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none focus:border-orange-500/50 transition">
           }
           
-          @if (mode === 'set-username') {
+          @if (mode() === 'set-username') {
             <p class="text-white/60 text-center mb-4">You successfully authenticated! Now pick a unique username for the leaderboard.</p>
             <input [(ngModel)]="username" type="text" placeholder="Username" class="w-full p-4 bg-black/40 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none focus:border-orange-500/50 transition">
           }
           
           <button (click)="submit()" 
                   class="w-full mt-4 p-4 bg-gradient-to-r from-orange-500 to-red-600 text-white rounded-xl font-bold hover:brightness-110 active:scale-95 transition-all shadow-lg shadow-orange-500/20 disabled:opacity-50 disabled:grayscale">
-            {{ mode === 'email' ? 'Continue' : 'Complete Signup' }}
+            {{ mode() === 'email' ? 'Continue' : 'Complete Signup' }}
           </button>
           
 
@@ -70,19 +70,23 @@ export class LoginComponent implements OnInit {
   private authService = inject(AuthService);
   private audioService = inject(AudioService);
   
-  mode: 'email' | 'set-username' = 'email';
+  // Signals, not plain fields: these are written from HTTP subscribe
+  // callbacks, and a plain-field write during change detection throws
+  // NG0100 in dev builds and wedges the view on the email form, making
+  // the username step unreachable (playtest round 2, objective 4).
+  mode = signal<'email' | 'set-username'>('email');
   
   email = '';
   password = '';
   username = '';
-  error = '';
+  error = signal('');
 
   ngOnInit() {
       const urlParams = new URLSearchParams(window.location.search);
       if (urlParams.get('mode') === 'set-username' || this.authService.currentUser()?.isTemp) {
-          this.mode = 'set-username';
+          this.mode.set('set-username');
       } else if (urlParams.get('error')) {
-          this.error = 'Google Authentication Failed.';
+          this.error.set('Google Authentication Failed.');
       }
   }
 
@@ -94,18 +98,18 @@ export class LoginComponent implements OnInit {
 
   submit() {
     this.audioService.playSFX('buy');
-    this.error = '';
+    this.error.set('');
     
-    if (this.mode === 'email') {
+    if (this.mode() === 'email') {
         if (!this.email || !this.password) {
-            this.error = "Please fill in all fields";
+            this.error.set("Please fill in all fields");
             return;
         }
         
         this.authService.login({ email: this.email, password: this.password }).subscribe({
             next: (user: User) => {
                 if (user.isTemp) {
-                    this.mode = 'set-username';
+                    this.mode.set('set-username');
                 } else {
                     this.gameState.syncWithUser(user);
                     this.goBack();
@@ -117,7 +121,7 @@ export class LoginComponent implements OnInit {
                     this.authService.register({ email: this.email, username: this.email.split('@')[0], password: this.password }).subscribe({
                         next: async (newUser: User) => {
                             if (newUser.isTemp) {
-                                this.mode = 'set-username';
+                                this.mode.set('set-username');
                             } else {
                                 await this.gameState.migrateGuestData();
                                 this.gameState.syncWithUser(newUser);
@@ -125,22 +129,22 @@ export class LoginComponent implements OnInit {
                             }
                         },
                         error: (registerErr) => {
-                            this.error = registerErr.error?.message || 'Registration failed';
+                            this.error.set(registerErr.error?.message || 'Registration failed');
                         }
                     });
                 } else {
-                    this.error = err.error?.message || 'Login failed';
+                    this.error.set(err.error?.message || 'Login failed');
                 }
             }
         });
-    } else if (this.mode === 'set-username') {
+    } else if (this.mode() === 'set-username') {
         this.authService.completeSignup(this.username).subscribe({
             next: async (user) => {
                 await this.gameState.migrateGuestData();
                 this.gameState.syncWithUser(user);
                 this.goBack();
             },
-            error: (err) => this.error = err.error?.message || 'Failed to set username'
+            error: (err) => this.error.set(err.error?.message || 'Failed to set username')
         });
     }
   }
@@ -150,14 +154,14 @@ export class LoginComponent implements OnInit {
     try {
         const user = await this.authService.loginWithGoogle();
         if (user && user.isTemp) {
-            this.mode = 'set-username';
+            this.mode.set('set-username');
         } else if (user) {
             await this.gameState.migrateGuestData();
             this.gameState.syncWithUser(user);
             this.goBack();
         }
     } catch(err) {
-        this.error = 'Native Google Authentication Failed.';
+        this.error.set('Native Google Authentication Failed.');
     }
   }
 }
