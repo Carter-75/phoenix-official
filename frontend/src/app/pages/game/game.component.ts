@@ -26,6 +26,7 @@ interface EnemyData {
   owner?: 'player' | 'enemy';
   ownerId?: string;
   immortalUntil?: number;
+  weaveValue?: number; // Gloomwing weave sine, published for the renderer's banking
 }
 
 @Component({
@@ -1817,12 +1818,33 @@ export class GameComponent implements OnInit, OnDestroy {
         // The blend rate gives a spin-up time constant of about 0.4 s,
         // matching the old force model's acceleration feel.
         const maxSpeedPx = chaseSpeed * this.logicalUnit; // px per second
+        // Gloomwing weave (visual spec Section 3.3; the one behavior
+        // change Stage 2 allows): the bat's desired direction swings on
+        // a sine across the chase line. The combined direction is
+        // renormalized before the same cap is applied, so the weave
+        // trades straight-line progress for path curvature and never
+        // adds speed: the total stays at the bat cap, 1.685 LU/s.
+        let dirX = normalized.x;
+        let dirY = normalized.y;
+        if (data.type === 'bat') {
+          let hash = 0;
+          const idStr = data.id || '';
+          for (let ci = 0; ci < idStr.length; ci++) hash = (hash * 31 + idStr.charCodeAt(ci)) | 0;
+          const phase = (now / 1000) * 7.4 + (Math.abs(hash) % 628) / 100;
+          const s = Math.sin(phase);
+          const wx = normalized.x + (-normalized.y) * s * 0.6;
+          const wy = normalized.y + normalized.x * s * 0.6;
+          const len = Math.hypot(wx, wy) || 1;
+          dirX = wx / len;
+          dirY = wy / len;
+          data.weaveValue = s;
+        }
         const vel = Matter.Body.getVelocity(enemy); // px per 1/60 s step
         const curX = vel.x * 60;
         const curY = vel.y * 60;
         const blend = 1 - Math.exp(-2.5 * delta);
-        const newX = curX + (normalized.x * maxSpeedPx - curX) * blend;
-        const newY = curY + (normalized.y * maxSpeedPx - curY) * blend;
+        const newX = curX + (dirX * maxSpeedPx - curX) * blend;
+        const newY = curY + (dirY * maxSpeedPx - curY) * blend;
         Matter.Body.setVelocity(enemy, { x: newX / 60, y: newY / 60 });
       });
 
@@ -1937,7 +1959,17 @@ export class GameComponent implements OnInit, OnDestroy {
                      y: body.position.y,
                      type: data.type,
                      size: body.circleRadius || 20,
-                     ownerId: data.ownerId
+                     ownerId: data.ownerId,
+                     // Renderer feedback data (visual spec Section 3.1):
+                     // health drives the shared hit flash, the golem's
+                     // charge (its own 3 s shot timer, normalized) drives
+                     // the telegraphed rock orbit, and the bat's weave
+                     // value banks its mesh. Display only; no gameplay
+                     // code reads these back.
+                     health: data.health,
+                     maxHealth: data.maxHealth,
+                     attackCharge: data.type === 'golem' ? Math.min(1, Math.max(0, (now - (data.lastAttackTime || 0)) / 3000)) : undefined,
+                     weave: data.type === 'bat' ? data.weaveValue : undefined
                  });
              }
          }

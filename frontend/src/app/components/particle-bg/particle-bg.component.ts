@@ -1,7 +1,8 @@
 import { Component, ElementRef, OnInit, OnDestroy, ViewChild, NgZone, effect, inject } from '@angular/core';
 import { GameStateService, STAMINA } from '../../services/game-state.service';
-import { WORLDS } from '../../constants/game.constants';
+import { WORLDS, HOSTILE_RGB } from '../../constants/game.constants';
 import { PhysicsEntity } from '../../models/game.models';
+import { buildEntityGeometry } from './entity-builder';
 import * as THREE from 'three';
 
 interface PhoenixState {
@@ -51,6 +52,35 @@ interface ParticleEntity {
   type: string;
   basePositions?: Float32Array;
   timeOffset?: number;
+  // Shared damage feedback state (visual spec Section 3.1), fed by the
+  // shared entity builder: the pristine colors and the per-vertex core
+  // layer flags are what the hit flash pulses and what dynamic color
+  // effects (Glob membrane crawl, Golem charge glow) rewrite from.
+  baseColors?: Float32Array;
+  layerFlags?: Uint8Array;
+  lastHealth?: number;
+  flashStartMs?: number;
+  flashDurationMs?: number;
+  flashActive?: boolean;
+  // Bastion Golem telegraph state: the accumulated rock orbit angle
+  // (its rate scales with the shot charge) and the last seen charge.
+  orbitAngle?: number;
+  lastCharge?: number;
+  bornMs?: number;
+  // Animation budget state (visual spec Section 1.4): true while this
+  // enemy renders transform-only instead of full vertex animation.
+  budgeted?: boolean;
+}
+
+// A dead enemy's points, kept on screen briefly: they scatter outward
+// and cool over 0.4 s (visual spec Section 3.1 death burst), then the
+// pooled object is disposed. Positions and colors are snapshots taken
+// at the moment of death so the burst starts from the animated shape.
+interface DyingBurst {
+  mesh: THREE.Points;
+  positions: Float32Array;
+  colors: Float32Array;
+  startMs: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -235,6 +265,9 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
 
   private mouseTarget = new THREE.Vector3(0, -10, -15);
   private entityPool = new Map<string, ParticleEntity>();
+  private dyingBursts: DyingBurst[] = [];
+  private lastSyncMs = 0;
+  private fullAnimIds = new Set<string>();
   private glyphTextures = new Map<string, THREE.Texture>();
   private ringGlowTexture: THREE.Texture | null = null;
   private haloGlowTexture: THREE.Texture | null = null;
@@ -1882,16 +1915,56 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       }
   }
 
+  // Enemy types get the shared death burst on removal (Section 3.1);
+  // everything else (pickups, projectiles, effects) just disappears.
+  private static readonly BURST_TYPES = ['slime', 'bat', 'golem', 'boss'];
+
   private syncEntities() {
+    const nowMs = performance.now();
+    const dtSec = this.lastSyncMs ? Math.min(0.1, (nowMs - this.lastSyncMs) / 1000) : 1 / 60;
+    this.lastSyncMs = nowMs;
+
     const active = this.gameState.activeEntities();
     const activeIds = new Set(active.map(e => e.id));
+
+    // Animation budget (visual spec Section 1.4): full vertex
+    // animation for the boss and the nearest 6 enemies; every other
+    // enemy renders transform-only (mesh position, rotation, scale),
+    // which is what keeps a full 12-enemy field inside the frame
+    // budget. Distances use last frame's mesh positions against the
+    // bird's position; one frame of staleness is invisible here.
+    this.fullAnimIds.clear();
+    if (this.bird) {
+      const bp = this.bird.position;
+      const foes: { id: string; d: number; boss: boolean }[] = [];
+      for (const e of active) {
+        if (!ParticleBgComponent.BURST_TYPES.includes(e.type)) continue;
+        const pooled = this.entityPool.get(e.id);
+        const d = pooled ? pooled.mesh.position.distanceToSquared(bp) : Number.MAX_SAFE_INTEGER;
+        foes.push({ id: e.id, d, boss: e.type === 'boss' });
+      }
+      foes.sort((a, b) => a.d - b.d);
+      for (const f of foes.slice(0, 6)) this.fullAnimIds.add(f.id);
+      for (const f of foes) if (f.boss) this.fullAnimIds.add(f.id);
+    }
 
     // Remove dead entities
     for (const [id, entity] of this.entityPool.entries()) {
       if (!activeIds.has(id)) {
-        this.scene.remove(entity.mesh);
-        entity.mesh.geometry.dispose();
-        (entity.mesh.material as THREE.Material).dispose();
+        if (ParticleBgComponent.BURST_TYPES.includes(entity.type)) {
+          // Death burst: keep the mesh on screen with a snapshot of its
+          // animated shape; updateDyingBursts scatters and cools it.
+          this.dyingBursts.push({
+            mesh: entity.mesh,
+            positions: (entity.mesh.geometry.attributes['position'].array as Float32Array).slice(),
+            colors: (entity.mesh.geometry.attributes['color'].array as Float32Array).slice(),
+            startMs: nowMs,
+          });
+        } else {
+          this.scene.remove(entity.mesh);
+          entity.mesh.geometry.dispose();
+          (entity.mesh.material as THREE.Material).dispose();
+        }
         this.entityPool.delete(id);
       }
     }
@@ -1919,7 +1992,27 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       const pos3d = this.camera.position.clone().add(vec.multiplyScalar(distance));
       
       entity.mesh.position.copy(pos3d);
-      
+
+      // Animation budget state for this frame (Section 1.4): enemies
+      // outside the nearest 6 skip per-vertex animation. On the
+      // transition into budget mode, restore the built pose once so
+      // the frozen frame (and any later death burst snapshot) uses
+      // the clean builder shape.
+      const budgeted = !!this.bird
+        && ParticleBgComponent.BURST_TYPES.includes(data.type)
+        && !this.fullAnimIds.has(data.id);
+      if (entity.basePositions && budgeted !== !!entity.budgeted) {
+        if (budgeted) {
+          const attr = entity.mesh.geometry.attributes['position'];
+          (attr.array as Float32Array).set(entity.basePositions);
+          attr.needsUpdate = true;
+        } else {
+          // Back to full animation: clear any budget-mode scale pulse.
+          entity.mesh.scale.set(1, 1, 1);
+        }
+        entity.budgeted = budgeted;
+      }
+
       // Rotate for visual effect
       if (data.type === 'coin') {
         entity.mesh.rotation.y += 0.1;
@@ -1931,8 +2024,45 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
         entity.mesh.rotation.x += 0.02;
       }
       
+      // Shared damage feedback (visual spec Section 3.1): a health drop
+      // since the last frame starts the hit flash (white core pulse,
+      // 60 ms; boss phase crossings at 66 and 33 percent run 180 ms).
+      if (data.health !== undefined) {
+        if (entity.lastHealth !== undefined && data.health < entity.lastHealth) {
+          let duration = 60;
+          if (data.type === 'boss' && data.maxHealth) {
+            const prev = entity.lastHealth / data.maxHealth;
+            const cur = data.health / data.maxHealth;
+            if ((prev > 0.66 && cur <= 0.66) || (prev > 0.33 && cur <= 0.33)) duration = 180;
+          }
+          entity.flashStartMs = nowMs;
+          entity.flashDurationMs = duration;
+          entity.flashActive = true;
+        }
+        entity.lastHealth = data.health;
+      }
+      const flashEnv = this.flashEnvelope(entity, nowMs);
+      if (entity.flashActive && flashEnv <= 0) {
+        // Flash just ended: restore the pristine builder colors.
+        if (entity.baseColors) {
+          const colAttr = entity.mesh.geometry.attributes['color'];
+          (colAttr.array as Float32Array).set(entity.baseColors);
+          colAttr.needsUpdate = true;
+        }
+        entity.flashActive = false;
+      }
+
+      // Spawn fade-in for enemies (Section 3.1): a 0.3 s ramp instead of
+      // a full-brightness pop. Enemies spawn off screen, so this is
+      // mostly felt by boss minions summoned in view.
+      if (ParticleBgComponent.BURST_TYPES.includes(data.type) && entity.bornMs !== undefined) {
+        const age = (nowMs - entity.bornMs) / 300;
+        (entity.mesh.material as THREE.PointsMaterial).opacity = age >= 1 ? 0.9 : 0.9 * Math.max(0, age);
+      }
+
       // Complex Vertex Animations
       if (data.type === 'slime' && entity.basePositions) {
+        if (!budgeted) {
         const pPositions = entity.mesh.geometry.attributes['position'].array as Float32Array;
         const time = Date.now() * 0.005 + (entity.timeOffset || 0);
         const squish = Math.sin(time) * 0.3; 
@@ -1943,42 +2073,125 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
             pPositions[i+2] = entity.basePositions[i+2] * (1 - squish * 0.4);
         }
         entity.mesh.geometry.attributes['position'].needsUpdate = true;
+
+        // Ember Glob membrane crawl (Section 3.3): a highlight travels
+        // around the membrane so the glob reads as liquid, not a ball.
+        // Membrane vertices only; the bright core is layer 1 and is
+        // left to the flash pass.
+        if (entity.baseColors && entity.layerFlags) {
+          const colAttr = entity.mesh.geometry.attributes['color'];
+          const colArr = colAttr.array as Float32Array;
+          const crawl = Date.now() * 0.0016 + (entity.timeOffset || 0);
+          for (let i = 0; i < entity.layerFlags.length; i++) {
+            if (entity.layerFlags[i] === 1) continue;
+            const bx = entity.basePositions[i * 3];
+            const bz = entity.basePositions[i * 3 + 2];
+            const d = Math.cos(Math.atan2(bz, bx) - crawl);
+            const boost = d > 0 ? Math.pow(d, 6) * 0.7 : 0;
+            const idx = i * 3;
+            colArr[idx] = entity.baseColors[idx] * (1 + boost);
+            colArr[idx + 1] = entity.baseColors[idx + 1] * (1 + boost);
+            colArr[idx + 2] = entity.baseColors[idx + 2] * (1 + boost);
+          }
+          colAttr.needsUpdate = true;
+        }
+        } else {
+          // Budgeted (Section 1.4): a cheap scale pulse stands in for
+          // the vertex squish; positions and the crawl stay frozen.
+          const t = Date.now() * 0.005 + (entity.timeOffset || 0);
+          const s = 1 + Math.sin(t) * 0.07;
+          entity.mesh.scale.set(s, s, s);
+        }
       }
       else if (data.type === 'bat' && entity.basePositions) {
-        const pPositions = entity.mesh.geometry.attributes['position'].array as Float32Array;
         const time = Date.now() * 0.02 + (entity.timeOffset || 0);
-        const r = data.size / 30;
-        for(let i=0; i<pPositions.length; i+=3) {
-            const baseX = entity.basePositions[i];
-            const baseY = entity.basePositions[i+1];
-            if (Math.abs(baseX) > 0.6 * r) { // Wing vertices
-                const flapOffset = Math.sin(time) * Math.abs(baseX) * 0.8;
-                pPositions[i+1] = baseY + flapOffset;
-            } else {
-                pPositions[i+1] = baseY; // Body stays
-            }
+        if (!budgeted) {
+          const pPositions = entity.mesh.geometry.attributes['position'].array as Float32Array;
+          const r = data.size / 30;
+          for(let i=0; i<pPositions.length; i+=3) {
+              const baseX = entity.basePositions[i];
+              const baseY = entity.basePositions[i+1];
+              if (Math.abs(baseX) > 0.6 * r) { // Wing vertices
+                  const flapOffset = Math.sin(time) * Math.abs(baseX) * 0.8;
+                  pPositions[i+1] = baseY + flapOffset;
+              } else {
+                  pPositions[i+1] = baseY; // Body stays
+              }
+          }
+          entity.mesh.geometry.attributes['position'].needsUpdate = true;
         }
-        entity.mesh.geometry.attributes['position'].needsUpdate = true;
+        // Transform-level motion runs in both modes; the banking in
+        // particular is the weave read and must never be budgeted away.
         entity.mesh.rotation.y = Math.sin(time * 0.1) * 0.3; // Slight turning
+        // Gloomwing banking (Section 3.3): the mesh banks with the weave
+        // the steering loop publishes, so the sine path the bat flies
+        // reads in its body, not only in its trajectory.
+        entity.mesh.rotation.z = -(data.weave || 0) * 0.45;
       }
       else if (data.type === 'golem' && entity.basePositions) {
         const pPositions = entity.mesh.geometry.attributes['position'].array as Float32Array;
         const time = Date.now() * 0.002 + (entity.timeOffset || 0);
         const bob = Math.abs(Math.sin(time * 2)) * 0.2;
         entity.mesh.position.y += bob; // Lumbering walk
-        
-        const r = data.size / 30;
-        for(let i=0; i<pPositions.length; i+=3) {
-            const bx = entity.basePositions[i];
-            const bz = entity.basePositions[i+2];
-            if (Math.sqrt(bx*bx + bz*bz) > 0.6 * r) { // Orbiting rocks
-                const cos = Math.cos(time);
-                const sin = Math.sin(time);
-                pPositions[i] = bx * cos - bz * sin;
-                pPositions[i+2] = bx * sin + bz * cos;
-            }
+
+        // Bastion Golem telegraph (Section 3.3): the rocks orbit faster
+        // as the shot timer charges and the core glows hotter; when the
+        // charge wraps, the golem has just fired and the core flashes.
+        // The charge is published by the game from the same timer that
+        // fires the shot, so the telegraph is synced to the real thing.
+        const charge = data.attackCharge ?? 0;
+        if (entity.lastCharge !== undefined && entity.lastCharge > 0.7 && charge < entity.lastCharge - 0.5) {
+          entity.flashStartMs = nowMs;
+          entity.flashDurationMs = 150;
+          entity.flashActive = true;
         }
-        entity.mesh.geometry.attributes['position'].needsUpdate = true;
+        entity.lastCharge = charge;
+        const orbitRate = 2 * (1 + 2.2 * charge * charge); // Shipped base orbit rate is 2 rad/s
+        entity.orbitAngle = (entity.orbitAngle || 0) + orbitRate * dtSec;
+        const cos = Math.cos(entity.orbitAngle);
+        const sin = Math.sin(entity.orbitAngle);
+
+        const r = data.size / 30;
+        if (!budgeted) {
+          for(let i=0; i<pPositions.length; i+=3) {
+              const bx = entity.basePositions[i];
+              const bz = entity.basePositions[i+2];
+              if (Math.sqrt(bx*bx + bz*bz) > 0.6 * r) { // Orbiting rocks
+                  pPositions[i] = bx * cos - bz * sin;
+                  pPositions[i+2] = bx * sin + bz * cos;
+              }
+          }
+          entity.mesh.geometry.attributes['position'].needsUpdate = true;
+        } else {
+          // Budgeted (Section 1.4): the whole mesh turns at the orbit
+          // rate instead, so the rocks still circle the core and the
+          // charge-up still speeds them visibly.
+          entity.mesh.rotation.y += orbitRate * dtSec;
+        }
+
+        // Core charge glow, with the flash envelope on top (this branch
+        // owns the golem's core colors, so the generic flash pass skips
+        // golems).
+        if (entity.baseColors && entity.layerFlags) {
+          const colAttr = entity.mesh.geometry.attributes['color'];
+          const colArr = colAttr.array as Float32Array;
+          const env = this.flashEnvelope(entity, nowMs);
+          const brighten = 1 + charge * 0.6;
+          for (let i = 0; i < entity.layerFlags.length; i++) {
+            if (entity.layerFlags[i] !== 1) continue;
+            const idx = i * 3;
+            let cr = Math.min(1.6, entity.baseColors[idx] * brighten);
+            let cg = Math.min(1.2, entity.baseColors[idx + 1] * brighten);
+            let cb = entity.baseColors[idx + 2] * brighten;
+            if (env > 0) {
+              cr = cr + (1 - cr) * env;
+              cg = cg + (1 - cg) * env;
+              cb = cb + (1 - cb) * env;
+            }
+            colArr[idx] = cr; colArr[idx + 1] = cg; colArr[idx + 2] = cb;
+          }
+          colAttr.needsUpdate = true;
+        }
       }
       else if (data.type === 'boss' && entity.basePositions) {
         const pPositions = entity.mesh.geometry.attributes['position'].array as Float32Array;
@@ -2051,296 +2264,123 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       } else if (data.type !== 'egg') {  entity.mesh.rotation.y += 0.02;
       }
 
+      // Hit flash pass: pulse the core layer toward white for the
+      // flash envelope. Golems are skipped: their branch above writes
+      // core colors itself (charge glow) with the same envelope.
+      if (flashEnv > 0 && data.type !== 'golem' && entity.baseColors && entity.layerFlags) {
+        const colAttr = entity.mesh.geometry.attributes['color'];
+        const colArr = colAttr.array as Float32Array;
+        for (let i = 0; i < entity.layerFlags.length; i++) {
+          if (entity.layerFlags[i] !== 1) continue;
+          const idx = i * 3;
+          colArr[idx] = entity.baseColors[idx] + (1 - entity.baseColors[idx]) * flashEnv;
+          colArr[idx + 1] = entity.baseColors[idx + 1] + (1 - entity.baseColors[idx + 1]) * flashEnv;
+          colArr[idx + 2] = entity.baseColors[idx + 2] + (1 - entity.baseColors[idx + 2]) * flashEnv;
+        }
+        colAttr.needsUpdate = true;
+      }
+
       // Make aura expand dynamically
       if (data.type === 'aura') {
         entity.mesh.rotation.z += 0.1;
       }
     }
+
+    this.updateDyingBursts(nowMs);
   }
 
+  private flashEnvelope(entity: ParticleEntity, nowMs: number): number {
+    if (!entity.flashStartMs) return 0;
+    const p = (nowMs - entity.flashStartMs) / (entity.flashDurationMs || 60);
+    return p >= 1 ? 0 : 1 - p;
+  }
+
+  // Death bursts (Section 3.1): points scatter outward from the shape
+  // they died in and cool toward dark ember over 0.4 s, then dispose.
+  private updateDyingBursts(nowMs: number) {
+    for (let i = this.dyingBursts.length - 1; i >= 0; i--) {
+      const burst = this.dyingBursts[i];
+      const p = (nowMs - burst.startMs) / 400;
+      if (p >= 1) {
+        this.scene.remove(burst.mesh);
+        burst.mesh.geometry.dispose();
+        (burst.mesh.material as THREE.Material).dispose();
+        this.dyingBursts.splice(i, 1);
+        continue;
+      }
+      const posAttr = burst.mesh.geometry.attributes['position'];
+      const posArr = posAttr.array as Float32Array;
+      const scatter = p * p * 1.5;
+      for (let v = 0; v < posArr.length; v += 3) {
+        const bx = burst.positions[v];
+        const by = burst.positions[v + 1];
+        const bz = burst.positions[v + 2];
+        const len = Math.sqrt(bx * bx + by * by + bz * bz) || 1;
+        posArr[v] = bx + (bx / len) * scatter;
+        posArr[v + 1] = by + (by / len) * scatter + p * 0.4;
+        posArr[v + 2] = bz + (bz / len) * scatter;
+      }
+      posAttr.needsUpdate = true;
+      const colAttr = burst.mesh.geometry.attributes['color'];
+      const colArr = colAttr.array as Float32Array;
+      for (let v = 0; v < colArr.length; v += 3) {
+        colArr[v] = burst.colors[v] * (1 - p) + 0.25 * p;
+        colArr[v + 1] = burst.colors[v + 1] * (1 - p) + 0.06 * p;
+        colArr[v + 2] = burst.colors[v + 2] * (1 - p) + 0.02 * p;
+      }
+      colAttr.needsUpdate = true;
+      (burst.mesh.material as THREE.PointsMaterial).opacity = 0.9 * (1 - p);
+    }
+  }
+
+  // Mesh construction delegates to the shared entity builder
+  // (entity-builder.ts, visual spec Section 3.1): one definition per
+  // type serves the game and the codex. The hostile color is read from
+  // the current world's theme data, so enemy fire is data-driven.
   private createEntityMesh(data: PhysicsEntity): ParticleEntity {
+    const world = WORLDS[this.gameState.selectedWorldIndex()];
+    const hostile = world?.themeData?.palette?.hostile ?? HOSTILE_RGB;
+    const built = buildEntityGeometry(data.type, {
+      r: data.size / 30, // Scale factor, as shipped
+      hostile,
+      ownerId: data.ownerId,
+      gameMode: this.gameState.currentGameMode(),
+      bird: this.bird ? { basePositions: this.bird.basePositions, colorAt: (i: number) => this.birdColorAt(this.bird, i) } : null,
+    });
+
     const geo = new THREE.BufferGeometry();
-    const count = data.type === 'boss' || data.type === 'turret' || data.type === 'enemy_phoenix' ? 4000 : (data.type.startsWith('projectile') ? 100 : (data.type === 'aura' ? 500 : (['coin', 'gem', 'heart', 'xp_orb'].includes(data.type) ? 200 : 800)));
-    const pos = new Float32Array(count * 3);
-    const col = new Float32Array(count * 3);
+    geo.setAttribute('position', new THREE.BufferAttribute(built.positions, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(built.colors, 3));
 
-    // Color based on type
-    let color = new THREE.Color(0xffffff);
-    if (data.type === 'bat') color.setHex(0xef4444);
-    else if (data.type === 'slime') color.setHex(0x22c55e); // Green Slime
-    else if (data.type === 'golem') color.setHex(0x7f1d1d); // Dark Red Golem
-    else if (data.type === 'boss') color.setHex(0xf97316); // Orange fiery Boss
-    else if (data.type === 'projectile_player') color.setHex(0xfbbf24);
-    else if (data.type === 'projectile_enemy') color.setHex(0xfbbf24);
-    else if (data.type === 'aura') color.setHex(0x06b6d4);
-    else if (data.type === 'coin') color.setHex(0xfacc15); // Yellow
-    else if (data.type === 'gem') color.setHex(0xc084fc); // Purple
-    else if (data.type === 'heart') color.setHex(0xec4899); // Pinkish red
-    else if (data.type === 'xp_orb') color.setHex(0x38bdf8); // Glowing Cyan/Light Blue
-    else if (data.type === 'fire') color.setHex(0xff5500); // Orange/Red
-    else if (data.type === 'egg') color.setHex(0xffaa00); // Golden Egg
-    else if (data.type === 'turret') color.setHex(0xffffff); // Use original bird colors
-
-    // If ability was cast by the Top AI, override its visual color to Red to match the AI Phoenix
-    if (data.ownerId === 'ai1' && (data.type.startsWith('projectile') || data.type === 'aura' || data.type === 'fire' || data.type === 'egg')) {
-        color.setHex(0xff3333);
-    } else if (data.ownerId === 'player' && this.gameState.currentGameMode() === 'ai_vs_ai' && (data.type.startsWith('projectile') || data.type === 'aura' || data.type === 'fire' || data.type === 'egg')) {
-        color.setHex(0xd946ef); // Fuchsia for Bottom AI in AI vs AI
-    }
-
-    const r = data.size / 30; // Scale factor
-
-    for (let i=0; i<count; i++) {
-      const idx = i*3;
-      let x = 0, y = 0, z = 0;
-
-      if (data.type === 'slime') {
-          // Complex Slime: 30% Dense Core, 70% Translucent Membrane
-          const isCore = i < count * 0.3;
-          const rad = isCore ? Math.cbrt(Math.random()) * r * 0.4 : Math.cbrt(Math.random()) * r;
-          const u = Math.random() * Math.PI * 2;
-          const v = Math.acos(Math.random()); // Hemisphere
-          
-          x = rad * Math.sin(v) * Math.cos(u);
-          z = rad * Math.sin(v) * Math.sin(u);
-          y = (rad * Math.cos(v) - r * 0.5) * (isCore ? 0.9 : 1.1); // Slightly taller membrane
-          
-          // Color gradient: Core is toxic yellow/white, membrane is dark green
-          if (isCore) {
-              const mix = Math.random();
-              col[idx] = 0.8 + mix * 0.2; col[idx+1] = 1.0; col[idx+2] = 0.2 + mix * 0.5; // Toxic Yellow-Green
-          } else {
-              col[idx] = 0.1; col[idx+1] = 0.6 + Math.random() * 0.4; col[idx+2] = 0.2; // Neon Green
-          }
-      }
-      else if (data.type === 'bat') {
-          // Complex Bat: Body (20%), Left Wing (40%), Right Wing (40%)
-          const p = Math.random();
-          if (p < 0.2) {
-              // Body
-              x = (Math.random() - 0.5) * 0.6 * r;
-              y = (Math.random() - 0.5) * 0.8 * r;
-              z = (Math.random() - 0.5) * 0.6 * r;
-              // Red glowing eyes
-              if (y > 0.2 * r && Math.abs(x) > 0.1 * r && z > 0.2 * r) {
-                  col[idx] = 1.0; col[idx+1] = 0.0; col[idx+2] = 0.0;
-              } else {
-                  col[idx] = 0.2 + Math.random()*0.2; col[idx+1] = 0.0; col[idx+2] = 0.0; // Dark crimson body
-              }
-          } else {
-              // Wings
-              const isLeft = p < 0.6;
-              const span = Math.random() * r * 2.5; // Wing span
-              const depth = (Math.random() - 0.5) * 0.3 * r;
-              const swoop = Math.sin((span / (r*2.5)) * Math.PI) * 0.5 * r; // Wing curve
-              
-              x = isLeft ? -span : span;
-              y = swoop + (Math.random() - 0.5) * 0.2 * r;
-              z = depth - (span * 0.2); // Wings angle slightly back
-              
-              const edge = span / (r*2.5);
-              col[idx] = 0.5 - edge * 0.3; col[idx+1] = 0.0; col[idx+2] = 0.1 + edge * 0.2; // Purple-ish edges
-          }
-      }
-      else if (data.type === 'golem') {
-          // Complex Golem: Core (20%), Floating jagged rocks (80%)
-          const p = Math.random();
-          if (p < 0.2) {
-              // Magma Core
-              const rad = Math.cbrt(Math.random()) * r * 0.6;
-              const u = Math.random() * Math.PI * 2;
-              const v = Math.acos(2 * Math.random() - 1);
-              x = rad * Math.sin(v) * Math.cos(u);
-              y = rad * Math.sin(v) * Math.sin(u);
-              z = rad * Math.cos(v);
-              col[idx] = 1.0; col[idx+1] = 0.2 + Math.random()*0.4; col[idx+2] = 0.0; // Hot Orange/Red
-          } else {
-              // Rocks
-              const rockCenter = {
-                  x: (Math.random() - 0.5) * r * 2.5,
-                  y: (Math.random() - 0.5) * r * 3,
-                  z: (Math.random() - 0.5) * r * 2.5
-              };
-              // Distribute particles around rock center
-              x = rockCenter.x + (Math.random() - 0.5) * 0.5 * r;
-              y = rockCenter.y + (Math.random() - 0.5) * 0.5 * r;
-              z = rockCenter.z + (Math.random() - 0.5) * 0.5 * r;
-              
-              const gray = 0.1 + Math.random() * 0.15;
-              col[idx] = gray; col[idx+1] = gray * 0.8; col[idx+2] = gray * 0.8; // Dark rocky color
-          }
-      }
-      else if (data.type === 'boss') {
-          // Demonic Fiery Skull
-          const p = Math.random();
-          if (p < 0.6) {
-              // Skull Dome (Upper half sphere)
-              const u = Math.random() * Math.PI * 2;
-              const v = Math.acos(Math.random()); // Top half
-              const rad = r * 1.5 + (Math.random() - 0.5) * 0.3 * r;
-              x = rad * Math.sin(v) * Math.cos(u);
-              z = rad * Math.sin(v) * Math.sin(u);
-              y = rad * Math.cos(v) + r * 0.5; // Shift up
-              
-              // Eye Sockets (hollow them out)
-              if (y > r * 0.8 && y < r * 1.5 && z > r * 0.5 && Math.abs(Math.abs(x) - r * 0.6) < r * 0.4) {
-                  // Push particles into the eye socket to make it hollow and glowing
-                  z -= r * 0.8;
-                  col[idx] = 1.0; col[idx+1] = 1.0; col[idx+2] = 1.0; // White hot eyes
-              } else {
-                  const heat = 1.0 - (y / (r * 2));
-                  col[idx] = 1.0; col[idx+1] = heat * 0.5; col[idx+2] = 0.0; // Orange to Red gradient
-              }
-          } else if (p < 0.85) {
-              // Jaw (Lower half, detached slightly)
-              x = (Math.random() - 0.5) * r * 2.2;
-              y = -r * 0.5 + (Math.random() - 0.5) * 0.4 * r;
-              z = (Math.random() - 0.5) * r * 1.8 + (Math.abs(x) * 0.5); // Curved jaw
-              col[idx] = 0.8; col[idx+1] = 0.2; col[idx+2] = 0.0; // Darker red jaw
-          } else {
-              // Floating horns/crown
-              const isLeft = Math.random() > 0.5;
-              const t = Math.random();
-              const spread = t * r * 1.5;
-              x = isLeft ? -(r + spread) : (r + spread);
-              y = r * 1.5 + t * r * 2 + (Math.random() - 0.5) * 0.3 * r;
-              z = -t * r + (Math.random() - 0.5) * 0.3 * r; // Horns curve back
-              col[idx] = 1.0; col[idx+1] = 0.6 - t * 0.6; col[idx+2] = 0.0; // Orange to Red horns
-          }
-      }
-      else if (data.type === 'heart') {
-          // Math curve for a heart
-          const t = Math.random() * Math.PI * 2;
-          const rad = Math.random() * r * 0.05; 
-          x = 16 * Math.pow(Math.sin(t), 3) * rad;
-          y = (13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t)) * rad;
-          z = (Math.random() - 0.5) * r * 0.2;
-      }
-      else if (data.type === 'gem' || data.type === 'xp_orb') {
-          // Diamond shape (Octahedron)
-          x = (Math.random() - 0.5) * r;
-          y = (Math.random() - 0.5) * r * 2;
-          z = (Math.random() - 0.5) * r;
-          const sum = Math.abs(x/r) + Math.abs(y/(r*2)) + Math.abs(z/r);
-          if (sum > 0.5) {
-             x /= (sum * 2); y /= (sum * 2); z /= (sum * 2);
-          }
-      }
-      else if (data.type === 'coin') {
-          // Torus / Ring
-          const angle = Math.random() * Math.PI * 2;
-          const rad = r * 0.8 + (Math.random() - 0.5) * r * 0.2;
-          x = Math.cos(angle) * rad;
-          y = Math.sin(angle) * rad;
-          z = (Math.random() - 0.5) * r * 0.1;
-      }
-      else if (data.type === 'aura') {
-         // Ring of particles
-         const angle = Math.random() * Math.PI * 2;
-         x = Math.cos(angle) * r;
-         y = Math.sin(angle) * r;
-         z = (Math.random() - 0.5) * 0.5;
-      } 
-      else if (data.type === 'fire') {
-         // Chaotic cloud
-         x = (Math.random() - 0.5) * r * 2.5;
-         y = (Math.random() - 0.5) * r * 2.5;
-         z = (Math.random() - 0.5) * r * 2.5;
-      }
-      else if (data.type === 'egg') {
-         // Golden Torus Knot Core + Swirling Vortex Shell
-         const t = Math.random() * Math.PI * 2;
-         const p = 3; const q = 4;
-         const rad_knot = Math.cos(q * t) + 2;
-         const knotX = rad_knot * Math.cos(p * t) * r * 0.3;
-         const knotY = rad_knot * Math.sin(p * t) * r * 0.3;
-         const knotZ = -Math.sin(q * t) * r * 0.3;
-         
-         const u = Math.random() * Math.PI * 2;
-         const v = Math.random() * Math.PI;
-         const vortexR = r * 1.5 * (1 - Math.pow(Math.random(), 3)); 
-         
-         if (Math.random() > 0.3) {
-             x = knotX + (Math.random() - 0.5) * r * 0.1;
-             y = knotY + (Math.random() - 0.5) * r * 0.1;
-             z = knotZ + (Math.random() - 0.5) * r * 0.1;
-         } else {
-             x = vortexR * Math.sin(v) * Math.cos(u);
-             y = vortexR * Math.sin(v) * Math.sin(u);
-             z = vortexR * Math.cos(v);
-         }
-      }
-      else if (data.type === 'turret') {
-         // Copy baby bird from main bird base positions (scaled down and animated)
-         if (this.bird && this.bird.basePositions && this.bird.basePositions.length > idx + 2) {
-             const baseX = this.bird.basePositions[idx];
-             const baseY = this.bird.basePositions[idx+1];
-             const baseZ = this.bird.basePositions[idx+2];
-             
-             const flapAmount = Math.abs(baseX) * 0.5;
-             const flapPhase = (Date.now() * 0.01) - baseZ * 2.0;
-             const flapOffset = Math.sin(flapPhase) * flapAmount;
-             
-             x = baseX * 0.4 * r;
-             y = (baseY + flapOffset) * 0.4 * r;
-             z = baseZ * 0.4 * r;
-         }
-      }
-      else {
-         // Default Sphere
-         const u = Math.random() * Math.PI * 2;
-         const v = Math.acos(2 * Math.random() - 1);
-         const rad = Math.cbrt(Math.random()) * r;
-         x = rad * Math.sin(v) * Math.cos(u);
-         y = rad * Math.sin(v) * Math.sin(u);
-         z = rad * Math.cos(v);
-      }
-
-      pos[idx] = x;
-      pos[idx+1] = y;
-      pos[idx+2] = z;
-
-      // Add a bit of jitter to colors
-      if (data.type === 'fire') {
-          const rand = Math.random();
-          if (rand > 0.6) { col[idx] = 1.0; col[idx+1] = 0.8; col[idx+2] = 0.0; } // Yellow
-          else if (rand > 0.3) { col[idx] = 1.0; col[idx+1] = 0.3; col[idx+2] = 0.0; } // Orange
-          else { col[idx] = 0.8; col[idx+1] = 0.0; col[idx+2] = 0.0; } // Red
-      } else if (data.type === 'turret' && this.bird) {
-          // The turret (baby phoenix) reuses the player bird's
-          // construction and colors, across both particle buffers.
-          const c = this.birdColorAt(this.bird, i);
-          col[idx] = c[0];
-          col[idx+1] = c[1];
-          col[idx+2] = c[2];
-      } else if (data.type === 'enemy_phoenix' && this.bird) {
-          const c = this.birdColorAt(this.bird, i);
-          col[idx] = 1.0 - c[0];
-          col[idx+1] = 1.0 - c[1];
-          col[idx+2] = 1.0 - c[2];
-      } else if (data.type === 'egg') {
-          const rand = Math.random();
-          if (rand > 0.8) { col[idx] = 1.0; col[idx+1] = 1.0; col[idx+2] = 0.8; } // White/Gold
-          else if (rand > 0.4) { col[idx] = 1.0; col[idx+1] = 0.8; col[idx+2] = 0.0; } // Bright Gold
-          else { col[idx] = 1.0; col[idx+1] = 0.3; col[idx+2] = 0.0; } // Fiery Orange
-      } else {
-          col[idx] = color.r * (0.8 + Math.random()*0.4);
-          col[idx+1] = color.g * (0.8 + Math.random()*0.4);
-          col[idx+2] = color.b * (0.8 + Math.random()*0.4);
-      }
-    }
-    
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    
     const material = new THREE.PointsMaterial({ size: 0.15, vertexColors: true, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending });
     const mesh = new THREE.Points(geo, material);
     mesh.frustumCulled = false;
-    
-    // Store base positions for complex entities to allow vertex animation
-    const basePositions = ['slime', 'bat', 'golem', 'boss', 'egg', 'turret', 'enemy_phoenix'].includes(data.type) ? new Float32Array(pos) : undefined;
 
-    return { mesh, type: data.type, basePositions, timeOffset: Math.random() * 1000 };
+    return {
+      mesh,
+      type: data.type,
+      // Store base positions for complex entities to allow vertex
+      // animation (a copy: the live attribute is rewritten per frame).
+      basePositions: built.animated ? built.positions.slice() : undefined,
+      // MUST be a copy, not the attribute's own array: the per-frame
+      // color writers (Glob crawl, Golem charge glow, hit flash) all
+      // compute from baseColors and write into the live attribute.
+      // When the two were the same array, every write compounded on
+      // the last frame's output and the Glob membrane blew out to
+      // white within seconds (found by the Stage 2 harness: codex
+      // previews, which have no per-frame writers, rendered the same
+      // builder data correctly).
+      baseColors: built.colors.slice(),
+      layerFlags: built.layer,
+      timeOffset: Math.random() * 1000,
+      lastHealth: data.health,
+      flashStartMs: 0,
+      flashDurationMs: 60,
+      flashActive: false,
+      orbitAngle: Math.random() * Math.PI * 2,
+      lastCharge: 0,
+      bornMs: performance.now(),
+    };
   }
 
   private onResize() {

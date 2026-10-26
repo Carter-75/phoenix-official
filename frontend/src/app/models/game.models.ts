@@ -34,6 +34,15 @@ export interface PhysicsEntity {
   height?: number;
   isLeft?: boolean;
   ownerId?: string;
+  // Renderer-only feedback data (visual spec Section 3.1): current and
+  // max health drive the shared hit flash and the boss phase flashes;
+  // attackCharge (0 to 1) drives the Bastion Golem's telegraphed orbit
+  // charge; weave (-1 to 1) is the Gloomwing's current weave deflection,
+  // used to bank its mesh. None of these affect gameplay.
+  health?: number;
+  maxHealth?: number;
+  attackCharge?: number;
+  weave?: number;
 }
 
 export type Rgb = [number, number, number];
@@ -112,4 +121,8 @@ export interface EnemyData {
   owner?: 'player' | 'enemy';
   ownerId?: string;
   immortalUntil?: number;
+  // Gloomwing weave: the steering loop stores the current sine value
+  // here each tick so the renderer can bank the mesh in sync (visual
+  // spec Section 3.3). Steering data only; never read by gameplay.
+  weaveValue?: number;
 }

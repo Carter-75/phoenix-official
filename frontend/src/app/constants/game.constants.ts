@@ -2,7 +2,9 @@ import { Rgb, World, WorldStats } from '../models/game.models';
 
 // Shared hostile color (visual spec Section 1.5): enemy intent is always
 // the magenta-red family, in every world, never toward a player skin color.
-const HOSTILE_RGB: Rgb = [1.0, 0.18, 0.42];
+// Exported so renderers without a world context (codex previews) read the
+// same data instead of restating the value.
+export const HOSTILE_RGB: Rgb = [1.0, 0.18, 0.42];
 
 // World names here are canonical everywhere (menu, codex, shop). The
 // Temp-phoenix realm names are retired as display names; their one-line
