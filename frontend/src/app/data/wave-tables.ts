@@ -52,8 +52,8 @@ export const WAVE_TABLES: Record<number, WorldWaveTable> = {
     bands: [
       // Band caps and weights tuned across the Stage 3 budget
       // re-check (see STAGE-3.md for the run table): the first
-      // composer run cut the old composition's 121 weighted hits
-      // to 26, and the remaining pressure measured as Golem
+      // filed composer run cut the old composition's 121 weighted
+      // hits to 32, and the remaining pressure measured as Golem
       // volleys and raw density in the late bands, so the Golem
       // weight halves outside its signature mid band and every
       // cap comes down one notch. Composition data is the only
