@@ -22,6 +22,13 @@ export interface WorldStats {
   // currentStats merges it), so pre-S1 saves load with empty slots.
   activeDoubleAbility: string | null;
   activeTripleAbility: string | null;
+  // Systems S3 (spec Section 5.3): the gadget slot. Gadgets are bought
+  // per world with coins and equipped outside the move slots; each
+  // fires at most once per run under its own trigger. Additive fields
+  // with the same defaulting as the S1 slots, so older saves load with
+  // no gadgets owned and none equipped.
+  unlockedGadgets: string[];
+  activeGadget: string | null;
 }
 
 export interface PhysicsEntity {
@@ -43,11 +50,19 @@ export interface PhysicsEntity {
   maxHealth?: number;
   attackCharge?: number;
   weave?: number;
-  // Behavior state for the Stage 3 types (the Cinder Imp's approach,
-  // telegraph, dash, tired cycle and the Aether Wisp's close, orbit,
-  // dart, return cycle), published so the renderer can read the
-  // telegraph swell and the tired dim off the body itself. Display
-  // only; gameplay reads the same field on EnemyData.
+  // Stage 4 renderer data: facing (radians, screen space: x right,
+  // y down) is the direction the Shieldback's shield face and the
+  // Sentry Shard's core eye point; sparkUntil is the ms timestamp
+  // until which the Shieldback's rim flashes after a reduced frontal
+  // hit. Display only.
+  facing?: number;
+  sparkUntil?: number;
+  // Behavior state for the Stage 3 and Stage 4 types (the Cinder Imp's
+  // approach, telegraph, dash, tired cycle; the Aether Wisp's close,
+  // orbit, dart, return cycle; the Sentry Shard's drift and anchored
+  // states; the Pyre Moth's chase and fusing states), published so the
+  // renderer can read telegraphs off the body itself. Display only;
+  // gameplay reads the same field on EnemyData.
   state?: string;
 }
 
@@ -116,7 +131,7 @@ export interface World {
 
 export interface EnemyData {
   id: string;
-  type: 'bat' | 'slime' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance';
+  type: 'bat' | 'slime' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite' | 'sentry_shard' | 'seedmother' | 'rift_mine' | 'shieldback' | 'pyre_moth' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance';
   health: number;
   maxHealth: number;
   lastAttackTime?: number;
@@ -159,4 +174,8 @@ export interface EnemyData {
   aimDirX?: number; // mite current hop aim (unit vector), re-rolled every 0.4 s
   aimDirY?: number;
   nextAimAt?: number; // ms timestamp of the mite's next re-aim
+  // Stage 4 behavior fields (roster batch B).
+  motherId?: string; // rift_mine: id of the Seedmother that laid it (the 4-mine field cap counts these)
+  sparkUntil?: number; // shieldback: ms timestamp the spark-off rim flash ends
+  infernoUntil?: number; // enemy_phoenix: ms timestamp an active Phoenix Inferno channel ends
 }

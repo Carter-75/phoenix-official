@@ -71,6 +71,11 @@ interface ParticleEntity {
   // Animation budget state (visual spec Section 1.4): true while this
   // enemy renders transform-only instead of full vertex animation.
   budgeted?: boolean;
+  // Stage 4 one-frame latches: the Shieldback spark flash and the
+  // Pyre Moth fuse strobe write colors every frame while active and
+  // restore the pristine builder colors on the frame they end.
+  wasSparking?: boolean;
+  wasFusing?: boolean;
 }
 
 // A dead enemy's points, kept on screen briefly: they scatter outward
@@ -1923,7 +1928,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
 
   // Enemy types get the shared death burst on removal (Section 3.1);
   // everything else (pickups, projectiles, effects) just disappears.
-  private static readonly BURST_TYPES = ['slime', 'bat', 'golem', 'imp', 'wisp', 'pod', 'mite', 'boss'];
+  private static readonly BURST_TYPES = ['slime', 'bat', 'golem', 'imp', 'wisp', 'pod', 'mite', 'sentry_shard', 'seedmother', 'rift_mine', 'shieldback', 'pyre_moth', 'boss'];
 
   private syncEntities() {
     const nowMs = performance.now();
@@ -2314,6 +2319,129 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
         } else {
           const s = 1 + Math.sin(Date.now() * 0.03 + (entity.timeOffset || 0)) * 0.1;
           entity.mesh.scale.set(s, s, s);
+        }
+      }
+      else if (data.type === 'sentry_shard') {
+        // Sentry Shard (Stage 4): the octahedron's long axis turns
+        // to track the player (the published facing), and the core
+        // eye brightens through the 0.4 s charge before each shot,
+        // the same telegraph contract as the Golem's orbit. Colors
+        // are recomputed from the pristine builder colors each
+        // frame, like the Imp's.
+        if (data.facing !== undefined) entity.mesh.rotation.z = -data.facing;
+        entity.mesh.rotation.y += 0.15 * dtSec;
+        const charge = data.attackCharge ?? 0;
+        if (entity.baseColors && entity.layerFlags) {
+          const colAttr = entity.mesh.geometry.attributes['color'];
+          const colArr = colAttr.array as Float32Array;
+          const brighten = 1 + charge * 1.1;
+          for (let i = 0; i < entity.layerFlags.length; i++) {
+            if (entity.layerFlags[i] !== 1) continue;
+            const idx = i * 3;
+            colArr[idx] = Math.min(1.6, entity.baseColors[idx] * brighten);
+            colArr[idx + 1] = Math.min(1.6, entity.baseColors[idx + 1] * brighten);
+            colArr[idx + 2] = Math.min(1.6, entity.baseColors[idx + 2] * brighten);
+          }
+          colAttr.needsUpdate = true;
+        }
+      }
+      else if (data.type === 'seedmother') {
+        // Seedmother (Stage 4): a gentle bob and breathing pulse;
+        // the dome is a presence, not a threat display.
+        const t = Date.now() * 0.0011 + (entity.timeOffset || 0);
+        entity.mesh.position.y += Math.sin(t) * 0.12;
+        const s = 1 + Math.sin(t * 1.7) * 0.03;
+        entity.mesh.scale.set(s, s, s);
+      }
+      else if (data.type === 'rift_mine') {
+        // Rift Mine (Stage 4): the hostile core blinks, and the
+        // blink rate doubles while a player is inside the trigger
+        // radius (the published attackCharge is 1 exactly then).
+        // That rate change is the proximity telegraph.
+        if (entity.baseColors && entity.layerFlags) {
+          const colAttr = entity.mesh.geometry.attributes['color'];
+          const colArr = colAttr.array as Float32Array;
+          const armed = (data.attackCharge ?? 0) > 0;
+          const rate = armed ? 0.022 : 0.011;
+          const blink = 0.25 + 0.75 * (0.5 + 0.5 * Math.sin(Date.now() * rate + (entity.timeOffset || 0)));
+          for (let i = 0; i < entity.layerFlags.length; i++) {
+            if (entity.layerFlags[i] !== 1) continue;
+            const idx = i * 3;
+            colArr[idx] = entity.baseColors[idx] * blink;
+            colArr[idx + 1] = entity.baseColors[idx + 1] * blink;
+            colArr[idx + 2] = entity.baseColors[idx + 2] * blink;
+          }
+          colAttr.needsUpdate = true;
+        }
+      }
+      else if (data.type === 'shieldback') {
+        // Shieldback (Stage 4): the shield face turns toward the
+        // player (published facing), and while a reduced frontal
+        // hit's spark window is open the rim ring flashes white.
+        if (data.facing !== undefined) entity.mesh.rotation.z = -data.facing;
+        const sparking = !!data.sparkUntil && Date.now() < data.sparkUntil;
+        if (entity.baseColors && entity.layerFlags) {
+          const colAttr = entity.mesh.geometry.attributes['color'];
+          const colArr = colAttr.array as Float32Array;
+          if (sparking) {
+            entity.wasSparking = true;
+            for (let i = 0; i < entity.layerFlags.length; i++) {
+              if (entity.layerFlags[i] !== 1) continue;
+              const idx = i * 3;
+              colArr[idx] = 1.6; colArr[idx + 1] = 1.6; colArr[idx + 2] = 1.6;
+            }
+            colAttr.needsUpdate = true;
+          } else if (entity.wasSparking) {
+            entity.wasSparking = false;
+            for (let i = 0; i < entity.layerFlags.length; i++) {
+              if (entity.layerFlags[i] !== 1) continue;
+              const idx = i * 3;
+              colArr[idx] = entity.baseColors[idx];
+              colArr[idx + 1] = entity.baseColors[idx + 1];
+              colArr[idx + 2] = entity.baseColors[idx + 2];
+            }
+            colAttr.needsUpdate = true;
+          }
+        }
+      }
+      else if (data.type === 'pyre_moth' && entity.basePositions) {
+        // Pyre Moth (Stage 4): the two big wings flap slowly (the
+        // Mite's motion at burster tempo). While fusing, the whole
+        // body strobes faster and hotter as the fuse burns down;
+        // the strobe is the detonation warning and overrides the
+        // resting colors for its 0.6 s.
+        if (!budgeted) {
+          const pPositions = entity.mesh.geometry.attributes['position'].array as Float32Array;
+          const time = Date.now() * 0.006 + (entity.timeOffset || 0);
+          const r = data.size / 30;
+          for (let i = 0; i < pPositions.length; i += 3) {
+            const baseX = entity.basePositions[i];
+            const baseY = entity.basePositions[i + 1];
+            if (Math.abs(baseX) > 0.5 * r) {
+              pPositions[i + 1] = baseY + Math.sin(time) * Math.abs(baseX) * 0.35;
+            } else {
+              pPositions[i + 1] = baseY;
+            }
+          }
+          entity.mesh.geometry.attributes['position'].needsUpdate = true;
+        }
+        const fusing = data.state === 'fusing';
+        if (entity.baseColors) {
+          const colAttr = entity.mesh.geometry.attributes['color'];
+          const colArr = colAttr.array as Float32Array;
+          if (fusing) {
+            entity.wasFusing = true;
+            const charge = data.attackCharge ?? 0;
+            const strobe = 1 + charge * (0.7 + 0.7 * Math.sin(Date.now() * 0.05));
+            for (let i = 0; i < colArr.length; i++) {
+              colArr[i] = Math.min(1.8, entity.baseColors[i] * strobe);
+            }
+            colAttr.needsUpdate = true;
+          } else if (entity.wasFusing) {
+            entity.wasFusing = false;
+            colArr.set(entity.baseColors);
+            colAttr.needsUpdate = true;
+          }
         }
       }
       else if (data.type === 'boss' && entity.basePositions) {

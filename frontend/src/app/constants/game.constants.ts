@@ -178,13 +178,25 @@ export const ABILITIES: Record<string, { id: string, type: 'tap' | 'double' | 'h
   'spark_storm': { id: 'spark_storm', type: 'double', name: 'Spark Storm', desc: 'Six sparks that hunt separate targets', icon: '⚡', unlockCost: 700, upgradeCost: 300, baseCooldown: 9 },
   'fire_lance': { id: 'fire_lance', type: 'double', name: 'Fire Lance', desc: 'Piercing lance that spears a whole line', icon: '🔱', unlockCost: 700, upgradeCost: 300, baseCooldown: 8 },
 
-  'phoenix_turret': { id: 'phoenix_turret', type: 'hold', name: 'Phoenix Turret', desc: 'Drop an egg that hatches a turret', icon: '🥚', unlockCost: 800, upgradeCost: 300, baseCooldown: 12 },
-  'rebirth': { id: 'rebirth', type: 'hold', name: 'Rebirth (Passive)', desc: 'Revive upon death with shockwave', icon: '✨', unlockCost: 1000, upgradeCost: 500, baseCooldown: 60 },
-  'aura': { id: 'aura', type: 'hold', name: 'Aura', desc: 'Continuous damage zone', icon: '🌀', unlockCost: 0, upgradeCost: 400, baseCooldown: 15 },
+  'phoenix_turret': { id: 'phoenix_turret', type: 'hold', name: 'Phoenix Turret', desc: 'Drop an egg that hatches a turret', icon: '🥚', unlockCost: 800, upgradeCost: 300, baseCooldown: 14 },
+  'phoenix_inferno': { id: 'phoenix_inferno', type: 'hold', name: 'Phoenix Inferno', desc: 'Channel a burning beam while braked', icon: '🔆', unlockCost: 900, upgradeCost: 400, baseCooldown: 14 },
+  'inferno_wave': { id: 'inferno_wave', type: 'hold', name: 'Inferno Wave', desc: 'Expanding ring that hits every enemy once', icon: '⭕', unlockCost: 900, upgradeCost: 400, baseCooldown: 16 },
+  'rebirth': { id: 'rebirth', type: 'hold', name: 'Rebirth (Passive)', desc: 'Revive upon death with shockwave', icon: '✨', unlockCost: 1000, upgradeCost: 500, baseCooldown: 75 },
+  'aura': { id: 'aura', type: 'hold', name: 'Aura', desc: 'Continuous damage zone', icon: '🌀', unlockCost: 0, upgradeCost: 400, baseCooldown: 17 },
+};
+
+// Gadget slot (systems spec Section 5.3, stage S3): one gadget per
+// world, bought with coins at ability-band prices, equipped outside
+// the move slots. Passive-trigger only, no upgrade levels, and each
+// fires at most once per run under its stated trigger.
+export const GADGETS: Record<string, { id: string, name: string, desc: string, icon: string, cost: number }> = {
+  'phoenix_feather': { id: 'phoenix_feather', name: 'Phoenix Feather Charm', desc: 'Once per run, dying with no revive tokens revives you at 50 percent HP instead.', icon: '🪶', cost: 800 },
+  'aegis_charm': { id: 'aegis_charm', name: 'Aegis Charm', desc: 'Start each run with a one-hit shield that negates a single hit. Redundant if you own the Celestial Shield gem.', icon: '🛡️', cost: 700 },
+  'focus_charm': { id: 'focus_charm', name: 'Focus Charm', desc: 'Hold-move charge time is cut to three quarters (1.5 s to about 1.1 s).', icon: '🎯', cost: 600 },
 };
 
 export const REALM_ABILITIES: Record<number, string[]> = {
-  0: ['drill_attack', 'fire_breath', 'burst', 'fire_dart', 'meteor_rush', 'phoenix_talon', 'spark_storm', 'fire_lance', 'phoenix_turret', 'rebirth', 'aura']
+  0: ['drill_attack', 'fire_breath', 'burst', 'fire_dart', 'meteor_rush', 'phoenix_talon', 'spark_storm', 'fire_lance', 'phoenix_turret', 'phoenix_inferno', 'inferno_wave', 'rebirth', 'aura']
 };
 
 export const ABILITY_UPGRADE_TARGETS: Record<string, { targetLevel: number, stats: Record<string, number> }> = {
@@ -201,7 +213,10 @@ export const ABILITY_UPGRADE_TARGETS: Record<string, { targetLevel: number, stat
   meteor_rush: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },
   phoenix_talon: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },
   spark_storm: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },
-  fire_lance: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } }
+  fire_lance: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },
+  // S3 hold moves: the same Section 3.5 default shape as S2.
+  phoenix_inferno: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },
+  inferno_wave: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } }
 };
 
 // Deterministic ability upgrades (systems spec Section 3.5, stage S1).
@@ -227,7 +242,8 @@ export const BASE_STATS: WorldStats = {
   burstDamage: 20, auraRadius: 250, homingLevel: 0, attackRange: 400,
   unlockedAbilities: {},
   activeTapAbility: null, activeHoldAbility: null,
-  activeDoubleAbility: null, activeTripleAbility: null
+  activeDoubleAbility: null, activeTripleAbility: null,
+  unlockedGadgets: [], activeGadget: null
 };
 
 export const WORLD_0_STATS: WorldStats = {

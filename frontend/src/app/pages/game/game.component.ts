@@ -15,7 +15,7 @@ import { AdsService } from '../../services/ads.service';
 
 interface EnemyData {
   id: string;
-  type: 'bat' | 'slime' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance';
+  type: 'bat' | 'slime' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite' | 'sentry_shard' | 'seedmother' | 'rift_mine' | 'shieldback' | 'pyre_moth' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance';
   health: number;
   maxHealth: number;
   lastAttackTime?: number;
@@ -45,6 +45,10 @@ interface EnemyData {
   aimDirX?: number;
   aimDirY?: number;
   nextAimAt?: number;
+  // Stage 4 behavior fields (mirror models/game.models.ts).
+  motherId?: string;
+  sparkUntil?: number;
+  infernoUntil?: number;
 }
 
 @Component({
@@ -611,6 +615,18 @@ export class GameComponent implements OnInit, OnDestroy {
 
   private tripleAbilityEndTime = 0;
 
+  // S3: Phoenix Inferno channel end for the player (the rival keeps
+  // its channel end on its body data, EnemyData.infernoUntil). While
+  // the channel is live the player is braked (Feather Brake speed)
+  // and the hold cooldown does not tick down.
+  private playerInfernoUntil = 0;
+
+  // S3 gadget state (spec Section 5.3): run-local, reset every run.
+  // The Feather Charm fires at most once per run; the Aegis Charm's
+  // one charge is armed at run start when the gadget is equipped.
+  private featherUsedThisRun = false;
+  public aegisShieldActive = signal<boolean>(false);
+
   
   // Input Tracking
   private mouseX = window.innerWidth / 2;
@@ -735,6 +751,11 @@ export class GameComponent implements OnInit, OnDestroy {
     this.annihilationModeActive.set(false);
     this.infiniteBurnActive.set(false);
     this.entranceActive.set(false);
+    // S3 gadget run state: the Feather Charm is unused and the Aegis
+    // Charm's single charge is armed when it is the equipped gadget.
+    this.featherUsedThisRun = false;
+    this.playerInfernoUntil = 0;
+    this.aegisShieldActive.set(this.gameState.currentStats().activeGadget === 'aegis_charm');
     
     this.initPhysics();
     this.startGameLoop();
@@ -795,6 +816,20 @@ export class GameComponent implements OnInit, OnDestroy {
                     this.enemies.push(body);
                     Matter.Composite.add(this.engine.world, body);
                     return body;
+                },
+                // Stage 4: spawn a live enemy of any roster type at an
+                // exact position through the spawner's production
+                // factory (behavior state initialized, world HP law
+                // applied), so portraits and behavior probes run the
+                // shipped code, not a harness imitation.
+                spawnOfType: (type: string, x: number, y: number) => {
+                    return this.spawner.spawnEnemyOfType(this.getSpawnerContext(), type, x, y, this.gameState.selectedWorldIndex());
+                },
+                // Stage 4: the production pre-placed mine pattern
+                // (wave-table data path), callable for verification
+                // until the Worlds 4, 8, and 10 tables land in Stage 6.
+                spawnMinePattern: (cx: number, cy: number, count: number) => {
+                    return this.spawner.spawnMinePattern(this.getSpawnerContext(), cx, cy, count, this.gameState.selectedWorldIndex());
                 }
             };
         }
@@ -1130,8 +1165,17 @@ export class GameComponent implements OnInit, OnDestroy {
                  }
             }
 
+            // Stage 4: a Rift Mine the player touches detonates on
+            // its proximity rule (design sheet 10) instead of dealing
+            // contact damage. Shooting it clear is the safe play;
+            // walking into it is the detonation.
+            if (data.type === 'rift_mine') {
+                this.explodeMine(otherBody);
+                continue;
+            }
+
             if (this.gameState.isDrilling()) {
-                this.damageEnemy(otherBody, this.gameState.currentStats().burstDamage * 3);
+                this.damageEnemy(otherBody, this.gameState.currentStats().burstDamage * 3, this.playerBody.position);
                 this.triggerImpactEffect(otherBody.position.x, otherBody.position.y, false);
                 continue; // Skip player taking damage while drilling
             }
@@ -1142,7 +1186,7 @@ export class GameComponent implements OnInit, OnDestroy {
             // falls through to the normal takeDamage below.
             if (this.gameState.isMeteorRushing() && Date.now() <= this.meteorRushUntilMs && data.id && !this.meteorRushHitIds.has(data.id)) {
                 this.meteorRushHitIds.add(data.id);
-                this.damageEnemy(otherBody, this.meteorRushDamageValue);
+                this.damageEnemy(otherBody, this.meteorRushDamageValue, this.playerBody.position);
                 this.triggerImpactEffect(otherBody.position.x, otherBody.position.y, false);
             }
             // A rushing rival deals its rush damage to the player once
@@ -1202,7 +1246,19 @@ export class GameComponent implements OnInit, OnDestroy {
                 // shots), so base behavior is unchanged, and upgraded
                 // rival casts (burst ring, talon) now land their real
                 // numbers instead of a silent 10.
-                this.takeDamage(data.burstDamage || 10);
+                // S3: a piercing cast (Inferno Wave's shared ring)
+                // hits the player once per cast, the same rule its
+                // hitIds enforce against enemies; the 500 ms post-hit
+                // i-frames alone cannot promise that across a ring
+                // that takes seconds to cross the field.
+                if (data.pierce && data.hitIds) {
+                    if (!data.hitIds.includes('__player__')) {
+                        data.hitIds.push('__player__');
+                        this.takeDamage(data.burstDamage || 10);
+                    }
+                } else {
+                    this.takeDamage(data.burstDamage || 10);
+                }
             }
             
             if (data.type !== 'aura') {
@@ -1357,7 +1413,7 @@ export class GameComponent implements OnInit, OnDestroy {
                     }
                 }
             }
-            this.damageEnemy(other, damage);
+            this.damageEnemy(other, damage, projectile.position);
           } else if (other.label === 'projectile') {
               const pData = projectile.plugin['data'] as EnemyData;
               const oData = other.plugin['data'] as EnemyData;
@@ -1415,7 +1471,10 @@ export class GameComponent implements OnInit, OnDestroy {
       // (second finger, Space, right mouse) drives the renderer state,
       // except while a hold charge is in progress: charge takes
       // precedence once started, and the two are mutually exclusive.
-      this.gameState.playerMovement.braking = this.rawBrakeHeld && this.holdTimer <= 0 && !this.isDead();
+      // S3: an active Phoenix Inferno channel also forces the brake
+      // (the beam is cast at Feather Brake speed, spec Section 3.3).
+      this.gameState.playerMovement.braking = (this.rawBrakeHeld && this.holdTimer <= 0 && !this.isDead())
+          || now < this.playerInfernoUntil;
 
       // 1. Sync hitbox to EXACT visual 3D position of Phoenix.
       // During the battle entrance the player body is driven by the entrance override instead,
@@ -1609,36 +1668,53 @@ export class GameComponent implements OnInit, OnDestroy {
           }
       }
 
-      // 2. Track Hold-Still for the hold ability.
-      // Player presses and holds WITHOUT moving; a charge ring fills; at full charge the ability
-      // fires and the ring flashes "release". Moving the finger (>10px) cancels the charge so the
-      // player can keep flying normally.
-      const HOLD_CHARGE_MS = 3000;
+      // 2. Track Hold-Still for the hold ability (S3 charge redesign,
+      // spec Section 3.2). Player presses and holds; a charge ring
+      // fills over 1.5 s; at full charge the ability fires. The old
+      // rule reset the charge on any movement past 10 px, which made
+      // hold moves unusable under bot steering and twitchy on touch.
+      // Now the charge has a fixed origin (where the press began):
+      // drifting beyond 25 percent of the min screen dimension from
+      // that origin PAUSES accumulation with progress kept, and
+      // returning inside resumes it. The charge in exchange for the
+      // shorter, forgiving charge is the family's higher cooldowns
+      // (turret 14, aura 17, rebirth 75). The Focus Charm gadget
+      // multiplies the charge time by 0.75. Releasing the press, or
+      // having no ready hold move, still ends the session.
+      const chargeMs = 1500 * (this.gameState.currentStats().activeGadget === 'focus_charm' ? 0.75 : 1);
+      const driftLimit = 0.25 * Math.min(window.innerWidth, window.innerHeight);
       if (this.isMouseHeld && !this.isDead() && !this.gameState.isPaused() && !this.gameState.isRebirthing()) {
-        const dist = Math.hypot(this.mouseX - this.holdStartX, this.mouseY - this.holdStartY);
         const holdAbility = this.gameState.currentStats().activeHoldAbility;
         // Brake and charge are mutually exclusive (spec Section 2.4):
         // holding the brake before a charge starts blocks the charge;
         // a charge already in progress takes precedence.
-        if (dist > 10 || !holdAbility || this.holdCooldown() > 0 || (this.rawBrakeHeld && this.holdTimer <= 0)) {
-            // Finger moved (normal flight) OR no hold ability OR on cooldown -> no charge.
-            this.holdStartX = this.mouseX;
-            this.holdStartY = this.mouseY;
+        if (!holdAbility || this.holdCooldown() > 0 || (this.rawBrakeHeld && this.holdTimer <= 0)) {
             this.holdTimer = 0;
             if (this.holdChargeProgress() !== 0) this.holdChargeProgress.set(0);
         } else {
-            this.holdTimer += delta * 1000;
-            this.holdChargeProgress.set(Math.min(1, this.holdTimer / HOLD_CHARGE_MS));
+            if (this.holdTimer <= 0 && this.holdChargeProgress() === 0) {
+                // New charge session: fix the origin at the press point.
+                this.holdStartX = this.mouseX;
+                this.holdStartY = this.mouseY;
+            }
+            const dist = Math.hypot(this.mouseX - this.holdStartX, this.mouseY - this.holdStartY);
+            if (dist <= driftLimit) {
+                this.holdTimer += delta * 1000;
+            }
+            // Outside the drift radius the timer simply does not
+            // advance: progress is frozen, not lost.
+            this.holdChargeProgress.set(Math.min(1, this.holdTimer / chargeMs));
             this.holdChargePos.set({ x: this.mouseX, y: this.mouseY });
-            if (this.holdTimer >= HOLD_CHARGE_MS) {
+            if (this.holdTimer >= chargeMs) {
                 const cd = this.triggerAbility(holdAbility, this.playerBody, this.mouseX, this.mouseY, this.gameState.currentStats(), 'player');
                 if (cd > 0) this.holdCooldown.set(cd);
                 this.holdTimer = 0;
                 this.holdChargeProgress.set(0);
             }
         }
-      } else if (this.holdChargeProgress() !== 0) {
-        this.holdChargeProgress.set(0);
+      } else {
+        this.holdTimer = 0;
+        if (this.holdChargeProgress() !== 0) this.holdChargeProgress.set(0);
       }
 
       // 3. Update enemies
@@ -1668,6 +1744,16 @@ export class GameComponent implements OnInit, OnDestroy {
         if (data.type === 'pod') chaseSpeed = 0.2;
         if (data.type === 'wisp') chaseSpeed = 1.0;
         if (data.type === 'mite') chaseSpeed = 1.1;
+        // Stage 4 types (Section 3.3 speeds through the same halving):
+        // Sentry Shard Immobile after drift-in (its hook owns the
+        // velocity), Seedmother Creep (0.15 sheet), Rift Mine
+        // Immobile, Shieldback Slow (0.5 sheet), Pyre Moth Swift
+        // (2.4 sheet).
+        if (data.type === 'sentry_shard') chaseSpeed = 0.3;
+        if (data.type === 'seedmother') chaseSpeed = 0.075;
+        if (data.type === 'rift_mine') chaseSpeed = 0;
+        if (data.type === 'shieldback') chaseSpeed = 0.25;
+        if (data.type === 'pyre_moth') chaseSpeed = 1.2;
         if (data.type === 'golem') {
             chaseSpeed = 0.005;
             // Golem Ranged Attack
@@ -2065,6 +2151,108 @@ export class GameComponent implements OnInit, OnDestroy {
           }
           desiredX = (data.aimDirX ?? normalized.x) * capPx;
           desiredY = (data.aimDirY ?? normalized.y) * capPx;
+        } else if (data.type === 'sentry_shard') {
+          // Sentry Shard (Shooter): drifts in from the edge toward
+          // the field, anchors once inside the margins, then runs a
+          // 2.5 s fire cycle: a 0.4 s core-glow charge (the published
+          // attackCharge telegraph) and one aimed projectile slightly
+          // faster than the Golem's (9 vs 7.5 per step). Its facing
+          // tracks the player for the renderer's rotation.
+          const LU = this.logicalUnit;
+          data.aimDirX = normalized.x;
+          data.aimDirY = normalized.y;
+          const margin = 0.08 * LU;
+          const inside = enemy.position.x > margin && enemy.position.x < window.innerWidth - margin
+            && enemy.position.y > margin && enemy.position.y < window.innerHeight - margin;
+          if ((data.behaviorState || 'drift') === 'drift') {
+            desiredX = normalized.x * 0.3 * LU;
+            desiredY = normalized.y * 0.3 * LU;
+            if (inside) data.behaviorState = 'anchored';
+          } else {
+            desiredX = 0;
+            desiredY = 0;
+            if (now - (data.lastAttackTime || 0) > 2500) {
+              data.lastAttackTime = now;
+              this.fireEnemyProjectile(enemy.position, this.scaledSpeed(9));
+            }
+          }
+        } else if (data.type === 'seedmother') {
+          // Seedmother (Anchor): crosses the field on a slow diagonal
+          // at Creep speed, laying a Rift Mine every 4 s up to her
+          // cap of 4 live mines (design sheet 9). Near an edge she
+          // re-aims at the center with jitter, so the crossing never
+          // ends. The mines she lays carry her id; the cap counts
+          // only her own field.
+          const LU = this.logicalUnit;
+          const edge = 0.12 * LU;
+          if (enemy.position.x < edge || enemy.position.x > window.innerWidth - edge
+            || enemy.position.y < edge || enemy.position.y > window.innerHeight - edge) {
+            const cx = window.innerWidth / 2 - enemy.position.x;
+            const cy = window.innerHeight / 2 - enemy.position.y;
+            const len = Math.hypot(cx, cy) || 1;
+            const jitter = (Math.random() - 0.5) * 0.8;
+            const cos = Math.cos(jitter), sin = Math.sin(jitter);
+            data.aimDirX = (cx / len) * cos - (cy / len) * sin;
+            data.aimDirY = (cx / len) * sin + (cy / len) * cos;
+          }
+          desiredX = (data.aimDirX ?? normalized.x) * 0.075 * LU;
+          desiredY = (data.aimDirY ?? normalized.y) * 0.075 * LU;
+          if (now - (data.lastAttackTime || 0) >= 4000) {
+            const liveMines = this.enemies.filter(e => {
+              const d = e.plugin['data'] as EnemyData;
+              return d && d.type === 'rift_mine' && d.motherId === data.id;
+            }).length;
+            if (liveMines < 4) {
+              data.lastAttackTime = now;
+              const mine = this.spawner.spawnEnemyOfType(this.getSpawnerContext(), 'rift_mine',
+                enemy.position.x, enemy.position.y, this.gameState.selectedWorldIndex());
+              if (mine) (mine.plugin['data'] as EnemyData).motherId = data.id;
+            }
+          }
+        } else if (data.type === 'rift_mine') {
+          // Rift Mine (Hazard): immobile. Inside its trigger radius
+          // (about 12 percent of the min dimension, design sheet 10)
+          // it detonates into a 4-projectile cross. The published
+          // attackCharge is 1 inside the radius, which doubles the
+          // renderer's core blink: the telegraph.
+          desiredX = 0;
+          desiredY = 0;
+          const distP = Math.hypot(force.x, force.y);
+          if (distP < 0.12 * this.logicalUnit) this.explodeMine(enemy);
+        } else if (data.type === 'shieldback') {
+          // Shieldback (Bulwark): a slow advance on the player. Its
+          // shield face always turns toward the player (the facing
+          // the damage rule and the renderer both read): the hook
+          // stores the unit vector to the player on the body data.
+          data.aimDirX = normalized.x;
+          data.aimDirY = normalized.y;
+          desiredX = normalized.x * 0.25 * this.logicalUnit;
+          desiredY = normalized.y * 0.25 * this.logicalUnit;
+        } else if (data.type === 'pyre_moth') {
+          // Pyre Moth (Burster): chases at Swift; inside detonation
+          // range (16 percent of the min dimension) it starts a
+          // 0.6 s fuse, strobing (published attackCharge), creeping
+          // at Slow, and at the end of the fuse it detonates itself
+          // through the normal death path, which spawns the
+          // 8-projectile ring (design sheet 12).
+          const LU = this.logicalUnit;
+          const distP = Math.hypot(force.x, force.y);
+          if ((data.behaviorState || 'chase') === 'chase') {
+            desiredX = normalized.x * 1.2 * LU;
+            desiredY = normalized.y * 1.2 * LU;
+            if (distP < 0.16 * LU) {
+              data.behaviorState = 'fusing';
+              data.telegraphStart = now;
+              data.stateUntil = now + 600;
+            }
+          } else {
+            desiredX = normalized.x * 0.24 * LU;
+            desiredY = normalized.y * 0.24 * LU;
+            if (now >= (data.stateUntil || 0)) {
+              data.health = 0;
+              this.damageEnemy(enemy, 0, enemy.position);
+            }
+          }
         }
         const vel = Matter.Body.getVelocity(enemy); // px per 1/60 s step
         const curX = vel.x * 60;
@@ -2242,9 +2430,11 @@ export class GameComponent implements OnInit, OnDestroy {
                      // code reads these back.
                      health: data.health,
                      maxHealth: data.maxHealth,
-                     attackCharge: data.type === 'golem' ? Math.min(1, Math.max(0, (now - (data.lastAttackTime || 0)) / 3000)) : data.type === 'imp' ? this.impTelegraphCharge(data, now) : undefined,
+                     attackCharge: data.type === 'golem' ? Math.min(1, Math.max(0, (now - (data.lastAttackTime || 0)) / 3000)) : data.type === 'imp' ? this.impTelegraphCharge(data, now) : data.type === 'sentry_shard' ? this.shardCharge(data, now) : data.type === 'rift_mine' ? this.mineArmedCharge(body) : data.type === 'pyre_moth' ? this.mothFuseCharge(data, now) : undefined,
                      weave: data.type === 'bat' ? data.weaveValue : undefined,
-                     state: (data.type === 'imp' || data.type === 'wisp') ? data.behaviorState : undefined
+                     state: (data.type === 'imp' || data.type === 'wisp' || data.type === 'sentry_shard' || data.type === 'seedmother' || data.type === 'rift_mine' || data.type === 'shieldback' || data.type === 'pyre_moth') ? data.behaviorState : undefined,
+                     facing: (data.type === 'shieldback' || data.type === 'sentry_shard') && data.aimDirX !== undefined ? Math.atan2(data.aimDirY || 0, data.aimDirX || 0) : undefined,
+                     sparkUntil: data.type === 'shieldback' ? data.sparkUntil : undefined
                  });
              }
          }
@@ -2540,12 +2730,13 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
 
   getHoldMaxCooldown() {
-      const id = this.gameState.currentStats().activeHoldAbility || 'aura';
-      const abilityData = this.gameState.worldUpgrades()[this.gameState.selectedWorldIndex()]?.unlockedAbilities[id];
-      const mod = abilityData?.modifiers?.['cooldown'] || 1.0;
-      if (id === 'phoenix_turret') return 10 * mod;
-      if (id === 'rebirth') return 60 * mod; // 60s cooldown for Rebirth
-      return 15 * mod; // aura
+      // Every hold move reads its real base cooldown from ABILITIES
+      // times its cooldown modifier (the slotMaxCooldown convention).
+      // The old hardcoded values (turret 10, rebirth 60, else 15)
+      // disagreed with the cooldowns triggerAbility actually
+      // returned, so the HUD ring lied; S3's charge payment also
+      // moved the bases (turret 14, aura 17, rebirth 75).
+      return this.slotMaxCooldown(this.gameState.currentStats().activeHoldAbility || 'aura');
   }
 
 
@@ -2787,9 +2978,77 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
     return 0;
   }
 
-  private damageEnemy(enemy: Matter.Body, damage: number) {
+  // The Sentry Shard's published charge: 0 to 1 across the 0.4 s
+  // core-glow window at the end of its 2.5 s fire cycle, driven by
+  // the same lastAttackTime the hook fires from.
+  private shardCharge(data: EnemyData, now: number): number {
+    if (data.behaviorState !== 'anchored') return 0;
+    return Math.min(1, Math.max(0, (now - (data.lastAttackTime || 0) - 2100) / 400));
+  }
+
+  // The Rift Mine's published armed flag: 1 while the player is
+  // inside the trigger radius (the renderer doubles the core blink),
+  // 0 otherwise. The detonation itself runs in the steering hook.
+  private mineArmedCharge(body: Matter.Body): number {
+    const d = Math.hypot(this.playerBody.position.x - body.position.x, this.playerBody.position.y - body.position.y);
+    return d < 0.12 * this.logicalUnit ? 1 : 0;
+  }
+
+  // The Pyre Moth's published fuse charge: 0 to 1 across its 0.6 s
+  // fuse, 0 while chasing. The renderer strobes off this value.
+  private mothFuseCharge(data: EnemyData, now: number): number {
+    if (data.behaviorState !== 'fusing') return 0;
+    return Math.min(1, Math.max(0, (now - (data.telegraphStart || now)) / 600));
+  }
+
+  // Rift Mine detonation (design sheet 10): a 4-projectile cross at
+  // standard enemy projectile speed and payload. Runs on proximity
+  // (steering hook or player contact), never on a shot-clear death:
+  // damageEnemy removes a shot mine silently by design.
+  private explodeMine(mine: Matter.Body) {
+    const data = mine.plugin['data'] as EnemyData;
+    if (!data || data.type !== 'rift_mine') return;
+    Matter.Composite.remove(this.engine.world, mine);
+    this.spliceRemove(this.enemies, mine);
+    this.triggerImpactEffect(mine.position.x, mine.position.y, false);
+    this.audioService.playSFX('explosion');
+    for (let k = 0; k < 4; k++) {
+      const angle = k * Math.PI / 2;
+      const proj = Matter.Bodies.circle(mine.position.x, mine.position.y, 8, {
+        label: 'projectile', isSensor: true,
+        plugin: { data: { id: Math.random().toString(), type: 'projectile_enemy', health: 1, maxHealth: 1, owner: 'enemy', burstDamage: 10 } as EnemyData }
+      });
+      Matter.Body.setVelocity(proj, { x: Math.cos(angle) * this.scaledSpeed(7.5), y: Math.sin(angle) * this.scaledSpeed(7.5) });
+      Matter.Composite.add(this.engine.world, proj);
+      setTimeout(() => { if (proj.parent) Matter.Composite.remove(this.engine.world, proj); }, 1200);
+    }
+  }
+
+  private damageEnemy(enemy: Matter.Body, damage: number, sourcePos?: { x: number, y: number }) {
     const data = enemy.plugin['data'] as EnemyData;
     if (data.immortalUntil && Date.now() < data.immortalUntil) return;
+    // Shieldback frontal reduction (design sheet 11, the one new
+    // combat rule in the overhaul): the shield face always turns
+    // toward the player, and a hit whose source sits in the front
+    // arc (the half facing the player) lands at 25 percent damage
+    // with a spark-off flash on the rim. Hits from behind land full.
+    // sourcePos is the damaging body's position (a projectile, the
+    // player for contact abilities, the egg for the turret blast);
+    // it defaults to the player. The reduction applies before the
+    // damage number is recorded, so the number shows the real hit.
+    if (data.type === 'shieldback' && damage > 0) {
+      const src = sourcePos || this.playerBody.position;
+      const fx = this.playerBody.position.x - enemy.position.x;
+      const fy = this.playerBody.position.y - enemy.position.y;
+      const fl = Math.hypot(fx, fy) || 1;
+      const sx = src.x - enemy.position.x;
+      const sy = src.y - enemy.position.y;
+      const sl = Math.hypot(sx, sy) || 1;
+      if ((sx / sl) * (fx / fl) + (sy / sl) * (fy / fl) >= 0) {
+        damage *= 0.25;
+        data.sparkUntil = Date.now() + 180;
+      }
+    }
     data.health -= damage;
     // Damage numbers record player-dealt damage only; every path into
     // this method is a player-side source (spec Section 4.4).
@@ -2907,6 +3166,23 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
           }
       }
 
+      // Pyre Moth detonation (design sheet 12): dead or fused, it
+      // bursts into an 8-projectile ring at standard enemy speed
+      // and payload. Shooting it down does not prevent the ring;
+      // distance is the counterplay.
+      if (data.type === 'pyre_moth') {
+          for (let k = 0; k < 8; k++) {
+              const angle = k * Math.PI / 4;
+              const proj = Matter.Bodies.circle(enemy.position.x, enemy.position.y, 8, {
+                  label: 'projectile', isSensor: true,
+                  plugin: { data: { id: Math.random().toString(), type: 'projectile_enemy', health: 1, maxHealth: 1, owner: 'enemy', burstDamage: 10 } as EnemyData }
+              });
+              Matter.Body.setVelocity(proj, { x: Math.cos(angle) * this.scaledSpeed(7.5), y: Math.sin(angle) * this.scaledSpeed(7.5) });
+              Matter.Composite.add(this.engine.world, proj);
+              setTimeout(() => { if (proj.parent) Matter.Composite.remove(this.engine.world, proj); }, 1200);
+          }
+      }
+
       if (this.gameState.currentGameMode() === 'ai_vs_ai') {
           this.mlAi.addReward(2);
       }
@@ -2920,11 +3196,16 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       if (data.type === 'wisp') xp = 5;
       if (data.type === 'pod') xp = 15;
       if (data.type === 'mite') xp = 1;
+      if (data.type === 'sentry_shard') xp = 15;
+      if (data.type === 'seedmother') xp = 20;
+      if (data.type === 'rift_mine') xp = 5;
+      if (data.type === 'shieldback') xp = 20;
+      if (data.type === 'pyre_moth') xp = 5;
       if (data.type === 'boss') xp = 500;
       this.gameState.addXp(xp);
 
       // Bestiary Unlock
-      if (!this.gameState.unlockedEnemies().includes(data.type) && ['slime', 'bat', 'golem', 'imp', 'wisp', 'pod', 'mite', 'boss'].includes(data.type)) {
+      if (!this.gameState.unlockedEnemies().includes(data.type) && ['slime', 'bat', 'golem', 'imp', 'wisp', 'pod', 'mite', 'sentry_shard', 'seedmother', 'rift_mine', 'shieldback', 'pyre_moth', 'boss'].includes(data.type)) {
           this.gameState.unlockedEnemies.update(arr => [...arr, data.type]);
       }
       
@@ -3009,7 +3290,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
             for (let i = 0; i < 5; i++) {
                 this.spawner.dropItem(enemy.position.x + (Math.random()-0.5)*20, enemy.position.y + (Math.random()-0.5)*20, 'coin', 10, this.getSpawnerContext());
             }
-        } else {
+        } else if (data.type !== 'rift_mine') {
             if (Math.random() < 0.6) { // 60% chance to drop coins
                 const amount = Math.floor(Math.random() * 3) + 1; // 1 to 3 coins visually
                 for (let i = 0; i < amount; i++) {
@@ -3017,10 +3298,12 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
                 }
             }
         }
-        if (Math.random() < 0.1) { // 10% chance for a heart
+        // A shot-cleared Rift Mine drops nothing: the clear is the
+        // reward (design sheet 10's shot-clear rule).
+        if (data.type !== 'rift_mine' && Math.random() < 0.1) { // 10% chance for a heart
             this.spawner.dropItem(enemy.position.x, enemy.position.y + 20, 'heart', 20, this.getSpawnerContext()); // Heals 20
         }
-        if (!this.crateDroppedThisRun && this.gameState.pendingCratesCount() > 0 && Math.random() < 0.01) {
+        if (data.type !== 'rift_mine' && !this.crateDroppedThisRun && this.gameState.pendingCratesCount() > 0 && Math.random() < 0.01) {
             this.crateDroppedThisRun = true;
             this.spawner.dropItem(enemy.position.x, enemy.position.y, 'crate', 1, this.getSpawnerContext());
         }
@@ -3045,6 +3328,15 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
         this.celestialShieldActive.set(false);
         // Hit sound removed permanently
         setTimeout(() => this.celestialShieldActive.set(true), 30000);
+        return;
+    }
+
+    // Aegis Charm gadget (spec Section 5.3): a one-hit shield armed
+    // at run start, consumed by the first hit it negates, with no
+    // recharge. Checked after the Celestial Shield, which makes the
+    // charm redundant by design when that gem is owned.
+    if (this.aegisShieldActive()) {
+        this.aegisShieldActive.set(false);
         return;
     }
     
@@ -3118,7 +3410,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
              
              this.enemies.forEach(e => {
                  const dist = Matter.Vector.magnitude(Matter.Vector.sub(e.position, this.playerBody.position));
-                 if (dist < radius) this.damageEnemy(e, this.gameState.currentStats().damage * 10);
+                 if (dist < radius) this.damageEnemy(e, this.gameState.currentStats().damage * 10, this.playerBody.position);
              });
              
              this.audioService.playSFX('explosion');
@@ -3174,6 +3466,23 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
           }, 100);
           setTimeout(() => clearInterval(ashInterval), 2000);
           
+          return;
+      }
+      // Phoenix Feather Charm gadget (spec Section 5.3): once per
+      // run, dying with no revive tokens (and Rebirth unavailable or
+      // on cooldown, which is why control reached here) revives at
+      // 50 percent HP instead. Deliberately weaker than a token or
+      // Rebirth revive (full HP). Campaign only: Battle death ends
+      // the match, and the annihilation phase forbids all revives.
+      if (this.gameState.currentGameMode() === 'campaign' && !this.annihilationModeActive()
+          && this.gameState.reviveTokens() <= 0
+          && this.gameState.currentStats().activeGadget === 'phoenix_feather'
+          && !this.featherUsedThisRun) {
+          this.featherUsedThisRun = true;
+          this.currentHealth.set(Math.floor(this.maxHealth() * 0.5));
+          this.gameState.immortalUntil = Date.now() + 2000;
+          this.triggerImpactEffect(this.playerBody.position.x, this.playerBody.position.y, true);
+          this.audioService.playSFX('heal');
           return;
       }
       this.triggerDeathSequence();
@@ -3687,11 +3996,11 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   }
 
 
-  private fireEnemyProjectile(source: Matter.Vector) {
+  private fireEnemyProjectile(source: Matter.Vector, speedPerStep: number = 7.5, targetOverride?: { x: number, y: number }) {
     // Use stale position for reaction delay (human-like ~150ms lag)
     const enemyPhoenix = this.enemies.find(e => e.plugin['data']?.type === 'enemy_phoenix');
     const eAny = enemyPhoenix as any;
-    const targetPos = (eAny?.__stalePlayerPos) || this.playerBody.position;
+    const targetPos = targetOverride || (eAny?.__stalePlayerPos) || this.playerBody.position;
     const dir = Matter.Vector.normalise(Matter.Vector.sub(targetPos, source));
     const damage = this.battleAi.ai1.stats?.damage || 10;
 
@@ -3700,7 +4009,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
     const maxSpread = 0.05 + (dist / 1000) * 0.08; // Radians
     const spreadAngle = (Math.random() - 0.5) * maxSpread * 2;
     const finalDir = Matter.Vector.rotate(dir, spreadAngle);
-    
+
     const projectile = Matter.Bodies.circle(source.x, source.y, 8, {
       label: 'projectile',
       isSensor: true,
@@ -3709,7 +4018,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       }
     });
 
-    Matter.Body.setVelocity(projectile, Matter.Vector.mult(finalDir, this.scaledSpeed(7.5)));
+    Matter.Body.setVelocity(projectile, Matter.Vector.mult(finalDir, this.scaledSpeed(speedPerStep)));
     Matter.Composite.add(this.engine.world, projectile);
     setTimeout(() => { if (projectile.parent) Matter.Composite.remove(this.engine.world, projectile); }, 2000);
   }
@@ -3727,6 +4036,8 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       else if (ability === 'fire_lance') return this.triggerFireLance(sourceBody, targetX, targetY, stats, ownerId);
       else if (ability === 'fire_breath') return this.triggerFireBreath(sourceBody, targetX, targetY, stats, ownerId);
       else if (ability === 'phoenix_turret') return this.triggerPhoenixTurret(sourceBody, targetX, targetY, stats, ownerId);
+      else if (ability === 'phoenix_inferno') return this.triggerPhoenixInferno(sourceBody, targetX, targetY, stats, ownerId);
+      else if (ability === 'inferno_wave') return this.triggerInfernoWave(sourceBody, targetX, targetY, stats, ownerId);
       else if (ability === 'aura') return this.triggerAura(sourceBody, targetX, targetY, stats, ownerId);
       return 0;
   }
@@ -3845,7 +4156,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   private triggerPhoenixTurret(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
       const abilityData = stats.unlockedAbilities['phoenix_turret'];
       const mods = abilityData?.modifiers || { cooldown: 1.0, speed: 1.0, duration: 1.0, damage: 1.0, radius: 1.0, range: 1.0 };
-      const baseCooldown = ABILITIES['phoenix_turret']?.baseCooldown || 12;
+      const baseCooldown = ABILITIES['phoenix_turret']?.baseCooldown || 14;
       const cd = baseCooldown * mods['cooldown'];
       
       const seekRange = 500 * (mods['range'] || 1.0);
@@ -3909,7 +4220,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
                   const dist = Matter.Vector.magnitude(Matter.Vector.sub(e.position, egg.position));
                   if (dist < radius) {
                       if (e === this.playerBody) this.takeDamage(baseDamage * 5);
-                      else this.damageEnemy(e, baseDamage * 5);
+                      else this.damageEnemy(e, baseDamage * 5, egg.position);
                   }
               });
               
@@ -4029,7 +4340,14 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
                               const fireDir = { x: Math.cos(angle), y: Math.sin(angle) };
                               const proj = Matter.Bodies.circle(baby.position.x, baby.position.y, 10, {
                                   isSensor: true, label: 'projectile',
-                                  plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: baseDamage, ownerId: ownerId } as EnemyData }
+                                  // S3 owner fix: the baby's shots now
+                                  // carry owner alongside ownerId (the
+                                  // S2 fire-breath fix pattern). Without
+                                  // it, a player turret's own shots could
+                                  // not be skipped by the player collision
+                                  // branch and damaged the player who
+                                  // deployed the turret.
+                                  plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: baseDamage, owner: ownerId, ownerId: ownerId } as EnemyData }
                               });
                               Matter.Body.setVelocity(proj, Matter.Vector.mult(fireDir, this.scaledSpeed(7.5)));
                               Matter.Composite.add(this.engine.world, proj);
@@ -4253,7 +4571,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   private triggerAura(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
       const abilityData = stats.unlockedAbilities['aura'];
       const mods = abilityData?.modifiers || { cooldown: 1.0, duration: 1.0, radius: 1.0, damage: 1.0 };
-      const baseCooldown = ABILITIES['aura']?.baseCooldown || 12;
+      const baseCooldown = ABILITIES['aura']?.baseCooldown || 17;
       // Aura's upgrade targets define damage and radius only, so its
       // cooldown and duration multipliers are absent from the record;
       // an absent multiplier reads as 1.0 (the same convention as
@@ -4266,28 +4584,167 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       // 5.1): it used to be a hardcoded 150 while the shop passive of
       // the same name (base 250) fed a different path.
       const radius = stats.auraRadius * mods['radius'];
-      
+
+      // S3 tick math (spec Section 3.3): the zone deals 0.25 SU per
+      // tick, 2 ticks per second, for 5 s (25 damage total at base
+      // stats, PI about 0.5 with the zone's defensive credit). The
+      // old implementation dealt damage through the collision
+      // branch at 0.5 SU per contact event, which made the total
+      // depend on physics contact timing instead of the spec's
+      // clock. The visual body now carries burstDamage 0, so both
+      // collision branches skip it, and an explicit interval applies
+      // the ticks to everything inside the radius of the caster's
+      // live position.
+      const tickDamage = stats.damage * 0.25 * mods['damage'];
       const aura = Matter.Bodies.circle(sourceBody.position.x, sourceBody.position.y, radius, {
           isSensor: true,
           label: 'projectile',
-          plugin: { data: { id: Math.random().toString(), type: 'aura', owner: ownerId, ownerId: ownerId, burstDamage: stats.damage * 0.5 * mods['damage'], health: 1, maxHealth: 1 } as EnemyData }
+          plugin: { data: { id: Math.random().toString(), type: 'aura', owner: ownerId, ownerId: ownerId, burstDamage: 0, health: 1, maxHealth: 1 } as EnemyData }
       });
-      
+
       Matter.Composite.add(this.engine.world, aura);
       this.audioService.playSFX('heal');
-      
+
       const updateAura = () => {
           if (!aura.parent || this.isDead() || this.gameEnded()) return;
           Matter.Body.setPosition(aura, sourceBody.position);
       };
-      
+
       Matter.Events.on(this.engine, 'beforeUpdate', updateAura);
-      
+
+      const tickInterval = setInterval(() => {
+          if (!aura.parent || !sourceBody.parent || this.gameEnded()) {
+              clearInterval(tickInterval);
+              return;
+          }
+          const cx = sourceBody.position.x;
+          const cy = sourceBody.position.y;
+          if (ownerId === 'player') {
+              // Snapshot the list: damageEnemy can remove bodies and
+              // spawn splits while the loop runs.
+              for (const e of [...this.enemies]) {
+                  const d = Math.hypot(e.position.x - cx, e.position.y - cy);
+                  if (d < radius) this.damageEnemy(e, tickDamage, sourceBody.position);
+              }
+          } else {
+              const d = Math.hypot(this.playerBody.position.x - cx, this.playerBody.position.y - cy);
+              if (d < radius && !this.isDead()) this.takeDamage(tickDamage);
+          }
+      }, 500);
+
       setTimeout(() => {
+          clearInterval(tickInterval);
           if (aura.parent) Matter.Composite.remove(this.engine.world, aura);
           Matter.Events.off(this.engine, 'beforeUpdate', updateAura);
       }, duration);
-      
+
+      return cd;
+  }
+
+  private triggerPhoenixInferno(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
+      const abilityData = stats.unlockedAbilities['phoenix_inferno'];
+      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
+      const baseCooldown = ABILITIES['phoenix_inferno']?.baseCooldown || 14;
+      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
+      // Section 3.3: a channeled beam, 1.2 SU per 0.25 s tick for up
+      // to 3 s (14.4 SU for a full channel, PI 1.27 across the whole
+      // cycle). The caster is held at Feather Brake speed for the
+      // channel (the player's brake is forced in the physics loop;
+      // the rival's channel end rides on its body data), and the
+      // cooldown only starts when the beam stops, which the caller
+      // sees as the returned cooldown plus the channel length for AI
+      // and as holdAbilityEndTime for the player.
+      const tickDamage = (stats.damage || 10) * 1.2 * (mods['damage'] ?? 1.0);
+      const channelMs = 3000;
+      const channelEnd = Date.now() + channelMs;
+      if (ownerId === 'player') {
+          this.playerInfernoUntil = channelEnd;
+          this.holdAbilityEndTime = channelEnd;
+      } else {
+          const d = sourceBody.plugin['data'] as EnemyData;
+          if (d) d.infernoUntil = channelEnd;
+      }
+      this.audioService.playSFX('shoot');
+
+      const range = 0.5 * this.logicalUnit;
+      const halfWidth = 30 * this.speedScale;
+      let visualFlip = false;
+      const tick = setInterval(() => {
+          if (Date.now() >= channelEnd || !sourceBody.parent || this.gameEnded()
+              || (ownerId === 'player' && (this.isDead() || this.gameState.isRebirthing()))) {
+              clearInterval(tick);
+              return;
+          }
+          // The beam follows the caster's current aim: for the
+          // player that is the mouse, for the rival its steering
+          // target (the player bird).
+          let aimX: number, aimY: number;
+          if (ownerId === 'player') {
+              aimX = this.mouseX; aimY = this.mouseY;
+          } else {
+              aimX = this.playerBody.position.x; aimY = this.playerBody.position.y;
+          }
+          const sx = sourceBody.position.x;
+          const sy = sourceBody.position.y;
+          let ax = aimX - sx;
+          let ay = aimY - sy;
+          const alen = Math.hypot(ax, ay);
+          if (alen < 1) { ax = 0; ay = -1; } else { ax /= alen; ay /= alen; }
+          const targets = ownerId === 'player' ? [...this.enemies] : [this.playerBody];
+          for (const t of targets) {
+              const rx = t.position.x - sx;
+              const ry = t.position.y - sy;
+              const along = rx * ax + ry * ay;
+              if (along < 0 || along > range) continue;
+              const perp = Math.abs(rx * -ay + ry * ax);
+              if (perp > halfWidth) continue;
+              if (t === this.playerBody) this.takeDamage(tickDamage);
+              else this.damageEnemy(t, tickDamage, sourceBody.position);
+          }
+          // Beam visual: short-lived fire blobs along the corridor,
+          // alternating ticks. They carry burstDamage 0, so both
+          // collision branches skip them; they are pure display.
+          visualFlip = !visualFlip;
+          if (visualFlip) {
+              for (let s = 1; s <= 5; s++) {
+                  const bx = sx + ax * range * (s / 6) + (Math.random() - 0.5) * 14 * this.speedScale;
+                  const by = sy + ay * range * (s / 6) + (Math.random() - 0.5) * 14 * this.speedScale;
+                  const blob = Matter.Bodies.circle(bx, by, 13, {
+                      isSensor: true, label: 'projectile',
+                      plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: 0, owner: ownerId, ownerId: ownerId } as EnemyData }
+                  });
+                  Matter.Composite.add(this.engine.world, blob);
+                  setTimeout(() => { if (blob.parent) Matter.Composite.remove(this.engine.world, blob); }, 260);
+              }
+          }
+      }, 250);
+
+      return ownerId === 'player' ? cd : cd + channelMs / 1000;
+  }
+
+  private triggerInfernoWave(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
+      const abilityData = stats.unlockedAbilities['inferno_wave'];
+      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
+      const baseCooldown = ABILITIES['inferno_wave']?.baseCooldown || 16;
+      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
+      // Section 3.3: an expanding ring, 3 SU to every enemy it
+      // crosses (a swarm clearer; single-target PI is low by
+      // design). All 16 bolts share one hitIds array with pierce, so
+      // the ring's two sides crossing the same enemy still hit it
+      // exactly once per cast. The ring is the same construction as
+      // Burst's, at hold-family damage and a longer life.
+      const damage = (stats.damage || 10) * 3 * (mods['damage'] ?? 1.0);
+      const type = ownerId === 'player' ? 'projectile_player' : 'projectile_enemy';
+      const sharedHitIds: string[] = [];
+      for (let k = 0; k < 16; k++) {
+          this.spawnAbilityProjectile({
+              x: sourceBody.position.x, y: sourceBody.position.y, radius: 8,
+              type, moveId: 'inferno_wave', damage, ownerId,
+              angle: k * Math.PI / 8, speedPerStep: this.scaledSpeed(6), lifeMs: 2500,
+              extra: { pierce: true, hitIds: sharedHitIds }
+          });
+      }
+      this.audioService.playSFX('shoot');
       return cd;
   }
 

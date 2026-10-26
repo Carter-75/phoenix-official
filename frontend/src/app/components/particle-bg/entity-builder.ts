@@ -369,6 +369,208 @@ const DEFS: Record<string, EntityVisualDef> = {
     },
   },
 
+  // 8. Sentry Shard (Stage 4). Shooter (turret, aimed). A floating
+  // crystal octahedron grown to enemy scale (Section 3.3): matte
+  // violet-slate facets with one bright cyan-white core eye, so it
+  // never reads as the 200-point gem pickup (ten times the visual
+  // weight, and it rotates to track the player). The long axis is x;
+  // the renderer turns it toward the published facing.
+  sentry_shard: {
+    count: 800,
+    animated: true,
+    sample: (i, count, r, ctx, out) => {
+      if (i < count * 0.18) {
+        // Core eye: a tight bright cluster at the center, bulging
+        // slightly toward the viewer.
+        const rad = Math.cbrt(Math.random()) * r * 0.22;
+        const u = Math.random() * Math.PI * 2;
+        const v = Math.acos(2 * Math.random() - 1);
+        out.x = rad * Math.sin(v) * Math.cos(u);
+        out.y = rad * Math.sin(v) * Math.sin(u);
+        out.z = rad * Math.cos(v) + r * 0.18;
+        const m = Math.random();
+        out.cr = 0.8 + m * 0.2; out.cg = 0.95; out.cb = 1.0; // Cyan-white eye
+        out.layer = 1;
+      } else {
+        // Facets: octahedron sampling (flat faces read through the
+        // point distribution), elongated on x, squashed on z.
+        octahedronVertex(out, r);
+        out.x *= 1.35; out.z *= 0.55;
+        const m = Math.random();
+        out.cr = 0.028 + m * 0.02; out.cg = 0.024 + m * 0.014; out.cb = 0.05 + m * 0.03; // Matte violet-slate, stacking-tuned
+        out.layer = 0;
+      }
+    },
+  },
+
+  // 9. Seedmother (Stage 4). Anchor. A big translucent dome with
+  // four visible mine-eggs inside (Section 3.3): dark shells with
+  // hostile-bright cores, so the field she will lay is visible on
+  // her body before it exists. Root-ribbon strands trail below.
+  seedmother: {
+    count: 800,
+    animated: true,
+    sample: (i, count, r, ctx, out) => {
+      const p = Math.random();
+      if (p < 0.5) {
+        // Dome: a hemisphere like the Glob's, in murky green-brown.
+        const rad = Math.cbrt(Math.random()) * r;
+        const u = Math.random() * Math.PI * 2;
+        const v = Math.acos(Math.random()); // Hemisphere
+        out.x = rad * Math.sin(v) * Math.cos(u);
+        out.z = rad * Math.sin(v) * Math.sin(u);
+        out.y = (rad * Math.cos(v) - r * 0.45) * 1.05;
+        const m = Math.random();
+        out.cr = 0.03 + m * 0.016; out.cg = 0.042 + m * 0.02; out.cb = 0.014 + m * 0.008;
+        out.layer = 0;
+      } else if (p < 0.82) {
+        // Mine-eggs: four fixed spheres inside the dome. The inner
+        // points of each egg are the core layer in the hostile
+        // color (a mine's heart, visible through the dome).
+        const EGGS = [[0.36, 0.1, 0.1], [-0.36, 0.1, -0.08], [0.28, -0.34, -0.14], [-0.28, -0.34, 0.16]];
+        const egg = EGGS[i % 4];
+        const rad = Math.cbrt(Math.random()) * r * 0.2;
+        const u = Math.random() * Math.PI * 2;
+        const v = Math.acos(2 * Math.random() - 1);
+        out.x = egg[0] * r + rad * Math.sin(v) * Math.cos(u);
+        out.y = egg[1] * r + rad * Math.sin(v) * Math.sin(u);
+        out.z = egg[2] * r + rad * Math.cos(v);
+        if (rad < r * 0.08) {
+          out.cr = ctx.hostile[0]; out.cg = ctx.hostile[1]; out.cb = ctx.hostile[2];
+          out.layer = 1;
+        } else {
+          const m = Math.random();
+          out.cr = 0.012 + m * 0.008; out.cg = 0.01 + m * 0.006; out.cb = 0.02 + m * 0.01; // Near-black violet shell
+          out.layer = 0;
+        }
+      } else {
+        // Root ribbons: strands trailing below the dome.
+        out.x = (Math.random() - 0.5) * 1.1 * r;
+        out.y = -(0.55 + Math.random() * 0.85) * r;
+        out.z = (Math.random() - 0.5) * 0.5 * r;
+        const m = Math.random();
+        out.cr = 0.02 + m * 0.012; out.cg = 0.026 + m * 0.012; out.cb = 0.008;
+        out.layer = 0;
+      }
+    },
+  },
+
+  // 10. Rift Mine (Stage 4). Hazard. A 20 px spiked sphere, near
+  // black violet with a blinking hostile core (Section 3.3): the
+  // blink is the telegraph, driven by the renderer off the
+  // published attackCharge. Only 400 points; a field of them is
+  // cheap by design.
+  rift_mine: {
+    count: 400,
+    animated: true,
+    sample: (i, count, r, ctx, out) => {
+      if (i < count * 0.22) {
+        // Hostile core heart.
+        const rad = Math.cbrt(Math.random()) * r * 0.34;
+        const u = Math.random() * Math.PI * 2;
+        const v = Math.acos(2 * Math.random() - 1);
+        out.x = rad * Math.sin(v) * Math.cos(u);
+        out.y = rad * Math.sin(v) * Math.sin(u);
+        out.z = rad * Math.cos(v);
+        out.cr = ctx.hostile[0]; out.cg = ctx.hostile[1]; out.cb = ctx.hostile[2];
+        out.layer = 1;
+      } else {
+        // Spiked shell: sphere directions pushed out along a
+        // low-frequency spike pattern so the silhouette is thorny,
+        // not round.
+        const u = Math.random() * Math.PI * 2;
+        const v = Math.acos(2 * Math.random() - 1);
+        const spike = 1 + 0.38 * Math.abs(Math.sin(u * 3) * Math.sin(v * 4));
+        const rad = Math.cbrt(Math.random()) * r * spike;
+        out.x = rad * Math.sin(v) * Math.cos(u);
+        out.y = rad * Math.sin(v) * Math.sin(u);
+        out.z = rad * Math.cos(v);
+        const m = Math.random();
+        out.cr = 0.014 + m * 0.01; out.cg = 0.008 + m * 0.006; out.cb = 0.026 + m * 0.014; // Near-black violet
+        out.layer = 0;
+      }
+    },
+  },
+
+  // 11. Shieldback (Stage 4). Bulwark. A heavy beetle mass whose
+  // front 180 degrees (local +x, which the renderer turns toward
+  // the player via the published facing) is a smooth shield face:
+  // a lighter metallic band with a bright rim ring as the core
+  // layer (Section 3.3). The body behind the face stays dark, so
+  // the protected side reads at a glance.
+  shieldback: {
+    count: 800,
+    animated: true,
+    sample: (i, count, r, ctx, out) => {
+      const rad = Math.cbrt(Math.random()) * r;
+      const u = Math.random() * Math.PI * 2;
+      const v = Math.acos(2 * Math.random() - 1);
+      out.x = rad * Math.sin(v) * Math.cos(u) * 1.1;
+      out.y = rad * Math.sin(v) * Math.sin(u) * 0.92;
+      out.z = rad * Math.cos(v) * 0.8;
+      const facing01 = out.x / (1.1 * r); // -1 behind .. +1 at the shield face
+      if (Math.abs(facing01) < 0.3 && rad > 0.7 * r) {
+        // Rim ring: the great circle where the face plate meets the
+        // body, at the surface. The spark-off flash target.
+        const m = Math.random();
+        out.cr = 0.55 + m * 0.2; out.cg = 0.58 + m * 0.2; out.cb = 0.66 + m * 0.2; // Bright metallic rim
+        out.layer = 1;
+      } else if (facing01 >= 0.3) {
+        // Shield face plate: lighter metallic band.
+        const m = Math.random();
+        out.cr = 0.075 + m * 0.035; out.cg = 0.08 + m * 0.035; out.cb = 0.1 + m * 0.04;
+        out.layer = 0;
+      } else {
+        // Dark beetle mass behind the face.
+        const m = Math.random();
+        out.cr = 0.016 + m * 0.01; out.cg = 0.014 + m * 0.008; out.cb = 0.02 + m * 0.01;
+        out.layer = 0;
+      }
+    },
+  },
+
+  // 12. Pyre Moth (Stage 4). Burster. A soft fuzzy ball of flame
+  // with two large slow wings (Section 3.3): warm cream-orange body
+  // over a hot center core. Pretty, which is the trap; the renderer
+  // strobes the whole body through its fuse off the published
+  // attackCharge.
+  pyre_moth: {
+    count: 800,
+    animated: true,
+    sample: (i, count, r, ctx, out) => {
+      const p = Math.random();
+      if (p < 0.55) {
+        // Fuzzy body: sphere sample with radius jitter so the edge
+        // is soft, not machined.
+        const rad = Math.cbrt(Math.random()) * r * (0.82 + Math.random() * 0.36);
+        const u = Math.random() * Math.PI * 2;
+        const v = Math.acos(2 * Math.random() - 1);
+        out.x = rad * Math.sin(v) * Math.cos(u);
+        out.y = rad * Math.sin(v) * Math.sin(u);
+        out.z = rad * Math.cos(v);
+        if (rad < r * 0.4) {
+          const m = Math.random();
+          out.cr = 1.0; out.cg = 0.72 + m * 0.2; out.cb = 0.3 + m * 0.2; // Hot center
+          out.layer = 1;
+        } else {
+          const m = Math.random();
+          out.cr = 0.09 + m * 0.05; out.cg = 0.045 + m * 0.025; out.cb = 0.012 + m * 0.008; // Warm cream-orange fuzz, stacking-tuned
+          out.layer = 0;
+        }
+      } else {
+        // Two large wings, swept up and back.
+        const isLeft = p < 0.775;
+        const span = (0.5 + Math.random() * 1.5) * r;
+        out.x = isLeft ? -span : span;
+        out.y = span * 0.42 + (Math.random() - 0.5) * 0.3 * r;
+        out.z = -span * 0.25 + (Math.random() - 0.5) * 0.2 * r;
+        const m = Math.random();
+        out.cr = 0.05 + m * 0.03; out.cg = 0.028 + m * 0.016; out.cb = 0.008;
+        out.layer = 0;
+      }
+    },
+  },
+
   // Boss construction (fiery skull) kept as shipped; its full redesign
   // is the boss stages (9 and 10). White-hot eye sockets are the core
   // layer, which is what the boss phase flashes pulse (Section 3.1).

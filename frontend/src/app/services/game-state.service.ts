@@ -411,6 +411,8 @@ export class GameStateService {
           if (!record || typeof record !== 'object') return;
           if (record.activeDoubleAbility === undefined) record.activeDoubleAbility = null;
           if (record.activeTripleAbility === undefined) record.activeTripleAbility = null;
+          if (!Array.isArray(record.unlockedGadgets)) record.unlockedGadgets = [];
+          if (record.activeGadget === undefined) record.activeGadget = null;
           const abilities = record.unlockedAbilities;
           if (!abilities || typeof abilities !== 'object') return;
           Object.keys(abilities).forEach(abKey => {
@@ -550,6 +552,8 @@ export class GameStateService {
               if (upgrades[key as any].activeHoldAbility === undefined) upgrades[key as any].activeHoldAbility = null;
               if (upgrades[key as any].activeDoubleAbility === undefined) upgrades[key as any].activeDoubleAbility = null;
               if (upgrades[key as any].activeTripleAbility === undefined) upgrades[key as any].activeTripleAbility = null;
+              if (!Array.isArray(upgrades[key as any].unlockedGadgets)) upgrades[key as any].unlockedGadgets = [];
+              if (upgrades[key as any].activeGadget === undefined) upgrades[key as any].activeGadget = null;
 
               // Auto-heal NaN
               Object.keys(upgrades[key as any]).forEach(statKey => {

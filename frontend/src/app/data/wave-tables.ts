@@ -17,17 +17,26 @@
 //
 // Worlds without a table keep the legacy hardcoded chance gates
 // untouched; their tables land with their roster stages. An entry
-// whose type has not shipped yet (Pyre Moth in World 1, Sentry Shard
-// in World 3, both Stage 4) is listed at its spec weight and treated
-// as weight zero by the composer until the type exists, so the tables
-// below are already the final Section 5 mixes.
+// whose type has not shipped yet is listed at its spec weight and
+// treated as weight zero by the composer until the type exists, so
+// the tables below are already the final Section 5 mixes. Pyre Moth
+// (World 1) and Sentry Shard (World 3) shipped in Stage 4, so their
+// weights below are live.
 
-export type SpawnTypeId = 'slime' | 'bat' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite';
+export type SpawnTypeId = 'slime' | 'bat' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite' | 'sentry_shard' | 'seedmother' | 'rift_mine' | 'shieldback' | 'pyre_moth';
 
 export interface WaveEntry {
   type: string; // SpawnTypeId once shipped; later-stage types are inert until they exist
   weight: number;
   pack?: [number, number]; // [min, max] bodies per successful roll, default [1, 1]
+  // Stage 4: a placed entry does not roll for composition. When the
+  // composer picks it, it lays a fixed pattern of Rift Mines at an
+  // in-field anchor instead of spawning the entry type off screen
+  // (the design sheet calls for pre-placed mine patterns in Verdant
+  // Canopy, Golden Sands, and Abyssal Rift pre-boss waves; those
+  // worlds' tables land in Stage 6, so no shipped table uses this
+  // yet, but the mechanism is live and harness-verified).
+  placed?: boolean;
 }
 
 export interface WaveBand {
@@ -75,14 +84,14 @@ export const WAVE_TABLES: Record<number, WorldWaveTable> = {
         { type: 'imp', weight: 5, pack: [1, 2] },
         { type: 'bat', weight: 4 },
         { type: 'golem', weight: 1 },
-        { type: 'pyre_moth', weight: 2 }, // Stage 4 type: weight zero until it ships
+        { type: 'pyre_moth', weight: 2 }, // Stage 4: live since the type shipped
       ] },
       { fromPhase: 0.85, toPhase: 1.0, maxAlive: 10, entries: [
         { type: 'slime', weight: 8, pack: [2, 3] },
         { type: 'imp', weight: 6, pack: [1, 2] },
         { type: 'bat', weight: 5 },
         { type: 'golem', weight: 1 },
-        { type: 'pyre_moth', weight: 2 }, // Stage 4 type: weight zero until it ships
+        { type: 'pyre_moth', weight: 2 }, // Stage 4: live since the type shipped
       ] },
     ],
   },
@@ -120,16 +129,16 @@ export const WAVE_TABLES: Record<number, WorldWaveTable> = {
     ],
   },
   // World 3, Amethyst Void: early teaches the Sentry Shard (Stage 4,
-  // inert for now) and the Wisp, with Crystal Globs carrying the band
-  // until the Shard ships; mid sprinkles Mites under Wisp pressure;
-  // late crosses Brood Pods with the Shard line once it exists.
+  // live) and the Wisp, with Crystal Globs carrying the band; mid
+  // sprinkles Mites under Wisp pressure; late crosses Brood Pods
+  // with the Shard line.
   2: {
     lullSeconds: 5,
     bands: [
       { fromPhase: 0.0, toPhase: 0.25, maxAlive: 5, entries: [
         { type: 'wisp', weight: 6, pack: [1, 2] },
         { type: 'slime', weight: 5, pack: [1, 2] },
-        { type: 'sentry_shard', weight: 4 }, // Stage 4 type: weight zero until it ships
+        { type: 'sentry_shard', weight: 4 }, // Stage 4: live since the type shipped
       ] },
       { fromPhase: 0.25, toPhase: 0.55, maxAlive: 8, entries: [
         { type: 'wisp', weight: 6 },
@@ -137,7 +146,7 @@ export const WAVE_TABLES: Record<number, WorldWaveTable> = {
         { type: 'mite', weight: 4, pack: [3, 5] },
         { type: 'slime', weight: 4, pack: [1, 2] },
         { type: 'bat', weight: 3 },
-        { type: 'sentry_shard', weight: 4 }, // Stage 4 type: weight zero until it ships
+        { type: 'sentry_shard', weight: 4 }, // Stage 4: live since the type shipped
       ] },
       { fromPhase: 0.55, toPhase: 0.85, maxAlive: 10, entries: [
         { type: 'pod', weight: 6 },
@@ -145,7 +154,7 @@ export const WAVE_TABLES: Record<number, WorldWaveTable> = {
         { type: 'bat', weight: 4 },
         { type: 'mite', weight: 4, pack: [3, 5] },
         { type: 'slime', weight: 3, pack: [1, 2] },
-        { type: 'sentry_shard', weight: 5 }, // Stage 4 type: weight zero until it ships
+        { type: 'sentry_shard', weight: 5 }, // Stage 4: live since the type shipped
       ] },
       { fromPhase: 0.85, toPhase: 1.0, maxAlive: 12, entries: [
         { type: 'pod', weight: 6 },
@@ -153,7 +162,7 @@ export const WAVE_TABLES: Record<number, WorldWaveTable> = {
         { type: 'bat', weight: 4 },
         { type: 'mite', weight: 4, pack: [3, 5] },
         { type: 'slime', weight: 3, pack: [1, 2] },
-        { type: 'sentry_shard', weight: 5 }, // Stage 4 type: weight zero until it ships
+        { type: 'sentry_shard', weight: 5 }, // Stage 4: live since the type shipped
       ] },
     ],
   },

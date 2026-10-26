@@ -52,6 +52,11 @@ export class CodexComponent implements OnInit, OnDestroy {
     { id: 'wisp', name: 'Aether Wisp', desc: 'A hollow ring that circles its prey, then darts through the ring it made. Do not stand at the center.', size: 15 },
     { id: 'pod', name: 'Brood Pod', desc: 'A drifting nest of cells. It bursts into Mites when killed, so finish it from as far away as you can.', size: 25 },
     { id: 'mite', name: 'Mite', desc: 'A tiny swarmer shaken loose from a Brood Pod. Trivial alone, a screen-filling storm in a pack.', size: 8 },
+    { id: 'sentry_shard', name: 'Sentry Shard', desc: 'A floating crystal turret that anchors and fires on a steady beat. Its core eye glows before every shot, so keep moving between beats.', size: 30 },
+    { id: 'seedmother', name: 'Seedmother', desc: 'A slow spore-bellied flyer that lays Rift Mines as it crosses the field. Kill the mother, or the field keeps growing.', size: 55 },
+    { id: 'rift_mine', name: 'Rift Mine', desc: 'A spiked hazard with a blinking core. Shoot it from range to clear it safely; walk close and it bursts into a cross of fire.', size: 10 },
+    { id: 'shieldback', name: 'Shieldback', desc: 'Its shield face always turns toward you and turns your fire aside: hits from the front land at quarter strength and spark off. Circle behind it, or pierce its flank, for full damage.', size: 50 },
+    { id: 'pyre_moth', name: 'Pyre Moth', desc: 'A soft ball of flame with slow wings. When it starts flashing, back away: dead or alive, it bursts into a ring of fire.', size: 17 },
     { id: 'boss', name: 'Demonic Skull', desc: 'The ruler of the Volcanic Crags. A terrifying fiery entity.', size: 100 }
   ];
 

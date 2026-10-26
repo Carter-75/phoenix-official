@@ -22,6 +22,11 @@ export const SPAWN_DEFS: Record<string, { size: number; health: number }> = {
     wisp: { size: 15, health: 10 }, // Aether Wisp: Fragile (10), 30 px ring
     pod: { size: 25, health: 60 }, // Brood Pod: Sturdy (60), 50 px sphere
     mite: { size: 8, health: 5 }, // Mite: Fragile (5, half a bat), 16 px spark
+    sentry_shard: { size: 30, health: 60 }, // Sentry Shard: Sturdy (60), 60 px octahedron
+    seedmother: { size: 55, health: 200 }, // Seedmother: Armored (200), 110 px dome
+    rift_mine: { size: 10, health: 10 }, // Rift Mine: Fragile (10), 20 px spiked sphere
+    shieldback: { size: 50, health: 200 }, // Shieldback: Armored (200), 100 px beetle
+    pyre_moth: { size: 17, health: 10 }, // Pyre Moth: Fragile (10), 34 px fuzzy ball
 };
 
 export interface SpawnerContext {
@@ -49,6 +54,10 @@ export interface SpawnerContext {
 })
 export class EntitySpawnerService {
     private spawnInterval: any;
+    // Sentry Shard pairs alternate their fire cycles (design sheet 8):
+    // consecutive shard spawns offset their first shot by half a
+    // cycle so two anchored shards never volley in sync.
+    private shardSpawnCount = 0;
 
     // Spawn distances scale with the logical playfield unit (the smaller
     // viewport dimension, 412 px on the reference phone) so enemies
@@ -231,6 +240,17 @@ export class EntitySpawnerService {
             if (roll <= 0) { picked = entry; break; }
         }
 
+        // Placed entries (Stage 4): a fixed Rift Mine pattern at an
+        // in-field anchor instead of an off-screen spawn. The anchor
+        // sits in the middle 60 percent of the field so the whole
+        // ring is reachable and visible.
+        if (picked.placed) {
+            const ax = window.innerWidth * (0.2 + Math.random() * 0.6);
+            const ay = window.innerHeight * (0.2 + Math.random() * 0.6);
+            this.spawnMinePattern(ctx, ax, ay, picked.pack ? picked.pack[1] : 4, worldIndex);
+            return;
+        }
+
         const packMin = picked.pack ? picked.pack[0] : 1;
         const packMax = picked.pack ? picked.pack[1] : 1;
         let count = packMin + Math.floor(Math.random() * (packMax - packMin + 1));
@@ -260,6 +280,28 @@ export class EntitySpawnerService {
             data.behaviorState = 'close';
             data.orbitDir = Math.random() < 0.5 ? -1 : 1;
         }
+        // Stage 4 behavior init (roster batch B).
+        if (type === 'sentry_shard') {
+            data.behaviorState = 'drift';
+            // Alternate the fire cycle in pairs: every second shard
+            // starts half a cycle (1250 ms) late.
+            if (this.shardSpawnCount++ % 2 === 1) data.lastAttackTime = Date.now() + 1250;
+        }
+        if (type === 'seedmother') {
+            // Cross the field on a slow diagonal: aim at the center
+            // from wherever she entered, with jitter. The steering
+            // hook re-aims her at the center whenever she nears an
+            // edge, so the crossing reads as endless patrol.
+            const cx = window.innerWidth / 2 - x;
+            const cy = window.innerHeight / 2 - y;
+            const len = Math.hypot(cx, cy) || 1;
+            const jitter = (Math.random() - 0.5) * 0.8;
+            const cos = Math.cos(jitter), sin = Math.sin(jitter);
+            data.aimDirX = (cx / len) * cos - (cy / len) * sin;
+            data.aimDirY = (cx / len) * sin + (cy / len) * cos;
+            data.behaviorState = 'cross';
+        }
+        if (type === 'pyre_moth') data.behaviorState = 'chase';
         const body = this.createEnemyBody(x, y, def.size * ctx.screenScale, type, data);
         if (burst) {
             const angle = Math.random() * Math.PI * 2;
@@ -269,6 +311,22 @@ export class EntitySpawnerService {
         ctx.enemies.push(body);
         Matter.Composite.add(ctx.engine.world, body);
         return body;
+    }
+
+    // Pre-placed Rift Mine pattern (design sheet 10): a ring of
+    // mines around an in-field anchor, laid as wave-table data
+    // (WaveEntry.placed). Mines placed this way have no mother, so
+    // they do not count against any Seedmother's field cap.
+    public spawnMinePattern(ctx: SpawnerContext, cx: number, cy: number, count: number, worldIndex: number): Matter.Body[] {
+        const bodies: Matter.Body[] = [];
+        const ringR = 0.09 * Math.min(window.innerWidth, window.innerHeight);
+        for (let i = 0; i < count; i++) {
+            const a = (i / Math.max(1, count)) * Math.PI * 2;
+            const body = this.spawnEnemyOfType(ctx, 'rift_mine',
+                cx + Math.cos(a) * ringR, cy + Math.sin(a) * ringR, worldIndex);
+            if (body) bodies.push(body);
+        }
+        return bodies;
     }
 
     public spawnMinion(x: number, y: number, ctx: SpawnerContext) {

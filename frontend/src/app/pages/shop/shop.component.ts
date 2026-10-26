@@ -1,6 +1,6 @@
 import { Component, signal, computed, OnInit, inject } from '@angular/core';
 import { GameStateService } from '../../services/game-state.service';
-import { ABILITIES, WORLDS } from '../../constants/game.constants';
+import { ABILITIES, GADGETS, WORLDS } from '../../constants/game.constants';
 import { WorldStats } from '../../models/game.models';
 import { IapService } from '../../services/iap.service';
 import { AdsService } from '../../services/ads.service';
@@ -449,6 +449,40 @@ import { CommonModule } from '@angular/common';
          </div>
       }
 
+      <!-- Gadget Slot (systems spec Section 5.3, stage S3): one
+           gadget per world, bought with coins, equipped outside the
+           move slots. Each fires at most once per run. -->
+      @if (activeTab() === 'abilities') {
+         <div class="w-full max-w-5xl mb-6 animate-fade-in">
+            <div class="text-xs font-bold text-white/50 uppercase tracking-widest mb-3">Gadget (one per run effect)</div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pb-12">
+               @for (gadget of gadgetsList; track gadget.id) {
+                  <div class="bg-white/5 border border-white/10 rounded-3xl p-5 flex flex-col hover:bg-white/10 transition shadow-lg relative">
+                     @if (gameState.currentStats().activeGadget === gadget.id) {
+                        <div class="absolute -top-3 right-4 bg-cyan-500 text-black px-3 py-1 rounded-full text-xs font-bold uppercase shadow-lg">Equipped</div>
+                     }
+                     <div class="flex items-center gap-3 mb-3">
+                        <div class="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center border border-white/20 shrink-0 text-2xl">{{ gadget.icon }}</div>
+                        <h3 class="text-lg font-bold text-white">{{ gadget.name }}</h3>
+                     </div>
+                     <p class="text-white/50 text-sm">{{ gadget.desc }}</p>
+                     <div class="mt-auto pt-4 border-t border-white/10">
+                        @if (!gameState.currentStats().unlockedGadgets.includes(gadget.id)) {
+                           <button (click)="buyGadget(gadget.id)" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-white text-sm flex items-center justify-center gap-1 hover:brightness-110 transition disabled:opacity-50" [disabled]="gameState.coins() < gadget.cost">
+                              Buy <img src="assets/coin_icon.png" class="w-4 h-4"/> {{ gadget.cost }}
+                           </button>
+                        } @else if (gameState.currentStats().activeGadget === gadget.id) {
+                           <button (click)="equipGadget(null)" class="w-full py-2 bg-white/10 border border-white/20 rounded-xl font-bold text-white text-sm hover:bg-white/20 transition">Unequip</button>
+                        } @else {
+                           <button (click)="equipGadget(gadget.id)" class="w-full py-2 bg-white/10 border border-white/20 rounded-xl font-bold text-white text-sm hover:bg-white/20 transition">Equip</button>
+                        }
+                     </div>
+                  </div>
+               }
+            </div>
+         </div>
+      }
+
       <!-- Gems Tab -->
       @if (activeTab() === 'gems') {
         @if (!iapService.purchasesEnabled()) {
@@ -805,6 +839,33 @@ export class ShopComponent implements OnInit {
   }
 
   get abilitiesList() { return Object.values(ABILITIES); }
+
+  get gadgetsList() { return Object.values(GADGETS); }
+
+  // Gadget slot (spec Section 5.3): bought per world with coins,
+  // no upgrade levels, one equipped at a time.
+  buyGadget(id: string) {
+      const gadget = GADGETS[id];
+      if (!gadget) return;
+      if (this.gameState.currentStats().unlockedGadgets.includes(id)) return;
+      if (this.gameState.coins() < gadget.cost) return;
+      this.gameState.coins.update(c => c - gadget.cost);
+      this.gameState.worldUpgrades.update(upgrades => {
+          const worldId = this.gameState.selectedWorldIndex();
+          const stats = upgrades[worldId];
+          return { ...upgrades, [worldId]: { ...stats, unlockedGadgets: [...(stats.unlockedGadgets || []), id] } };
+      });
+      this.gameState.audio.playSFX('buy');
+  }
+
+  equipGadget(id: string | null) {
+      this.gameState.worldUpgrades.update(upgrades => {
+          const worldId = this.gameState.selectedWorldIndex();
+          const stats = upgrades[worldId];
+          return { ...upgrades, [worldId]: { ...stats, activeGadget: id } };
+      });
+      this.gameState.audio.playSFX('click');
+  }
 
   
   async buyWithAd(type: string) {
