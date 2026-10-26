@@ -29,6 +29,11 @@ export interface WorldStats {
   // no gadgets owned and none equipped.
   unlockedGadgets: string[];
   activeGadget: string | null;
+  // Systems S5 (spec Section 5.2): Aegis Plating stacks, 0 to 3. Each
+  // stack subtracts 1 from contact damage taken (boss contact
+  // excluded, minimum 1). Additive field with the same BASE_STATS
+  // defaulting, so older saves load at 0.
+  aegisPlating: number;
 }
 
 export interface PhysicsEntity {
@@ -134,7 +139,7 @@ export interface World {
 
 export interface EnemyData {
   id: string;
-  type: 'bat' | 'slime' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite' | 'sentry_shard' | 'seedmother' | 'rift_mine' | 'shieldback' | 'pyre_moth' | 'phantom' | 'wraith' | 'chanter' | 'serpent' | 'darter' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance' | 'nova';
+  type: 'bat' | 'slime' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite' | 'sentry_shard' | 'seedmother' | 'rift_mine' | 'shieldback' | 'pyre_moth' | 'phantom' | 'wraith' | 'chanter' | 'serpent' | 'darter' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'spark_cell' | 'overcharge' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance' | 'nova';
   health: number;
   maxHealth: number;
   lastAttackTime?: number;

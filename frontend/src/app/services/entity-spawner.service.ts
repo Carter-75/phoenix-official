@@ -366,7 +366,7 @@ export class EntitySpawnerService {
         Matter.Composite.add(ctx.engine.world, minion);
     }
 
-    public dropItem(x: number, y: number, type: 'coin' | 'gem' | 'heart' | 'crate' | 'xp_orb', value: number, ctx: SpawnerContext) {
+    public dropItem(x: number, y: number, type: 'coin' | 'gem' | 'heart' | 'crate' | 'xp_orb' | 'spark_cell' | 'overcharge', value: number, ctx: SpawnerContext) {
         if (ctx.gameState.currentGameMode() === 'ai_vs_ai' && (type === 'coin' || type === 'gem' || type === 'crate')) {
             return;
         }

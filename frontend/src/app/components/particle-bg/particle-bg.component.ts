@@ -239,9 +239,10 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
   // treatment, parallax silhouette layers, ground band, and
   // atmosphere behavior are driven by each world's Stage 0 themeData
   // record. A world joins this set when its theme batch lands
-  // (batch 1: Worlds 1 to 3; Stages 7 and 8 add theirs), and worlds
-  // outside the set keep the shipped presentation exactly.
-  private static readonly THEME_SCENE_WORLDS = new Set([0, 1, 2]);
+  // (batch 1: Worlds 1 to 3; batch 2 in Stage 7: Worlds 4 to 6;
+  // Stage 8 adds the rest), and worlds outside the set keep the
+  // shipped presentation exactly.
+  private static readonly THEME_SCENE_WORLDS = new Set([0, 1, 2, 3, 4, 5]);
   // Stage 6 theme backdrop: ONE opaque plane carrying the world's
   // whole painted backdrop (sky gradient, baked sky glows, far and
   // mid silhouette layers, ground strip). The layers are composited
@@ -261,6 +262,10 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
   private atmosphereDir: 'rising' | 'falling' | 'horizontal' | 'suspended' | 'mixed' = 'falling';
   private atmosphereSpeed = 1.8; // the shipped drift, kept for unthemed worlds
   private atmosphereCount = 4500;
+  // Stage 7: Ashen Peaks' falling ash rides a slow sideways wind
+  // sine (World 5 sheet). Zero everywhere else, so the shipped
+  // falling behavior is byte-identical for the other worlds.
+  private atmosphereSway = 0;
   // Dynamic pixel-ratio step-down state (spec Section 1.4).
   private frameEmaMs = 16;
   private pixelRatioStep = 0;
@@ -511,10 +516,14 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       this.atmosphereDir = td.atmosphere.direction;
       this.atmosphereSpeed = td.atmosphere.speed === 'slow' ? 0.9 : td.atmosphere.speed === 'fast' ? 3.2 : 1.8;
       this.atmosphereCount = td.atmosphere.density === 'sparse' ? 3000 : td.atmosphere.density === 'dense' ? 4500 : 3750;
+      // Ashen Peaks (world index 4) is the one world whose sheet
+      // adds a sideways wind sine to its falling ash.
+      this.atmosphereSway = worldIndex === 4 ? 1.6 : 0;
     } else {
       this.atmosphereDir = 'falling';
       this.atmosphereSpeed = 1.8;
       this.atmosphereCount = 4500;
+      this.atmosphereSway = 0;
     }
     this.particles.geometry.setDrawRange(0, this.atmosphereCount);
   }
@@ -540,6 +549,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       themedWorldIndex: this.themedWorldIndex,
       atmosphereDir: this.atmosphereDir,
       atmosphereCount: this.atmosphereCount,
+      atmosphereSway: this.atmosphereSway,
       frameEmaMs: Math.round(this.frameEmaMs * 10) / 10,
     };
   }
@@ -664,6 +674,9 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       case 0: return { far: this.paintEmberFar.bind(this), mid: this.paintEmberMid.bind(this), ground: this.paintGroundLava.bind(this) };
       case 1: return { far: this.paintDepthsFar.bind(this), mid: this.paintDepthsMid.bind(this), ground: this.paintGroundVents.bind(this) };
       case 2: return { far: this.paintVoidFar.bind(this), mid: this.paintVoidMid.bind(this), ground: this.paintGroundMirror.bind(this) };
+      case 3: return { far: this.paintCanopyFar.bind(this), mid: this.paintCanopyMid.bind(this), ground: this.paintGroundForest.bind(this) };
+      case 4: return { far: this.paintAshenFar.bind(this), mid: this.paintAshenMid.bind(this), ground: this.paintGroundAshRidge.bind(this) };
+      case 5: return { far: this.paintCavernFar.bind(this), mid: this.paintCavernMid.bind(this), ground: this.paintGroundCrystal.bind(this) };
       default: return null;
     }
   }
@@ -893,6 +906,303 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       for (let s = 0; s < segs; s++) {
         x += (rnd() - 0.5) * 90;
         y += (rnd() - 0.5) * 26;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+  }
+
+  // ----------------------------------------------------------------
+  // Stage 7 theme painters: Worlds 4 to 6, same composited-backdrop
+  // contract as batch 1 (dark silhouettes against the baked glow,
+  // deterministic per-layer seeds, tiled for the wrap).
+  // ----------------------------------------------------------------
+
+  // World 4 far: layered canopy silhouettes overhead with hanging
+  // vines (Verdant Canopy sheet). The mass hangs from the top of
+  // the frame; a broken tree line closes the bottom.
+  private paintCanopyFar(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(401);
+    const fill = this.silColor(td.palette.deep, 0.36);
+    ctx.fillStyle = fill;
+    this.tiled(ctx, w, () => {
+      // Canopy mass: overlapping leaf-clumps hanging from the top.
+      let x = -30;
+      while (x < w + 30) {
+        const rx = 46 + rnd() * 70, ry = rx * (0.42 + rnd() * 0.2);
+        const cy = -ry * (0.25 + rnd() * 0.45);
+        ctx.beginPath(); ctx.ellipse(x, cy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+        x += rx * (0.9 + rnd() * 0.5);
+      }
+      // Hanging vines: thin curved strands dropping from the mass.
+      ctx.strokeStyle = fill; ctx.lineWidth = 3;
+      for (let k = 0; k < 9; k++) {
+        const vx = rnd() * w, len = h * (0.18 + rnd() * 0.24), sway = (rnd() - 0.5) * 26;
+        ctx.beginPath();
+        ctx.moveTo(vx, 0);
+        ctx.quadraticCurveTo(vx + sway * 0.4, len * 0.55, vx + sway, len);
+        ctx.stroke();
+        // A leaf pair at the strand's end.
+        ctx.beginPath(); ctx.ellipse(vx + sway, len, 7, 3.5, sway * 0.02, 0, Math.PI * 2); ctx.fill();
+      }
+      // Distant tree line at the base: trunks under a broken crown.
+      const base = h * 0.99;
+      let tx = 0;
+      while (tx < w * 0.8) {
+        const tw = 10 + rnd() * 14, th = h * (0.10 + rnd() * 0.12);
+        ctx.fillRect(tx, base - th, tw, th);
+        ctx.beginPath(); ctx.ellipse(tx + tw / 2, base - th, tw * (1.1 + rnd() * 0.7), h * 0.045, 0, 0, Math.PI * 2); ctx.fill();
+        tx += tw + 60 + rnd() * 110;
+      }
+    });
+  }
+
+  // World 4 mid: god-ray shafts from the top glow, then giant leaves
+  // drifting past, dark with one bright rim edge (sheet).
+  private paintCanopyMid(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(402);
+    this.tiled(ctx, w, () => {
+      // God rays: two or three soft wedges widening downward from
+      // the top glow. Painted as translucent bright fills over the
+      // dark base, so they read as light without additive planes.
+      for (let k = 0; k < 3; k++) {
+        const sx = w * (0.16 + 0.3 * k) + rnd() * 50, topW = 26 + rnd() * 30, botW = topW * (2.6 + rnd() * 0.8), drift = (rnd() - 0.5) * 60;
+        ctx.fillStyle = this.silColor(td.palette.bright, 1.0, 0.075);
+        ctx.beginPath();
+        ctx.moveTo(sx - topW / 2, 0);
+        ctx.lineTo(sx + topW / 2, 0);
+        ctx.lineTo(sx + drift + botW / 2, h * 0.86);
+        ctx.lineTo(sx + drift - botW / 2, h * 0.86);
+        ctx.closePath(); ctx.fill();
+      }
+      // Giant leaves: a pointed ellipse, near-black green, with the
+      // rim light on its upper edge only.
+      for (let k = 0; k < 8; k++) {
+        const cx = rnd() * w, cy = h * (0.16 + rnd() * 0.62);
+        const L = 34 + rnd() * 40, Wd = L * (0.30 + rnd() * 0.1), a = (rnd() - 0.5) * 1.5;
+        ctx.save(); ctx.translate(cx, cy); ctx.rotate(a);
+        ctx.fillStyle = this.silColor(td.palette.deep, 0.55);
+        ctx.beginPath(); ctx.moveTo(0, -L); ctx.quadraticCurveTo(Wd, 0, 0, L); ctx.quadraticCurveTo(-Wd, 0, 0, -L); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = this.silColor(td.palette.bright, 1.0, 0.38); ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.moveTo(0, -L); ctx.quadraticCurveTo(Wd, 0, 0, L); ctx.stroke();
+        ctx.restore();
+      }
+    });
+  }
+
+  // World 4 ground: shadowed forest floor with light pools where
+  // the shafts land (sheet).
+  private paintGroundForest(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(403);
+    // Dark floor mass.
+    const grad = ctx.createLinearGradient(0, 20, 0, h);
+    grad.addColorStop(0, this.silColor(td.palette.deep, 0.30));
+    grad.addColorStop(1, this.silColor(td.palette.deep, 0.48));
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 20, w, h - 20);
+    // Light pools: soft bright ellipses on the floor.
+    for (let k = 0; k < 6; k++) {
+      const cx = rnd() * w, cy = 44 + rnd() * 56, rx = 30 + rnd() * 46, ry = rx * 0.22;
+      const g = ctx.createRadialGradient(cx, cy, 1, cx, cy, rx);
+      g.addColorStop(0, this.silColor(td.palette.bright, 1.0, 0.13));
+      g.addColorStop(1, this.silColor(td.palette.bright, 1.0, 0));
+      ctx.fillStyle = g;
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(1, ry / rx); ctx.translate(-cx, -cy);
+      ctx.fillRect(cx - rx, cy - rx, rx * 2, rx * 2);
+      ctx.restore();
+    }
+    // Fern silhouettes along the floor line.
+    ctx.strokeStyle = this.silColor(td.palette.deep, 0.6); ctx.lineWidth = 2.5;
+    for (let k = 0; k < 14; k++) {
+      const fx = rnd() * w, fy = 30 + rnd() * 40, s = 8 + rnd() * 12;
+      for (let j = -2; j <= 2; j++) {
+        ctx.beginPath();
+        ctx.moveTo(fx, fy + 14);
+        ctx.quadraticCurveTo(fx + j * s * 0.5, fy + 14 - s * 0.8, fx + j * s * 0.8, fy + 14 - s * (1 - Math.abs(j) * 0.18));
+        ctx.stroke();
+      }
+    }
+  }
+
+  // World 5 far: jagged peak silhouettes in three gray layers
+  // (Ashen Peaks sheet). This is the one desaturated world: the
+  // palette is gray at the data level, and the layers separate by
+  // value alone.
+  private paintAshenFar(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    // Each ridge is a sum of triangle waves with whole-number
+    // periods across the texture width, so the ridge is periodic
+    // and the wrap seam is invisible (the lava line's trick, with
+    // triangles instead of sines for the jagged profile).
+    const tri = (x: number, periods: number, phase: number) => {
+      const t = ((x / w) * periods + phase) % 1;
+      return Math.abs(t - 0.5) * 2; // 0 at the peak, 1 in the valley
+    };
+    const layers: Array<{ baseY: number; amp: number; f: number; p1: number; p2: number; ph: number }> = [
+      { baseY: 0.60, amp: 0.17, f: 0.62, p1: 5, p2: 9, ph: 0.13 },
+      { baseY: 0.74, amp: 0.20, f: 0.74, p1: 7, p2: 12, ph: 0.47 },
+      { baseY: 0.88, amp: 0.22, f: 0.86, p1: 6, p2: 11, ph: 0.71 },
+    ];
+    for (const layer of layers) {
+      const yAt = (x: number) => h * (layer.baseY - layer.amp * (1 - (0.6 * tri(x, layer.p1, layer.ph) + 0.4 * tri(x, layer.p2, layer.ph * 1.7))));
+      ctx.fillStyle = this.silColor(td.palette.deep, layer.f);
+      ctx.beginPath();
+      ctx.moveTo(0, h);
+      ctx.lineTo(0, yAt(0));
+      for (let x = 12; x <= w; x += 12) ctx.lineTo(x, yAt(x));
+      ctx.lineTo(w, h);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+
+  // World 5 mid: tumbling ash boulders, gray on gray, a dull rim on
+  // the upper edge (the Ember boulders' shape language, desaturated).
+  private paintAshenMid(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(504);
+    const fill = this.silColor(td.palette.deep, 0.62);
+    const rim = this.silColor(td.palette.mid, 1.0, 0.30);
+    this.tiled(ctx, w, () => {
+      for (let k = 0; k < 11; k++) {
+        const cx = rnd() * w, cy = h * (0.14 + rnd() * 0.6);
+        const rx = 13 + rnd() * 24, ry = rx * (0.5 + rnd() * 0.25);
+        ctx.fillStyle = fill;
+        ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = rim; ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
+      }
+    });
+  }
+
+  // World 5 ground: a snow-ash ridge line (sheet), pale and still:
+  // the ridge gets a dim gray stroke and a faint wash, no pulses.
+  private paintGroundAshRidge(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const yAt = (x: number) => 28 + 6 * Math.sin((2 * Math.PI * 2 * x) / w + 0.6) + 3 * Math.sin((2 * Math.PI * 5 * x) / w);
+    // Ash mass below the ridge.
+    const grad = ctx.createLinearGradient(0, 22, 0, h);
+    grad.addColorStop(0, this.silColor(td.palette.deep, 0.30));
+    grad.addColorStop(1, this.silColor(td.palette.deep, 0.16));
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(0, yAt(0));
+    for (let x = 16; x <= w; x += 16) ctx.lineTo(x, yAt(x));
+    ctx.lineTo(w, h); ctx.lineTo(0, h);
+    ctx.closePath(); ctx.fill();
+    // The ridge line itself: ash-pale, no bloom.
+    ctx.beginPath();
+    ctx.moveTo(0, yAt(0));
+    for (let x = 8; x <= w; x += 8) ctx.lineTo(x, yAt(x));
+    ctx.strokeStyle = this.silColor(td.palette.mid, 1.0, 0.55);
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    // Settled drifts piled against the line.
+    const rnd = this.themeRng(505);
+    ctx.fillStyle = this.silColor(td.palette.mid, 1.0, 0.10);
+    for (let k = 0; k < 8; k++) {
+      const cx = rnd() * w, cy = yAt(cx) + 8 + rnd() * 22, rx = 22 + rnd() * 34;
+      ctx.beginPath(); ctx.ellipse(cx, cy, rx, rx * 0.24, 0, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // World 6 far: cathedral crystal formations (Crystal Caverns
+  // sheet): tall grounded clusters at the base and a hanging vault
+  // above, faceted edges catching the world's cyan.
+  private paintCavernFar(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(601);
+    const fill = this.silColor(td.palette.deep, 0.40);
+    const facet = this.silColor(td.palette.mid, 1.0, 0.35);
+    const base = h * 0.99;
+    const shard = (cx: number, cy: number, L: number, Wd: number, a: number, flip: boolean) => {
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(a); if (flip) ctx.scale(1, -1);
+      ctx.fillStyle = fill;
+      ctx.beginPath(); ctx.moveTo(0, -L); ctx.lineTo(Wd, 0); ctx.lineTo(0, L * 0.28); ctx.lineTo(-Wd, 0); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = facet; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(0, -L); ctx.lineTo(Wd, 0); ctx.stroke();
+      ctx.restore();
+    };
+    this.tiled(ctx, w, () => {
+      // Grounded cathedral clusters.
+      for (let c = 0; c < 5; c++) {
+        const ccx = rnd() * w;
+        const n = 2 + Math.floor(rnd() * 3);
+        for (let k = 0; k < n; k++) {
+          const L = h * (0.24 + rnd() * 0.26);
+          shard(ccx + (rnd() - 0.5) * 90, base - L * 0.72, L, 13 + rnd() * 15, (rnd() - 0.5) * 0.35, false);
+        }
+      }
+      // The hanging vault: shorter shards pointing down from the top.
+      for (let k = 0; k < 6; k++) {
+        const L = h * (0.10 + rnd() * 0.13);
+        shard(rnd() * w, L * 0.7, L, 9 + rnd() * 10, (rnd() - 0.5) * 0.3, true);
+      }
+    });
+  }
+
+  // World 6 mid: hanging crystal clusters with light shafts falling
+  // from them (sheet: shafts from the clusters above; the slow
+  // pulse as the player passes is cosmetic and lives in the baked
+  // glow, so it costs no per-frame work).
+  private paintCavernMid(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(602);
+    const fill = this.silColor(td.palette.deep, 0.58);
+    const facet = this.silColor(td.palette.mid, 1.0, 0.30);
+    this.tiled(ctx, w, () => {
+      for (let c = 0; c < 6; c++) {
+        const ccx = rnd() * w;
+        // The shaft under this cluster.
+        const shaftW = 30 + rnd() * 36;
+        ctx.fillStyle = this.silColor(td.palette.bright, 1.0, 0.055);
+        ctx.beginPath();
+        ctx.moveTo(ccx - shaftW * 0.3, 0);
+        ctx.lineTo(ccx + shaftW * 0.3, 0);
+        ctx.lineTo(ccx + shaftW * 0.75, h * 0.8);
+        ctx.lineTo(ccx - shaftW * 0.75, h * 0.8);
+        ctx.closePath(); ctx.fill();
+        // The cluster itself: a fan of downward shards.
+        const n = 3 + Math.floor(rnd() * 3);
+        for (let k = 0; k < n; k++) {
+          const cx = ccx + (rnd() - 0.5) * 56, L = 20 + rnd() * 30, Wd = 6 + rnd() * 7, a = (rnd() - 0.5) * 0.5;
+          ctx.save(); ctx.translate(cx, L * 0.55); ctx.rotate(a); ctx.scale(1, -1);
+          ctx.fillStyle = fill;
+          ctx.beginPath(); ctx.moveTo(0, -L); ctx.lineTo(Wd, 0); ctx.lineTo(0, L * 0.3); ctx.lineTo(-Wd, 0); ctx.closePath(); ctx.fill();
+          ctx.strokeStyle = facet; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.moveTo(0, -L); ctx.lineTo(Wd, 0); ctx.stroke();
+          ctx.restore();
+        }
+      }
+    });
+  }
+
+  // World 6 ground: a reflective crystal floor (sheet): a bright
+  // horizon streak, facet lines, and dim mirrored glows below it.
+  private paintGroundCrystal(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(603);
+    ctx.fillStyle = this.silColor(td.palette.deep, 0.34);
+    ctx.fillRect(0, 18, w, h - 18);
+    // Horizon streak: the floor reflecting the top glow.
+    const grad = ctx.createLinearGradient(0, 18, 0, 40);
+    grad.addColorStop(0, this.silColor(td.palette.mid, 1.0, 0.20));
+    grad.addColorStop(1, this.silColor(td.palette.mid, 1.0, 0));
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 18, w, 22);
+    // Mirrored glow pools, dimmer than any real light.
+    for (let k = 0; k < 5; k++) {
+      const cx = rnd() * w, cy = 52 + rnd() * 52, rx = 26 + rnd() * 40;
+      const g = ctx.createRadialGradient(cx, cy, 1, cx, cy, rx);
+      g.addColorStop(0, this.silColor(td.palette.bright, 1.0, 0.08));
+      g.addColorStop(1, this.silColor(td.palette.bright, 1.0, 0));
+      ctx.fillStyle = g;
+      ctx.fillRect(cx - rx, cy - rx, rx * 2, rx * 2);
+    }
+    // Facet lines.
+    ctx.strokeStyle = this.silColor(td.palette.mid, 1.0, 0.30);
+    ctx.lineWidth = 1.5;
+    for (let k = 0; k < 22; k++) {
+      let x = rnd() * w, y = 24 + rnd() * 64;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      const segs = 2 + Math.floor(rnd() * 3);
+      for (let s = 0; s < segs; s++) {
+        x += (rnd() - 0.5) * 100;
+        y += (rnd() - 0.5) * 22;
         ctx.lineTo(x, y);
       }
       ctx.stroke();
@@ -1622,6 +1932,10 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
             if (positions[i+1] < -halfBox) positions[i+1] = halfBox;
           } else { // falling (the shipped behavior)
             positions[i+1] -= aSpd * dt;
+            // Ashen Peaks wind sine (Stage 7): a slow lateral sway
+            // on the fall, phased per point. Zero amplitude in every
+            // other world, so their fall is unchanged.
+            if (this.atmosphereSway > 0) positions[i] += Math.sin(this.themeTime * 0.7 + i * 0.37) * this.atmosphereSway * dt;
             if (positions[i+1] < -halfBox) { positions[i+1] = halfBox; positions[i] = (Math.random() - 0.5) * this.ambientBoxSize; }
           }
         }
@@ -2595,7 +2909,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       } else if (data.type === 'heart') {
         const beat = 1 + Math.sin(Date.now() * 0.01) * 0.2;
         entity.mesh.scale.set(beat, beat, beat);
-      } else if (data.type === 'gem' || data.type === 'xp_orb') {
+      } else if (data.type === 'gem' || data.type === 'xp_orb' || data.type === 'spark_cell' || data.type === 'overcharge') {
         entity.mesh.rotation.y += 0.05;
         entity.mesh.rotation.x += 0.02;
       }

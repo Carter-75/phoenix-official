@@ -4,7 +4,7 @@ import { GameStateService, STAMINA, createMovementState } from '../../services/g
 import { phoenixSkinForWorld } from '../../components/particle-bg/particle-bg.component';
 import { PhysicsEntity, WorldStats } from '../../models/game.models';
 import { ABILITIES, BASE_STATS, REALM_ABILITIES } from '../../constants/game.constants';
-import { PI_RULES } from '../../data/balance.constants';
+import { PI_RULES, DROP_RULES } from '../../data/balance.constants';
 import { AudioService } from '../../services/audio.service';
 import { SettingsComponent } from '../settings/settings.component';
 import * as Matter from 'matter-js';
@@ -16,7 +16,7 @@ import { AdsService } from '../../services/ads.service';
 
 interface EnemyData {
   id: string;
-  type: 'bat' | 'slime' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite' | 'sentry_shard' | 'seedmother' | 'rift_mine' | 'shieldback' | 'pyre_moth' | 'phantom' | 'wraith' | 'chanter' | 'serpent' | 'darter' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance' | 'nova';
+  type: 'bat' | 'slime' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite' | 'sentry_shard' | 'seedmother' | 'rift_mine' | 'shieldback' | 'pyre_moth' | 'phantom' | 'wraith' | 'chanter' | 'serpent' | 'darter' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'spark_cell' | 'overcharge' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance' | 'nova';
   health: number;
   maxHealth: number;
   lastAttackTime?: number;
@@ -61,6 +61,18 @@ interface EnemyData {
   // S4: ultimate cast id on projectiles (boss HP cap enforcement).
   ultCastId?: string;
 }
+
+// Drop-table class membership (spec Sections 1.2 and 5.4, stage S5).
+// Speed classes: Swift (Wisp, Mite, Pyre Moth, Serpent) and Dart
+// (Gloomwing, Cinder Imp on its dash, Storm Darter on its passes)
+// feed the Spark Cell roll. Toughness classes: Sturdy and up (Brood
+// Pod, Sentry Shard, and everything tougher) raise the heart rate;
+// Armored and up (Bastion Golem, Seedmother, Shieldback, and the
+// Elite Loom Serpent) feed the Overcharge roll; the Serpent is the
+// roster's one Elite and feeds the gem roll.
+const SPARK_CELL_TYPES = new Set(['bat', 'imp', 'wisp', 'mite', 'pyre_moth', 'serpent', 'darter']);
+const STURDY_UP_TYPES = new Set(['pod', 'sentry_shard', 'golem', 'seedmother', 'shieldback', 'serpent']);
+const ARMORED_UP_TYPES = new Set(['golem', 'seedmother', 'shieldback', 'serpent']);
 
 @Component({
   selector: 'app-game',
@@ -151,6 +163,36 @@ interface EnemyData {
             <div class="w-7 h-7 rounded-full bg-black/70"></div>
           </div>
         }
+        <!-- Defense and charge status (Stage 7 tie-in for S3's
+             signal, plus the S5 Overcharge charge). The Aegis Charm
+             pill exists only while that gadget is equipped: bright,
+             pulsing, and ringed while its one charge is armed, then
+             dimmed and struck through for the rest of the run once
+             the charge has negated its hit, so the negation is never
+             silent. The Overcharge pill shows only while a charge
+             is held, with its remaining window. -->
+        @if (gameState.currentGameMode() !== 'ai_vs_ai' && (gameState.currentStats().activeGadget === 'aegis_charm' || overchargeReady())) {
+          <div class="flex items-center gap-2 mt-1">
+            @if (gameState.currentStats().activeGadget === 'aegis_charm') {
+              <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border backdrop-blur-sm transition-all duration-300"
+                   [class]="aegisShieldActive()
+                     ? 'bg-cyan-400/20 border-cyan-300/70 shadow-[0_0_12px_rgba(34,211,238,0.55)] animate-pulse'
+                     : 'bg-black/40 border-white/15 opacity-50'"
+                   title="Aegis Charm: one-hit shield">
+                <span class="text-sm" [class.grayscale]="!aegisShieldActive()">🛡️</span>
+                <span class="text-[10px] font-black tracking-widest uppercase"
+                      [class]="aegisShieldActive() ? 'text-cyan-200' : 'text-white/50 line-through'">Aegis</span>
+              </div>
+            }
+            @if (overchargeReady()) {
+              <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border bg-violet-500/25 border-violet-300/70 shadow-[0_0_12px_rgba(167,139,250,0.55)] backdrop-blur-sm animate-pulse"
+                   title="Overcharge: your next cast ignores its cooldown">
+                <span class="text-sm">⚡</span>
+                <span class="text-[10px] font-black tracking-widest uppercase text-violet-200">Overcharge</span>
+              </div>
+            }
+          </div>
+        }
       </div>
 
       <!-- Damage numbers layer (spec Section 4.4): player-dealt damage
@@ -186,7 +228,7 @@ interface EnemyData {
             <div class="absolute bottom-0 left-0 w-full bg-cyan-600/50 transition-all" [style.height]="(holdCooldown() / getHoldMaxCooldown()) * 100 + '%'"></div>
             <span class="absolute z-20 text-white font-bold drop-shadow-md">{{ holdCooldown().toFixed(1) }}</span>
           }
-          @if (holdChargeProgress() > 0 && holdCooldown() <= 0) {
+          @if (holdChargeProgress() > 0 && (holdCooldown() <= 0 || overchargeReady())) {
             <div class="absolute bottom-0 left-0 w-full bg-cyan-400/40" [style.height]="holdChargeProgress() * 100 + '%'"></div>
           }
         </div>
@@ -221,7 +263,7 @@ interface EnemyData {
       </div>
 
       <!-- Hold-charge ring anchored to the finger (fills as you hold still; flashes when ready) -->
-      @if (holdChargeProgress() > 0 && holdCooldown() <= 0) {
+      @if (holdChargeProgress() > 0 && (holdCooldown() <= 0 || overchargeReady())) {
         <div class="fixed pointer-events-none z-40 -translate-x-1/2 -translate-y-1/2"
              [style.left.px]="holdChargePos().x" [style.top.px]="holdChargePos().y">
           <div class="w-24 h-24 rounded-full flex items-center justify-center"
@@ -530,11 +572,10 @@ export class GameComponent implements OnInit, OnDestroy {
   
   public showSettings = false;
 
-  
-  // Crate Logic
-  public crateDroppedThisRun = false;
 
-  public crateCollectedThisRun = false;
+  // Crate logic: none in-run since S5. The in-run subscription
+  // crate drop was removed by the Section 5.6 ruling; pending
+  // monthly crates open from the shop's subscription card.
 
 
   // Revive UI
@@ -637,6 +678,14 @@ export class GameComponent implements OnInit, OnDestroy {
   // one charge is armed at run start when the gadget is equipped.
   private featherUsedThisRun = false;
   public aegisShieldActive = signal<boolean>(false);
+
+  // S5 Overcharge state (spec Section 5.4): run-local, set by the
+  // Overcharge pickup. While ready, the player's next non-ultimate
+  // cast ignores its cooldown (it may fire during the cooldown and
+  // starts no new one); the charge is consumed by that cast and
+  // expires unused after DROP_RULES.overchargeWindowMs.
+  public overchargeReady = signal<boolean>(false);
+  public overchargeExpiresAt = 0;
 
   
   // Input Tracking
@@ -767,6 +816,9 @@ export class GameComponent implements OnInit, OnDestroy {
     this.featherUsedThisRun = false;
     this.playerInfernoUntil = 0;
     this.aegisShieldActive.set(this.gameState.currentStats().activeGadget === 'aegis_charm');
+    // S5: no Overcharge charge carries into a new run.
+    this.overchargeReady.set(false);
+    this.overchargeExpiresAt = 0;
     
     this.initPhysics();
     this.startGameLoop();
@@ -850,6 +902,21 @@ export class GameComponent implements OnInit, OnDestroy {
                 spawnBossNow: () => {
                     this.spawner.spawnBoss(this.getSpawnerContext());
                 }
+            };
+            // S5 economy probes: drop a pickup of any kind at an
+            // exact position through the production spawner, so the
+            // seeded economy run exercises the shipped drop and
+            // collection code, not a harness imitation.
+            (window as any).__phoenixS5 = {
+                gameState: this.gameState,
+                game: this,
+                dropPickup: (type: string, x: number, y: number, value: number = 1) => {
+                    this.spawner.dropItem(x, y, type as any, value, this.getSpawnerContext());
+                },
+                itemsSnapshot: () => this.items.map(b => {
+                    const d = b.plugin['data'] as any;
+                    return { type: d?.type, value: d?.value, x: b.position.x, y: b.position.y };
+                }),
             };
         }
     } catch (e) { /* storage unavailable: no hooks, no harm */ }
@@ -1228,7 +1295,18 @@ export class GameComponent implements OnInit, OnDestroy {
                     rushContactDamage = data.meteorRushDamage || 0;
                 }
             }
-            this.takeDamage(rushContactDamage > 0 ? rushContactDamage : this.contactDamageFor(data),
+            let contactAmount = rushContactDamage > 0 ? rushContactDamage : this.contactDamageFor(data);
+            // Aegis Plating (spec Section 5.2, stage S5): each
+            // stack subtracts 1 from contact damage taken, boss
+            // contact excluded, and a hit can never drop below 1.
+            // The rival's Meteor Rush replacement hit is an ability
+            // hit riding this contact event, not plain contact, and
+            // is not reduced.
+            if (rushContactDamage <= 0 && data.type !== 'boss') {
+                const stacks = this.gameState.currentStats().aegisPlating || 0;
+                if (stacks > 0) contactAmount = Math.max(1, contactAmount - stacks);
+            }
+            this.takeDamage(contactAmount,
                 data.type === 'boss' || data.type === 'enemy_phoenix' ? 'boss_contact' : undefined);
             
             // Knockback logic: an explicit velocity kick instead of a
@@ -1297,6 +1375,17 @@ export class GameComponent implements OnInit, OnDestroy {
                 Matter.Composite.remove(this.engine.world, otherBody);
             }
           } else if (otherBody.label === 'item') {
+            // One physical item grants once. The player body is a
+            // compound of three parts (core and two wings), and an
+            // item overlapping more than one part arrives as
+            // several pairs in a single collision event; the item
+            // is only removed at the end of this branch, so
+            // without this guard a centered pickup granted up to
+            // three times (measured in the S5 harness: one Spark
+            // Cell refilling 150 stamina instead of its stated 50,
+            // and the same over-grant on coins, gems, and hearts).
+            if ((otherBody as any).__phoenixCollected) continue;
+            (otherBody as any).__phoenixCollected = true;
             if (data.type === 'coin') {
                 let val = data.value || 0;
                 if (this.gameState.hasGoldenAura() && Math.random() < 0.1) val *= 5;
@@ -1319,11 +1408,20 @@ export class GameComponent implements OnInit, OnDestroy {
                     }
                 }
             }
-            if (data.type === 'crate') {
-                this.audioService.playSFX('heal'); 
-                this.crateCollectedThisRun = true;
-                // Instantly remove pending state so they can't get it again this month
-                this.gameState.pendingCratesCount.set(Math.max(0, this.gameState.pendingCratesCount() - 1));
+            if (data.type === 'spark_cell') {
+                // Spark Cell (spec Section 5.4): instant stamina
+                // refill, the drop's value is the amount (50).
+                this.audioService.playSFX('heal');
+                this.gameState.addStamina(data.value || DROP_RULES.sparkCellStamina);
+            }
+            if (data.type === 'overcharge') {
+                // Overcharge (spec Section 5.4): the next move cast
+                // within the window ignores its cooldown. Picking up
+                // a second cell while one is held only refreshes the
+                // window; there is never more than one charge.
+                this.audioService.playSFX('heal');
+                this.overchargeReady.set(true);
+                this.overchargeExpiresAt = Date.now() + DROP_RULES.overchargeWindowMs;
             }
             if (data.type === 'heart') {
                 this.audioService.playSFX('heal');
@@ -1737,7 +1835,9 @@ export class GameComponent implements OnInit, OnDestroy {
         // Brake and charge are mutually exclusive (spec Section 2.4):
         // holding the brake before a charge starts blocks the charge;
         // a charge already in progress takes precedence.
-        if (!holdAbility || this.holdCooldown() > 0 || (this.rawBrakeHeld && this.holdTimer <= 0)) {
+        // S5 Overcharge: a held charge also lets a hold move charge
+        // and fire during its cooldown (see fireSlot).
+        if (!holdAbility || (this.holdCooldown() > 0 && !this.overchargeActive()) || (this.rawBrakeHeld && this.holdTimer <= 0)) {
             this.holdTimer = 0;
             if (this.holdChargeProgress() !== 0) this.holdChargeProgress.set(0);
         } else {
@@ -1756,7 +1856,12 @@ export class GameComponent implements OnInit, OnDestroy {
             this.holdChargePos.set({ x: this.mouseX, y: this.mouseY });
             if (this.holdTimer >= chargeMs) {
                 const cd = this.triggerAbility(holdAbility, this.playerBody, this.mouseX, this.mouseY, this.gameState.currentStats(), 'player');
-                if (cd > 0) this.holdCooldown.set(cd);
+                if (cd > 0) {
+                    // S5 Overcharge: a charged cast consumes the
+                    // charge and starts no cooldown.
+                    if (this.overchargeActive()) this.consumeOvercharge();
+                    else this.holdCooldown.set(cd);
+                }
                 this.holdTimer = 0;
                 this.holdChargeProgress.set(0);
             }
@@ -3784,13 +3889,34 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
         }
         // A shot-cleared Rift Mine drops nothing: the clear is the
         // reward (design sheet 10's shot-clear rule).
-        if (data.type !== 'rift_mine' && Math.random() < 0.1) { // 10% chance for a heart
-            this.spawner.dropItem(enemy.position.x, enemy.position.y + 20, 'heart', 20, this.getSpawnerContext()); // Heals 20
+        if (data.type !== 'rift_mine') {
+            // Pickup drops (spec Section 5.4, stage S5; rates and
+            // values in DROP_RULES). Coins above are unchanged.
+            // Heart: 10 percent base, 12 percent from Sturdy class
+            // kills and up, heals 20 as shipped.
+            const heartChance = STURDY_UP_TYPES.has(data.type) ? DROP_RULES.heartSturdyChance : DROP_RULES.heartBaseChance;
+            if (Math.random() < heartChance) {
+                this.spawner.dropItem(enemy.position.x, enemy.position.y + 20, 'heart', DROP_RULES.heartHealValue, this.getSpawnerContext());
+            }
+            // Gem: 25 percent from Elite class kills (the Serpent).
+            if (data.type === 'serpent' && Math.random() < DROP_RULES.gemEliteChance) {
+                this.spawner.dropItem(enemy.position.x, enemy.position.y, 'gem', 1, this.getSpawnerContext());
+            }
+            // Spark Cell: 8 percent from Swift and Dart class kills;
+            // the drop's value is the stamina it restores (50).
+            if (SPARK_CELL_TYPES.has(data.type) && Math.random() < DROP_RULES.sparkCellChance) {
+                this.spawner.dropItem(enemy.position.x, enemy.position.y, 'spark_cell', DROP_RULES.sparkCellStamina, this.getSpawnerContext());
+            }
+            // Overcharge: 2 percent from Armored class kills and
+            // up; the next non-ultimate cast ignores its cooldown.
+            if (ARMORED_UP_TYPES.has(data.type) && Math.random() < DROP_RULES.overchargeChance) {
+                this.spawner.dropItem(enemy.position.x, enemy.position.y, 'overcharge', 1, this.getSpawnerContext());
+            }
         }
-        if (data.type !== 'rift_mine' && !this.crateDroppedThisRun && this.gameState.pendingCratesCount() > 0 && Math.random() < 0.01) {
-            this.crateDroppedThisRun = true;
-            this.spawner.dropItem(enemy.position.x, enemy.position.y, 'crate', 1, this.getSpawnerContext());
-        }
+        // The in-run subscription crate drop is removed (spec
+        // Section 5.6 ruling, stage S5): pending monthly crates now
+        // open from the shop's subscription card, so a crate can
+        // never be lost to a death mid-run.
       }
     } else {
       // Hit sound removed permanently
@@ -4367,6 +4493,23 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       this.lastClickTime = now;
   }
 
+  // S5: the Overcharge charge is live while held and inside its
+  // window; an expired charge clears itself on first read.
+  private overchargeActive(): boolean {
+      if (!this.overchargeReady()) return false;
+      if (Date.now() > this.overchargeExpiresAt) {
+          this.overchargeReady.set(false);
+          this.overchargeExpiresAt = 0;
+          return false;
+      }
+      return true;
+  }
+
+  private consumeOvercharge() {
+      this.overchargeReady.set(false);
+      this.overchargeExpiresAt = 0;
+  }
+
   // Fire one equip slot's move, honoring its own cooldown. Shared by
   // the tap-chain parser and the desktop slot keys.
   private fireSlot(family: 'tap' | 'double' | 'triple') {
@@ -4378,7 +4521,12 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       const cooldown = family === 'tap' ? this.tapCooldown()
           : family === 'double' ? this.doubleCooldown()
           : this.tripleCooldown();
-      if (cooldown > 0) return;
+      // S5 Overcharge (spec Section 5.4): a held charge lets the
+      // next non-ultimate cast ignore its cooldown entirely: it may
+      // fire during the cooldown and starts no new one. Ultimates
+      // are excluded and never consume the charge.
+      const charged = family !== 'triple' && this.overchargeActive();
+      if (cooldown > 0 && !charged) return;
       // S4 triple gate (systems spec Section 3.4): the cast path
       // refuses an ultimate until this world's boss has been beaten
       // once, whatever a save claims is equipped. The shop refuses
@@ -4386,6 +4534,10 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       if (family === 'triple' && !this.gameState.isWorldBossBeaten(this.gameState.selectedWorldIndex())) return;
       const cd = this.triggerAbility(ability, this.playerBody, this.mouseX, this.mouseY, stats, 'player');
       if (cd <= 0) return;
+      if (charged) {
+          this.consumeOvercharge();
+          return;
+      }
       if (family === 'tap') {
           this.tapCooldown.set(cd);
       } else if (family === 'double') {
@@ -5712,10 +5864,6 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       if ((this as any).aiAbilityInterval) clearInterval((this as any).aiAbilityInterval);
       if ((this as any).infiniteBurnInterval) clearInterval((this as any).infiniteBurnInterval);
       this.audioService.playMenuBgm();
-      if (this.crateCollectedThisRun) {
-          this.gameState.activeScreen.set('crate_opening');
-      } else {
-          this.gameState.activeScreen.set('menu'); 
-      }
+      this.gameState.activeScreen.set('menu');
   }
 }

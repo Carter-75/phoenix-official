@@ -8,6 +8,7 @@ import { AuthService, User } from './auth.service';
 import { StorageService } from './storage.service';
 import { WorldStats, PhysicsEntity, World, AbilityData } from '../models/game.models';
 import { WORLDS, ABILITIES, REALM_ABILITIES, BASE_STATS, WORLD_0_STATS, deterministicAbilityModifiers } from '../constants/game.constants';
+import { MULTIPLIER_CAPS, PASSIVE_BY_STAT } from '../data/balance.constants';
 
 // Systems S1 (spec Sections 2.5 and 3.5): save version for the
 // deterministic ability-modifier migration. Stored modifiers are
@@ -650,7 +651,9 @@ export class GameStateService {
 
   public addXp(amount: number) {
       this.checkTemporaryMultipliers();
-      const multiplier = this.xpMultiplier() * this.tempXpMultiplier();
+      // Multiplier stacking cap (spec Section 5.5, stage S5):
+      // permanent x temporary clamps at x4 for XP.
+      const multiplier = Math.min(this.xpMultiplier() * this.tempXpMultiplier(), MULTIPLIER_CAPS.xp);
       this.xp.update(x => x + (amount * multiplier));
       this.checkLevelUp();
   }
@@ -681,14 +684,26 @@ export class GameStateService {
 
   public addCoins(amount: number) {
     this.checkTemporaryMultipliers();
-    let multiplier = this.coinMultiplier() * this.tempCoinMultiplier();
-    
+    // Multiplier stacking cap (spec Section 5.5, stage S5):
+    // permanent x temporary clamps at x10 for coins, before the
+    // Golden Aura proc, which is not part of the stack and applies
+    // after the cap exactly as before.
+    let multiplier = Math.min(this.coinMultiplier() * this.tempCoinMultiplier(), MULTIPLIER_CAPS.coin);
+
     // Golden Aura of Midas check (10% chance for 5x coins)
     if (this.hasGoldenAura() && Math.random() < 0.10) {
         multiplier *= 5;
     }
-    
+
     this.coins.update(c => c + (amount * multiplier));
+  }
+
+  // Spark Cell pickup (spec Section 5.4, stage S5): an instant
+  // stamina refill for the player's movement pool, clamped at the
+  // pool maximum like regeneration. Run-local, like all stamina.
+  public addStamina(amount: number) {
+      const state = this.playerMovement;
+      state.stamina = Math.min(STAMINA.max, state.stamina + amount);
   }
 
   public awardTrophy(name: string) {
@@ -759,6 +774,13 @@ export class GameStateService {
 
   // Upgrades
   public purchaseUpgrade(type: keyof WorldStats, cost: number, amount: number) {
+    // Passive hard caps (spec Section 5.2, stage S5) bind on this
+    // path too: a stat at its cap refuses the purchase outright.
+    const passiveDef = PASSIVE_BY_STAT[type as string];
+    if (passiveDef) {
+      const current = this.currentStats()[type] as number;
+      if (typeof current === 'number' && current >= passiveDef.maxValue) return false;
+    }
     if (this.coins() >= cost) {
       this.coins.update(c => c - cost);
       

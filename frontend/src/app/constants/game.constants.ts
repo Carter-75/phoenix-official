@@ -259,7 +259,8 @@ export const BASE_STATS: WorldStats = {
   unlockedAbilities: {},
   activeTapAbility: null, activeHoldAbility: null,
   activeDoubleAbility: null, activeTripleAbility: null,
-  unlockedGadgets: [], activeGadget: null
+  unlockedGadgets: [], activeGadget: null,
+  aegisPlating: 0
 };
 
 export const WORLD_0_STATS: WorldStats = {

@@ -193,6 +193,76 @@ export const PI_RULES = {
   ultimateMinCooldownSeconds: 45,
 };
 
+// ---------------------------------------------------------------------------
+// Section 5 (stage S5): passives, drops, multiplier stacking, and the
+// crate and exchange rulings. These records are the single source the
+// shop, the game loop, and the harness all read: the lane and cap
+// table drives the shop cards and every purchase path's refusal.
+// ---------------------------------------------------------------------------
+
+export type PassiveLane = 'offense' | 'survival' | 'utility';
+
+export interface PassiveDef {
+  stat: string; // WorldStats field
+  name: string;
+  lane: PassiveLane;
+  stepAmount: number; // stat gained per step
+  baseValue: number; // the stat's value at step 0
+  stepCost: number; // coin cost of step 1; later steps grow by the shop's 1.5 law
+  capSteps: number; // hard cap in steps (spec Section 5.2)
+  maxValue: number; // the stat's hard cap value at capSteps
+}
+
+export const PASSIVES: PassiveDef[] = [
+  // Offense lane
+  { stat: 'damage', name: 'Power', lane: 'offense', stepAmount: 1, baseValue: 10, stepCost: 250, capSteps: 10, maxValue: 20 },
+  { stat: 'attackSpeed', name: 'Tempo', lane: 'offense', stepAmount: 0.1, baseValue: 1, stepCost: 300, capSteps: 10, maxValue: 2.0 },
+  { stat: 'homingLevel', name: 'Seeker', lane: 'offense', stepAmount: 1, baseValue: 0, stepCost: 300, capSteps: 5, maxValue: 5 },
+  // Survival lane
+  { stat: 'maxHealth', name: 'Vitality', lane: 'survival', stepAmount: 10, baseValue: 100, stepCost: 100, capSteps: 10, maxValue: 200 },
+  { stat: 'speed', name: 'Swiftness', lane: 'survival', stepAmount: 0.1, baseValue: 2, stepCost: 150, capSteps: 6, maxValue: 2.6 },
+  { stat: 'aegisPlating', name: 'Aegis Plating', lane: 'survival', stepAmount: 1, baseValue: 0, stepCost: 400, capSteps: 3, maxValue: 3 },
+  // Utility lane
+  { stat: 'magnetism', name: 'Magnetism', lane: 'utility', stepAmount: 0.1, baseValue: 1, stepCost: 200, capSteps: 10, maxValue: 2.0 },
+  { stat: 'attackRange', name: 'Reach', lane: 'utility', stepAmount: 50, baseValue: 400, stepCost: 250, capSteps: 5, maxValue: 650 },
+  { stat: 'auraRadius', name: 'Aura', lane: 'utility', stepAmount: 10, baseValue: 250, stepCost: 400, capSteps: 10, maxValue: 350 },
+];
+
+export const PASSIVE_BY_STAT: Record<string, PassiveDef> = Object.fromEntries(PASSIVES.map(p => [p.stat, p]));
+
+// Multiplier stacking (spec Section 5.5): permanent x temporary is
+// capped before any proc; the Golden Aura's 10 percent x5 proc is
+// not part of the stack and applies after the cap, unchanged.
+export const MULTIPLIER_CAPS = { coin: 10, xp: 4 };
+
+// Pickup drop table (spec Section 5.4). Class membership comes from
+// the Section 1.2 roster classes; see ENEMY_CLASS_ANCHORS for names.
+export const DROP_RULES = {
+  heartBaseChance: 0.10, // any non-mine kill
+  heartSturdyChance: 0.12, // Sturdy class and up
+  heartHealValue: 20,
+  gemEliteChance: 0.25, // Elite class kills: 1 gem
+  sparkCellChance: 0.08, // Swift and Dart class kills
+  sparkCellStamina: 50,
+  overchargeChance: 0.02, // Armored class kills and up
+  overchargeWindowMs: 10000, // the charged cast must happen within this window
+};
+
+// Crate rulings (spec Section 5.6): a crate's contents are fixed
+// values; the display is the grant and the grant is the display, and
+// no multiplier of any kind applies to crate contents.
+export const CRATE_CONTENTS = { coins: 5000, gems: 100 };
+
+// The ad-granted upgrade ceiling (spec Section 5.6): a rewarded ad
+// may grant a step or unlock whose current coin cost is at most
+// this; above it the ad option is not offered.
+export const AD_UPGRADE_MAX_COST = 1000;
+
+// The gem exchange (spec Section 5.6): exactly this many coins per
+// gem, granted directly (no multiplier), presented as a plain
+// exchange with no spin.
+export const GEM_EXCHANGE_COINS_PER_GEM = 1500;
+
 // Section 3.3 per-move power index data. Damage is stated in SU
 // (1 SU = 10 damage at the base damage stat, scaling with the damage stat
 // unless a move says otherwise). pi is null where the spec does not cost

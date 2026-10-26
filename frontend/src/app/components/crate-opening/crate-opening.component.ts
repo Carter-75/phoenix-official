@@ -1,6 +1,7 @@
 import { Component, inject, signal, OnInit, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { GameStateService } from '../../services/game-state.service';
+import { CRATE_CONTENTS } from '../../data/balance.constants';
 import anime from 'animejs';
 import { AudioService } from '../../services/audio.service';
 
@@ -42,9 +43,6 @@ import { AudioService } from '../../services/audio.service';
                      <span class="text-5xl mb-2">🪙</span>
                      <span class="text-3xl font-bold text-yellow-400">{{ coinsRewarded() }}</span>
                      <span class="text-sm text-white/50 font-mono mt-1">COINS</span>
-                     @if (gameState.tempCoinMultiplier() > 1) {
-                         <span class="text-xs text-green-400 font-bold mt-2 px-2 py-1 bg-green-900/50 rounded">x{{ gameState.tempCoinMultiplier() }} ACTIVE</span>
-                     }
                  </div>
                  
                  <div class="flex flex-col items-center bg-black/50 border border-fuchsia-500/50 p-6 rounded-2xl shadow-[0_0_30px_rgba(217,70,239,0.3)]">
@@ -80,20 +78,23 @@ export class CrateOpeningComponent implements OnInit {
 
   public openCrate() {
       if (this.isOpened()) return;
+      // A crate opens only against a pending monthly grant; the
+      // pending count is consumed here, at the opening (stage S5:
+      // the in-run collection that used to consume it is gone).
+      if (this.gameState.pendingCratesCount() <= 0) return;
+      this.gameState.pendingCratesCount.update(c => c - 1);
       this.isOpened.set(true);
-      
+
       this.audioService.playSFX('explosion');
-      
-      // Calculate Rewards
-      const baseCoins = 5000;
-      const baseGems = 100;
-      
-      const actualCoins = baseCoins * this.gameState.tempCoinMultiplier();
-      const actualGems = baseGems * this.gameState.tempCoinMultiplier(); // Multipliers boost gems too in the crate
-      
-      this.coinsRewarded.set(actualCoins);
-      this.gemsRewarded.set(actualGems);
-      
+
+      // Crate contents (spec Section 5.6 ruling, stage S5): fixed
+      // values from CRATE_CONTENTS. The display is the grant and
+      // the grant is the display: no multiplier of any kind applies
+      // to crate contents, so the numbers below are set once and
+      // granted exactly, bypassing addCoins' multiplier stack.
+      this.coinsRewarded.set(CRATE_CONTENTS.coins);
+      this.gemsRewarded.set(CRATE_CONTENTS.gems);
+
       // Vibrate/Shake
       anime({
           targets: this.crateContainer.nativeElement,
@@ -107,16 +108,16 @@ export class CrateOpeningComponent implements OnInit {
           scale: [1, 1.2, 0.8, 1],
           easing: 'easeInOutQuad'
       });
-      
+
       // Particle spray
       this.sprayParticles('coin', 30);
       this.sprayParticles('gem', 10);
-      
+
       // Show rewards UI after particles
       setTimeout(() => {
           this.showRewards.set(true);
-          this.gameState.addCoins(baseCoins); // The addCoins handles the multipliers inside the service
-          this.gameState.gems.update(g => g + baseGems);
+          this.gameState.coins.update(c => c + CRATE_CONTENTS.coins);
+          this.gameState.gems.update(g => g + CRATE_CONTENTS.gems);
           this.gameState.syncProgressToServer();
       }, 1500);
   }

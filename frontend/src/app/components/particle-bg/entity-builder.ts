@@ -54,8 +54,8 @@ export interface EntityBuildContext {
 // read, because additive sprites stack deep at game scale; the Stage
 // 2 Gloomwing note is the standing warning: keep the blue base low
 // relative to red wherever a wing must not walk to the hostile
-// magenta, and verify by census). Worlds 4 to 10 variants land with
-// their theme batches in Stages 7 and 8.
+// magenta, and verify by census). Worlds 4 to 6 variants landed
+// with Stage 7; Worlds 7 to 10 land with Stage 8.
 // ---------------------------------------------------------------------------
 export interface VariantPalette {
   core: Rgb; // core layer base color (sparse points may take it at full value)
@@ -63,6 +63,14 @@ export interface VariantPalette {
   accent: Rgb; // eye and wingtip accents, where the type has them
   coreFrac?: number; // geometry tweak: core radius fraction (Glob family)
   facetCore?: boolean; // geometry tweak: snap core directions to a coarse grid (geode)
+  // Stage 7 additions, used only by the samplers that have the
+  // zones: a Shieldback variant recolors its bright rim ring and
+  // its shield face plate separately from the dark mass behind.
+  rim?: Rgb; // Shieldback rim ring base color
+  face?: Rgb; // Shieldback face plate base color
+  // Stage 7: the Thornmother's one geometry tweak: her dome and
+  // her Thorn Mines' shells carry the mine family's spike factor.
+  thorned?: boolean;
 }
 
 export const VARIANT_PALETTES: Record<number, Record<string, VariantPalette>> = {
@@ -86,6 +94,53 @@ export const VARIANT_PALETTES: Record<number, Record<string, VariantPalette>> = 
     // Voidwing: purple-black body, violet accents. Blue outweighs
     // red in the wing base so stacks read violet, not magenta.
     bat: { core: [0.62, 0.30, 1.0], body: [0.016, 0.004, 0.030], accent: [0.62, 0.30, 1.0] },
+  },
+  // World 4, Verdant Canopy (world index 3). Stage 7 batch.
+  3: {
+    // Moss Glob: membrane mossy green, core pale (sheet).
+    slime: { core: [0.80, 1.0, 0.55], body: [0.008, 0.068, 0.014], accent: [0.80, 1.0, 0.55] },
+    // Canopy Gloomwing: green-black body, gold accents (sheet).
+    // The wing base keeps red low and green ahead of it, so deep
+    // stacks read forest-dark with gold at the sparse accents,
+    // never the hostile magenta.
+    bat: { core: [0.95, 0.78, 0.25], body: [0.006, 0.020, 0.008], accent: [0.95, 0.78, 0.25] },
+    // Storm Sprite (the Cinder Imp in this world): electric
+    // green-white (sheet). Core near-white green, skin a thin
+    // electric green, horns and spark tail pale green.
+    imp: { core: [0.78, 1.0, 0.82], body: [0.010, 0.058, 0.020], accent: [0.45, 0.85, 0.40] },
+    // Thornmother (the Seedmother in this world): the dome is
+    // thorned (the one geometry tweak) and brown-green; the eggs
+    // inside are her Thorn Mines, hostile hearts under root-brown
+    // shells.
+    seedmother: { core: [0.90, 0.30, 0.45], body: [0.078, 0.058, 0.015], accent: [0.052, 0.040, 0.010], thorned: true },
+    // Thorn Mine (the Rift Mine in this world): green and brown
+    // shell with a root tangle (the thorned spike factor runs
+    // stronger); the hostile heart is unchanged.
+    rift_mine: { core: [1.0, 0.18, 0.42], body: [0.030, 0.027, 0.008], accent: [0.030, 0.027, 0.008], thorned: true },
+  },
+  // World 5, Ashen Peaks (world index 4). The desaturated world:
+  // every variant here is gray or ember. Stage 7 batch.
+  4: {
+    // Ash Golem: rocks pale gray, core a dull ember (sheet).
+    golem: { core: [0.55, 0.22, 0.06], body: [0.30, 0.30, 0.30], accent: [0.55, 0.22, 0.06] },
+    // Ashwing: gray body, ember eye (sheet). The wing base is a
+    // true neutral gray; stacks stay gray, and the ember lives
+    // only in the sparse core accents.
+    bat: { core: [0.85, 0.35, 0.10], body: [0.030, 0.030, 0.030], accent: [0.85, 0.35, 0.10] },
+  },
+  // World 6, Crystal Caverns (world index 5). Stage 7 batch.
+  5: {
+    // Prism Shard (the Sentry Shard in this world): brighter
+    // facets, core white (sheet).
+    sentry_shard: { core: [1.0, 1.0, 1.0], body: [0.020, 0.075, 0.095], accent: [1.0, 1.0, 1.0] },
+    // Crystalback (the Shieldback in this world): the shield face
+    // is a crystal plate (sheet): cyan-bright rim, pale crystal
+    // face, deep blue mass behind.
+    shieldback: { core: [0.45, 0.85, 0.95], body: [0.008, 0.020, 0.030], accent: [0.45, 0.85, 0.95], rim: [0.45, 0.85, 0.95], face: [0.050, 0.110, 0.130] },
+    // Geode Pod (the Brood Pod in this world): rocky shell,
+    // crystal cells (sheet). Cell hearts go cyan-white; the shell
+    // is a warm rock gray so the cells read as crystals in stone.
+    pod: { core: [0.35, 0.85, 1.0], body: [0.038, 0.036, 0.034], accent: [0.35, 0.85, 1.0] },
   },
 };
 
@@ -320,6 +375,10 @@ const DEFS: Record<string, EntityVisualDef> = {
     count: 800,
     animated: true,
     sample: (i, count, r, ctx, out) => {
+      // Stage 7 variant: the Storm Sprite (Verdant Canopy) restyles
+      // every zone electric green-white; positions and layers are
+      // the default imp's, palette only.
+      const variant = variantFor(ctx, 'imp');
       const p = Math.random();
       if (p < 0.06) {
         // Horn points: two small clusters at the crown.
@@ -327,7 +386,8 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.x = side * 0.45 * r + (Math.random() - 0.5) * 0.3 * r;
         out.y = 1.05 * r + (Math.random() - 0.5) * 0.3 * r;
         out.z = (Math.random() - 0.5) * 0.3 * r;
-        out.cr = 0.5; out.cg = 0.16; out.cb = 0.01;
+        if (variant) { out.cr = variant.accent[0] * 0.6; out.cg = variant.accent[1] * 0.6; out.cb = variant.accent[2] * 0.6; }
+        else { out.cr = 0.5; out.cg = 0.16; out.cb = 0.01; }
         out.layer = 0;
       } else if (p < 0.16) {
         // Spark tail: sparse embers trailing below the body.
@@ -335,7 +395,8 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.y = -(0.9 + Math.random() * 1.0) * r;
         out.z = (Math.random() - 0.5) * 0.4 * r;
         const m = Math.random();
-        out.cr = 0.35 + m * 0.2; out.cg = 0.08 + m * 0.06; out.cb = 0.0;
+        if (variant) { out.cr = variant.accent[0] * (0.35 + m * 0.25); out.cg = variant.accent[1] * (0.35 + m * 0.25); out.cb = variant.accent[2] * (0.35 + m * 0.25); }
+        else { out.cr = 0.35 + m * 0.2; out.cg = 0.08 + m * 0.06; out.cb = 0.0; }
         out.layer = 0;
       } else {
         // Teardrop body: a sphere sample pinched toward the crown so
@@ -352,11 +413,13 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.x = x; out.y = y; out.z = z;
         if (rad < r * 0.62) {
           const m = Math.random();
-          out.cr = 1.0; out.cg = 0.82 + m * 0.14; out.cb = 0.38 + m * 0.25; // White-hot heart
+          if (variant) { const s = 0.87 + m * 0.26; out.cr = variant.core[0] * s; out.cg = variant.core[1] * s; out.cb = variant.core[2] * s; }
+          else { out.cr = 1.0; out.cg = 0.82 + m * 0.14; out.cb = 0.38 + m * 0.25; } // White-hot heart
           out.layer = 1;
         } else {
           const m = Math.random();
-          out.cr = 0.07 + m * 0.04; out.cg = 0.02 + m * 0.012; out.cb = 0.003; // Thin flame skin, stacking-tuned like the Glob membrane
+          if (variant) { const s = 0.75 + m * 0.55; out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s; }
+          else { out.cr = 0.07 + m * 0.04; out.cg = 0.02 + m * 0.012; out.cb = 0.003; } // Thin flame skin, stacking-tuned like the Glob membrane
           out.layer = 0;
         }
       }
@@ -429,13 +492,18 @@ const DEFS: Record<string, EntityVisualDef> = {
       out.x = cx + rad * Math.sin(v) * Math.cos(u);
       out.y = cyy + rad * Math.sin(v) * Math.sin(u);
       out.z = cz + rad * Math.cos(v);
-      if (rad < r * 0.2) {
+      // Stage 7 variant: the Geode Pod (Crystal Caverns) grows
+      // crystal cells in a rocky shell; positions unchanged.
+      const variant = variantFor(ctx, 'pod');
+      if (rad < r * (variant ? 0.3 : 0.2)) {
         const m = Math.random();
-        out.cr = 0.45 + m * 0.2; out.cg = 0.85 + m * 0.15; out.cb = 0.68 + m * 0.2; // Pale cell heart
+        if (variant) { const s = 0.87 + m * 0.26; out.cr = variant.core[0] * s; out.cg = variant.core[1] * s; out.cb = variant.core[2] * s; }
+        else { out.cr = 0.45 + m * 0.2; out.cg = 0.85 + m * 0.15; out.cb = 0.68 + m * 0.2; } // Pale cell heart
         out.layer = 1;
       } else {
         const m = Math.random();
-        out.cr = 0.016 + m * 0.012; out.cg = 0.075 + m * 0.035; out.cb = 0.06 + m * 0.025; // Murky teal cell skin
+        if (variant) { const s = 0.75 + m * 0.55; out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s; }
+        else { out.cr = 0.016 + m * 0.012; out.cg = 0.075 + m * 0.035; out.cb = 0.06 + m * 0.025; } // Murky teal cell skin
         out.layer = 0;
       }
     },
@@ -494,7 +562,11 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.y = rad * Math.sin(v) * Math.sin(u);
         out.z = rad * Math.cos(v) + r * 0.18;
         const m = Math.random();
-        out.cr = 0.8 + m * 0.2; out.cg = 0.95; out.cb = 1.0; // Cyan-white eye
+        // Stage 7 variant: the Prism Shard (Crystal Caverns) burns
+        // white at the eye and brighter cyan through the facets.
+        const variant = variantFor(ctx, 'sentry_shard');
+        if (variant) { const s = 0.87 + m * 0.26; out.cr = variant.core[0] * s; out.cg = variant.core[1] * s; out.cb = variant.core[2] * s; }
+        else { out.cr = 0.8 + m * 0.2; out.cg = 0.95; out.cb = 1.0; } // Cyan-white eye
         out.layer = 1;
       } else {
         // Facets: octahedron sampling (flat faces read through the
@@ -502,7 +574,9 @@ const DEFS: Record<string, EntityVisualDef> = {
         octahedronVertex(out, r);
         out.x *= 1.35; out.z *= 0.55;
         const m = Math.random();
-        out.cr = 0.028 + m * 0.02; out.cg = 0.024 + m * 0.014; out.cb = 0.05 + m * 0.03; // Matte violet-slate, stacking-tuned
+        const variant = variantFor(ctx, 'sentry_shard');
+        if (variant) { const s = 0.75 + m * 0.55; out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s; }
+        else { out.cr = 0.028 + m * 0.02; out.cg = 0.024 + m * 0.014; out.cb = 0.05 + m * 0.03; } // Matte violet-slate, stacking-tuned
         out.layer = 0;
       }
     },
@@ -516,17 +590,25 @@ const DEFS: Record<string, EntityVisualDef> = {
     count: 800,
     animated: true,
     sample: (i, count, r, ctx, out) => {
+      // Stage 7 variant: the Thornmother (Verdant Canopy). Her one
+      // geometry tweak is the thorned dome: the mine family's spike
+      // factor pushes dome points outward in a thorny silhouette.
+      // Colors go brown-green; the eggs keep their hostile hearts
+      // (they are Thorn Mines) under root-brown shells.
+      const variant = variantFor(ctx, 'seedmother');
       const p = Math.random();
       if (p < 0.5) {
         // Dome: a hemisphere like the Glob's, in murky green-brown.
-        const rad = Math.cbrt(Math.random()) * r;
+        let rad = Math.cbrt(Math.random()) * r;
         const u = Math.random() * Math.PI * 2;
         const v = Math.acos(Math.random()); // Hemisphere
+        if (variant?.thorned) rad *= 1 + 0.30 * Math.abs(Math.sin(u * 3) * Math.sin(v * 4));
         out.x = rad * Math.sin(v) * Math.cos(u);
         out.z = rad * Math.sin(v) * Math.sin(u);
         out.y = (rad * Math.cos(v) - r * 0.45) * 1.05;
         const m = Math.random();
-        out.cr = 0.03 + m * 0.016; out.cg = 0.042 + m * 0.02; out.cb = 0.014 + m * 0.008;
+        if (variant) { const s = 0.75 + m * 0.55; out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s; }
+        else { out.cr = 0.03 + m * 0.016; out.cg = 0.042 + m * 0.02; out.cb = 0.014 + m * 0.008; }
         out.layer = 0;
       } else if (p < 0.82) {
         // Mine-eggs: four fixed spheres inside the dome. The inner
@@ -545,7 +627,8 @@ const DEFS: Record<string, EntityVisualDef> = {
           out.layer = 1;
         } else {
           const m = Math.random();
-          out.cr = 0.012 + m * 0.008; out.cg = 0.01 + m * 0.006; out.cb = 0.02 + m * 0.01; // Near-black violet shell
+          if (variant) { const s = 0.75 + m * 0.55; out.cr = variant.accent[0] * s; out.cg = variant.accent[1] * s; out.cb = variant.accent[2] * s; }
+          else { out.cr = 0.012 + m * 0.008; out.cg = 0.01 + m * 0.006; out.cb = 0.02 + m * 0.01; } // Near-black violet shell
           out.layer = 0;
         }
       } else {
@@ -554,7 +637,8 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.y = -(0.55 + Math.random() * 0.85) * r;
         out.z = (Math.random() - 0.5) * 0.5 * r;
         const m = Math.random();
-        out.cr = 0.02 + m * 0.012; out.cg = 0.026 + m * 0.012; out.cb = 0.008;
+        if (variant) { const s = 0.5 + m * 0.4; out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s; }
+        else { out.cr = 0.02 + m * 0.012; out.cg = 0.026 + m * 0.012; out.cb = 0.008; }
         out.layer = 0;
       }
     },
@@ -585,13 +669,19 @@ const DEFS: Record<string, EntityVisualDef> = {
         // not round.
         const u = Math.random() * Math.PI * 2;
         const v = Math.acos(2 * Math.random() - 1);
-        const spike = 1 + 0.38 * Math.abs(Math.sin(u * 3) * Math.sin(v * 4));
+        // Stage 7 variant: the Thorn Mine (Verdant Canopy) runs
+        // the spike factor stronger (the root tangle) and wears a
+        // green-brown shell; the hostile heart above is unchanged.
+        const variant = variantFor(ctx, 'rift_mine');
+        const spikeAmp = variant?.thorned ? 0.55 : 0.38;
+        const spike = 1 + spikeAmp * Math.abs(Math.sin(u * 3) * Math.sin(v * 4));
         const rad = Math.cbrt(Math.random()) * r * spike;
         out.x = rad * Math.sin(v) * Math.cos(u);
         out.y = rad * Math.sin(v) * Math.sin(u);
         out.z = rad * Math.cos(v);
         const m = Math.random();
-        out.cr = 0.014 + m * 0.01; out.cg = 0.008 + m * 0.006; out.cb = 0.026 + m * 0.014; // Near-black violet
+        if (variant) { const s = 0.75 + m * 0.55; out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s; }
+        else { out.cr = 0.014 + m * 0.01; out.cg = 0.008 + m * 0.006; out.cb = 0.026 + m * 0.014; } // Near-black violet
         out.layer = 0;
       }
     },
@@ -614,21 +704,28 @@ const DEFS: Record<string, EntityVisualDef> = {
       out.y = rad * Math.sin(v) * Math.sin(u) * 0.92;
       out.z = rad * Math.cos(v) * 0.8;
       const facing01 = out.x / (1.1 * r); // -1 behind .. +1 at the shield face
+      // Stage 7 variant: the Crystalback (Crystal Caverns) wears a
+      // crystal plate: cyan-bright rim, pale crystal face, deep
+      // blue mass. Positions and the facing math are unchanged.
+      const variant = variantFor(ctx, 'shieldback');
       if (Math.abs(facing01) < 0.3 && rad > 0.7 * r) {
         // Rim ring: the great circle where the face plate meets the
         // body, at the surface. The spark-off flash target.
         const m = Math.random();
-        out.cr = 0.55 + m * 0.2; out.cg = 0.58 + m * 0.2; out.cb = 0.66 + m * 0.2; // Bright metallic rim
+        if (variant?.rim) { const s = 0.8 + m * 0.4; out.cr = variant.rim[0] * s; out.cg = variant.rim[1] * s; out.cb = variant.rim[2] * s; }
+        else { out.cr = 0.55 + m * 0.2; out.cg = 0.58 + m * 0.2; out.cb = 0.66 + m * 0.2; } // Bright metallic rim
         out.layer = 1;
       } else if (facing01 >= 0.3) {
         // Shield face plate: lighter metallic band.
         const m = Math.random();
-        out.cr = 0.075 + m * 0.035; out.cg = 0.08 + m * 0.035; out.cb = 0.1 + m * 0.04;
+        if (variant?.face) { const s = 0.75 + m * 0.55; out.cr = variant.face[0] * s; out.cg = variant.face[1] * s; out.cb = variant.face[2] * s; }
+        else { out.cr = 0.075 + m * 0.035; out.cg = 0.08 + m * 0.035; out.cb = 0.1 + m * 0.04; }
         out.layer = 0;
       } else {
         // Dark beetle mass behind the face.
         const m = Math.random();
-        out.cr = 0.016 + m * 0.01; out.cg = 0.014 + m * 0.008; out.cb = 0.02 + m * 0.01;
+        if (variant) { const s = 0.75 + m * 0.55; out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s; }
+        else { out.cr = 0.016 + m * 0.01; out.cg = 0.014 + m * 0.008; out.cb = 0.02 + m * 0.01; }
         out.layer = 0;
       }
     },
@@ -1044,6 +1141,55 @@ const DEFS: Record<string, EntityVisualDef> = {
       out.y = Math.sin(angle) * rad;
       out.z = (Math.random() - 0.5) * r * 0.1;
       flatColor(out, [0.98, 0.8, 0.082]); // 0xfacc15
+    },
+  },
+
+  // Spark Cell pickup (systems spec Section 5.4, stage S5): a small
+  // battery cell that restores stamina on pickup. Bright electric
+  // cyan with a white core, drawn as a squat cylinder of points so
+  // it never reads as a coin (flat ring), a gem (violet octahedron)
+  // or an XP orb (blue octahedron).
+  spark_cell: {
+    count: 200,
+    animated: false,
+    sample: (i, count, r, ctx, out) => {
+      if (i < count * 0.3) {
+        // White-hot core column.
+        const rad = Math.cbrt(Math.random()) * r * 0.3;
+        const u = Math.random() * Math.PI * 2;
+        out.x = rad * Math.cos(u);
+        out.z = rad * Math.sin(u);
+        out.y = (Math.random() - 0.5) * r * 1.1;
+        flatColor(out, [0.95, 1.0, 1.0]);
+        out.layer = 1;
+      } else {
+        // Cyan shell: two rings and a side wall.
+        const u = Math.random() * Math.PI * 2;
+        const ring = Math.random();
+        const rad = r * (0.55 + Math.random() * 0.1);
+        out.x = rad * Math.cos(u);
+        out.z = rad * Math.sin(u);
+        out.y = ring < 0.3 ? r * 0.55 : ring < 0.6 ? -r * 0.55 : (Math.random() - 0.5) * r * 1.1;
+        flatColor(out, [0.30, 0.90, 1.0]);
+      }
+    },
+  },
+
+  // Overcharge pickup (systems spec Section 5.4, stage S5): the
+  // next move cast ignores its cooldown. A violet-white orb with a
+  // bright equatorial band; violet is the cooldown family's color
+  // in the HUD, and no other pickup uses it at this size.
+  overcharge: {
+    count: 200,
+    animated: false,
+    sample: (i, count, r, ctx, out) => {
+      sphereVertex(out, r * 0.8);
+      if (Math.abs(out.y) < r * 0.16) {
+        flatColor(out, [0.98, 0.95, 1.0]); // Bright band
+        out.layer = 1;
+      } else {
+        flatColor(out, [0.62, 0.38, 0.98]); // Violet shell
+      }
     },
   },
 
