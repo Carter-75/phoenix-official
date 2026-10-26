@@ -38,6 +38,60 @@ export interface EntityBuildContext {
   owner?: string; // S2: 'player' | 'enemy', for the move projectile colors
   gameMode?: string;
   bird?: BirdColorSource | null;
+  // Stage 6: the world the entity is being built for. Enemy variant
+  // skins (visual spec Section 4) are keyed by it; absent (codex
+  // previews) means the type's default construction.
+  worldIndex?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Enemy variant skins (visual spec Section 4, Stage 6 batch 1). A
+// variant is a palette swap plus at most one geometry tweak; hitbox
+// and behavior never change, so the variant lives entirely in this
+// builder as alternate per-vertex colors for the types a world
+// restyles. Values are in the same stacking-tuned scale as the
+// default samplers (per-vertex bases near 1/15 to 1/40 of the target
+// read, because additive sprites stack deep at game scale; the Stage
+// 2 Gloomwing note is the standing warning: keep the blue base low
+// relative to red wherever a wing must not walk to the hostile
+// magenta, and verify by census). Worlds 4 to 10 variants land with
+// their theme batches in Stages 7 and 8.
+// ---------------------------------------------------------------------------
+export interface VariantPalette {
+  core: Rgb; // core layer base color (sparse points may take it at full value)
+  body: Rgb; // body layer per-vertex base color
+  accent: Rgb; // eye and wingtip accents, where the type has them
+  coreFrac?: number; // geometry tweak: core radius fraction (Glob family)
+  facetCore?: boolean; // geometry tweak: snap core directions to a coarse grid (geode)
+}
+
+export const VARIANT_PALETTES: Record<number, Record<string, VariantPalette>> = {
+  // World 2, Cerulean Depths (world index 1).
+  1: {
+    // Bubble Glob: membrane pale blue, core visible like an air
+    // bubble (the core fraction grows: the one geometry tweak).
+    slime: { core: [0.92, 0.98, 1.0], body: [0.030, 0.052, 0.088], accent: [0.92, 0.98, 1.0], coreFrac: 0.52 },
+    // Deepwing: navy body, bioluminescent teal eyes and wingtips.
+    // The wing base keeps red near zero so deep stacks read navy,
+    // never the hostile magenta (Stage 2 stacking warning).
+    bat: { core: [0.10, 0.85, 0.75], body: [0.006, 0.012, 0.034], accent: [0.10, 0.85, 0.75] },
+    // Reef Golem: rocks darker and cooler, core teal.
+    golem: { core: [0.15, 0.90, 0.80], body: [0.30, 0.44, 0.48], accent: [0.15, 0.90, 0.80] },
+  },
+  // World 3, Amethyst Void (world index 2).
+  2: {
+    // Crystal Glob: membrane amethyst, core a hard bright geode
+    // center (faceted: the one geometry tweak).
+    slime: { core: [0.88, 0.72, 1.0], body: [0.052, 0.010, 0.082], accent: [0.88, 0.72, 1.0], facetCore: true },
+    // Voidwing: purple-black body, violet accents. Blue outweighs
+    // red in the wing base so stacks read violet, not magenta.
+    bat: { core: [0.62, 0.30, 1.0], body: [0.016, 0.004, 0.030], accent: [0.62, 0.30, 1.0] },
+  },
+};
+
+export function variantFor(ctx: EntityBuildContext, type: string): VariantPalette | undefined {
+  if (ctx.worldIndex === undefined) return undefined;
+  return VARIANT_PALETTES[ctx.worldIndex]?.[type];
 }
 
 export interface BuiltEntity {
@@ -95,17 +149,36 @@ const DEFS: Record<string, EntityVisualDef> = {
     count: 800,
     animated: true,
     sample: (i, count, r, ctx, out) => {
+      const variant = variantFor(ctx, 'slime');
       const isCore = i < count * 0.3;
-      const rad = isCore ? Math.cbrt(Math.random()) * r * 0.4 : Math.cbrt(Math.random()) * r;
-      const u = Math.random() * Math.PI * 2;
-      const v = Math.acos(Math.random()); // Hemisphere
+      const coreFrac = variant?.coreFrac ?? 0.4;
+      const rad = isCore ? Math.cbrt(Math.random()) * r * coreFrac : Math.cbrt(Math.random()) * r;
+      let u = Math.random() * Math.PI * 2;
+      let v = Math.acos(Math.random()); // Hemisphere
+      if (variant?.facetCore && isCore) {
+        // Geode tweak (Crystal Glob): snap the core's directions to
+        // a coarse angular grid so the bright center reads faceted
+        // instead of smooth. Positions only; the body is untouched.
+        u = Math.round(u / (Math.PI / 3)) * (Math.PI / 3);
+        v = Math.round(v / (Math.PI / 4)) * (Math.PI / 4);
+      }
       out.x = rad * Math.sin(v) * Math.cos(u);
       out.z = rad * Math.sin(v) * Math.sin(u);
       out.y = (rad * Math.cos(v) - r * 0.5) * (isCore ? 0.9 : 1.1);
       if (isCore) {
         const m = Math.random();
-        out.cr = 1.0; out.cg = 0.85 + m * 0.15; out.cb = 0.35 + m * 0.3; // White-yellow
+        if (variant) {
+          const s = 0.87 + m * 0.26;
+          out.cr = variant.core[0] * s; out.cg = variant.core[1] * s; out.cb = variant.core[2] * s;
+        } else {
+          out.cr = 1.0; out.cg = 0.85 + m * 0.15; out.cb = 0.35 + m * 0.3; // White-yellow
+        }
         out.layer = 1;
+      } else if (variant) {
+        const m = Math.random();
+        const s = 0.75 + m * 0.55;
+        out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s;
+        out.layer = 0;
       } else {
         // Deep orange-red, tuned for the game's actual stacking:
         // sprites are 0.15 world units and the dome is 1.33 wide, so
@@ -129,14 +202,20 @@ const DEFS: Record<string, EntityVisualDef> = {
     count: 800,
     animated: true,
     sample: (i, count, r, ctx, out) => {
+      const variant = variantFor(ctx, 'bat');
       const p = Math.random();
       if (p < 0.2) {
         out.x = (Math.random() - 0.5) * 0.6 * r;
         out.y = (Math.random() - 0.5) * 0.8 * r;
         out.z = (Math.random() - 0.5) * 0.6 * r;
         if (out.y > 0.2 * r && Math.abs(out.x) > 0.1 * r && out.z > 0.2 * r) {
-          out.cr = 1.0; out.cg = 0.0; out.cb = 0.0; // Red glowing eyes
+          if (variant) { out.cr = variant.accent[0]; out.cg = variant.accent[1]; out.cb = variant.accent[2]; }
+          else { out.cr = 1.0; out.cg = 0.0; out.cb = 0.0; } // Red glowing eyes
           out.layer = 1;
+        } else if (variant) {
+          const s = 0.8 + Math.random() * 0.5;
+          out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s;
+          out.layer = 0;
         } else {
           // Dark crimson body, scaled to the bat's stacking (see the
           // wing note below): about 1/30 of the target read.
@@ -167,7 +246,21 @@ const DEFS: Record<string, EntityVisualDef> = {
         // stack stays crimson (blue about 0.18 of red). The purple
         // edge gradient from the design sheet remains a documented
         // deviation in STAGE-2.md, pending a per-type sprite size.
-        out.cr = 0.03 + edge * 0.03; out.cg = 0.0; out.cb = 0.001 + edge * 0.002;
+        if (variant) {
+          // Variant wings: the variant body color deepening toward
+          // the edge, with the accent lit at the wingtips (Deepwing
+          // teal, Voidwing violet). Bases stay in the same whisper
+          // range as the default wing so the stacking math in the
+          // note above still holds; the accent enters at 5 percent
+          // strength and only past 80 percent span, where the wing
+          // is thinnest and stacks are shallowest.
+          const tip = edge > 0.8 ? (edge - 0.8) * 0.25 : 0;
+          out.cr = variant.body[0] * (1 + edge) + variant.accent[0] * tip;
+          out.cg = variant.body[1] * (1 + edge) + variant.accent[1] * tip;
+          out.cb = variant.body[2] * (1 + edge) + variant.accent[2] * tip;
+        } else {
+          out.cr = 0.03 + edge * 0.03; out.cg = 0.0; out.cb = 0.001 + edge * 0.002;
+        }
         out.layer = 0;
       }
     },
@@ -181,6 +274,7 @@ const DEFS: Record<string, EntityVisualDef> = {
     count: 800,
     animated: true,
     sample: (i, count, r, ctx, out) => {
+      const variant = variantFor(ctx, 'golem');
       const p = Math.random();
       if (p < 0.2) {
         const rad = Math.cbrt(Math.random()) * r * 0.6;
@@ -189,7 +283,12 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.x = rad * Math.sin(v) * Math.cos(u);
         out.y = rad * Math.sin(v) * Math.sin(u);
         out.z = rad * Math.cos(v);
-        out.cr = 1.0; out.cg = 0.2 + Math.random() * 0.4; out.cb = 0.0; // Hot orange/red magma
+        if (variant) {
+          const s = 0.8 + Math.random() * 0.4;
+          out.cr = variant.core[0] * s; out.cg = variant.core[1] * s; out.cb = variant.core[2] * s;
+        } else {
+          out.cr = 1.0; out.cg = 0.2 + Math.random() * 0.4; out.cb = 0.0; // Hot orange/red magma
+        }
         out.layer = 1;
       } else {
         const cx = (Math.random() - 0.5) * r * 2.5;
@@ -199,7 +298,13 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.y = cy + (Math.random() - 0.5) * 0.5 * r;
         out.z = cz + (Math.random() - 0.5) * 0.5 * r;
         const gray = 0.1 + Math.random() * 0.15;
-        out.cr = gray; out.cg = gray * 0.8; out.cb = gray * 0.8; // Dark rocky color
+        if (variant) {
+          // Variant rocks (Reef Golem): darker than the default
+          // rock and tinted by the variant body color.
+          out.cr = gray * variant.body[0] * 1.6; out.cg = gray * variant.body[1] * 1.6; out.cb = gray * variant.body[2] * 1.6;
+        } else {
+          out.cr = gray; out.cg = gray * 0.8; out.cb = gray * 0.8; // Dark rocky color
+        }
         out.layer = 0;
       }
     },

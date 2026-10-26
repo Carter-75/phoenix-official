@@ -150,10 +150,11 @@ export class EntitySpawnerService {
             y = Math.random() * window.innerHeight;
         }
 
-        // Wave composer v1 (visual spec Section 5.1): worlds with a
-        // wave table compose their spawns from it. Worlds 4 to 10
-        // have no table yet and fall through to the legacy chance
-        // gates below, byte for byte.
+        // Wave composer (visual spec Section 5.1): worlds with a
+        // wave table compose their spawns from it. Since Stage 6
+        // every world has a table, so the legacy chance gates below
+        // are retired and remain only as a fallback for a world
+        // index with no table (none today).
         const worldIndex = ctx.gameState.selectedWorldIndex();
         const table = WAVE_TABLES[worldIndex];
         if (table) {
@@ -235,7 +236,11 @@ export class EntitySpawnerService {
         const alive = ctx.enemies.length;
         if (alive >= band.maxAlive) return;
 
-        const entries = band.entries.filter(e => SPAWN_DEFS[e.type]);
+        // Per-type alive caps are composition data too (WaveEntry
+        // .maxOfType): a capped type at its limit sits out the roll.
+        const entries = band.entries.filter(e => SPAWN_DEFS[e.type]
+            && (e.maxOfType === undefined
+                || ctx.enemies.filter(en => en.plugin.data.type === e.type).length < e.maxOfType));
         if (!entries.length) return;
         const totalWeight = entries.reduce((sum, e) => sum + e.weight, 0);
         let roll = Math.random() * totalWeight;

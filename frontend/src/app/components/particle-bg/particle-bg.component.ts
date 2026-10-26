@@ -1,7 +1,7 @@
 import { Component, ElementRef, OnInit, OnDestroy, ViewChild, NgZone, effect, inject } from '@angular/core';
 import { GameStateService, STAMINA } from '../../services/game-state.service';
 import { WORLDS, HOSTILE_RGB } from '../../constants/game.constants';
-import { PhysicsEntity } from '../../models/game.models';
+import { PhysicsEntity, WorldTheme } from '../../models/game.models';
 import { buildEntityGeometry } from './entity-builder';
 import * as THREE from 'three';
 
@@ -234,6 +234,37 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
   private lavaFlowsGroup!: THREE.Group;
   private bgGlow!: THREE.Mesh;
   private sideArtGroup!: THREE.Group;
+
+  // Stage 6 theme scenes (visual spec Sections 1.5 and 4): the sky
+  // treatment, parallax silhouette layers, ground band, and
+  // atmosphere behavior are driven by each world's Stage 0 themeData
+  // record. A world joins this set when its theme batch lands
+  // (batch 1: Worlds 1 to 3; Stages 7 and 8 add theirs), and worlds
+  // outside the set keep the shipped presentation exactly.
+  private static readonly THEME_SCENE_WORLDS = new Set([0, 1, 2]);
+  // Stage 6 theme backdrop: ONE opaque plane carrying the world's
+  // whole painted backdrop (sky gradient, baked sky glows, far and
+  // mid silhouette layers, ground strip). The layers are composited
+  // into a single canvas texture instead of living on separate
+  // transparent planes: under the harness's software renderer each
+  // full-screen transparent layer cost tens of ms per frame (a
+  // same-day A/B measured 206 ms themed vs 67 ms base with separate
+  // planes), while one opaque quad costs about the same as the
+  // shipped glow plane it replaces. The ambient particle field sits
+  // at z >= -30, in front of the backdrop at z = -44, so nothing
+  // gameplay-facing is occluded.
+  private backdropMesh: THREE.Mesh | null = null;
+  private backdropTex: THREE.CanvasTexture | null = null;
+  private blobTexture: THREE.Texture | null = null;
+  private themedWorldIndex = -1;
+  private themeTime = 0;
+  private atmosphereDir: 'rising' | 'falling' | 'horizontal' | 'suspended' | 'mixed' = 'falling';
+  private atmosphereSpeed = 1.8; // the shipped drift, kept for unthemed worlds
+  private atmosphereCount = 4500;
+  // Dynamic pixel-ratio step-down state (spec Section 1.4).
+  private frameEmaMs = 16;
+  private pixelRatioStep = 0;
+  private lastPrEvalMs = 0;
   private goldenAuraMesh!: THREE.Points;
   private celestialShieldMesh!: THREE.Points;
   private drillAuraMesh!: THREE.Points;
@@ -305,6 +336,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       const worldIndex = this.gameState.selectedWorldIndex();
       const theme = WORLDS[worldIndex].theme;
       this.updateColors(theme);
+      this.applyThemeScene(worldIndex);
       if (this.bird) this.applySkin(phoenixSkinForWorld(worldIndex));
     });
   }
@@ -323,6 +355,19 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     this.createPhoenixMesh(this.aiBird, HOSTILE_SKIN);
     
     this.updateColors(WORLDS[this.gameState.selectedWorldIndex()].theme);
+    this.applyThemeScene(this.gameState.selectedWorldIndex());
+
+    // Test hook for the playtest harness, same pattern and same
+    // localStorage gate as the game component's window.__phoenixS1:
+    // scene statistics for the Stage 6 particle budget count check.
+    // Inert unless the harness sets the flag before load.
+    try {
+      if (window.localStorage.getItem('phoenix_debug_hooks') === '1') {
+        (window as any).__phoenixBg = {
+          sceneStats: () => this.sceneStats(),
+        };
+      }
+    } catch { /* storage unavailable: no hook, no effect on play */ }
 
     this.animate();
     
@@ -396,6 +441,461 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     if (this.bgGlow) {
         const mat = this.bgGlow.material as THREE.MeshBasicMaterial;
         mat.color.setRGB(p2[0], p2[1], p2[2]);
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Stage 6 theme scenes: sky, parallax, ground band, atmosphere.
+  // Everything is driven by the world's Stage 0 themeData record;
+  // the painters below are the batch 1 art (Worlds 1 to 3) and later
+  // batches register theirs the same way. Brightness discipline from
+  // spec Section 1.2 holds throughout: silhouettes are dark shapes
+  // against the glow, atmosphere stays dimmer than pickups, and the
+  // player bird (untouched here) remains the brightest object.
+  // ------------------------------------------------------------------
+
+  private applyThemeScene(worldIndex: number) {
+    if (!this.scene || !this.bgGlow || !this.particles) return;
+    const world = WORLDS[worldIndex];
+    const td = world?.themeData;
+    const themed = !!td && ParticleBgComponent.THEME_SCENE_WORLDS.has(worldIndex);
+    this.themedWorldIndex = themed ? worldIndex : -1;
+
+    // Sky: glow color, strength, and placement from the sheet. For
+    // unthemed worlds the shipped flat treatment stays (updateColors
+    // owns the glow color there; opacity and position reset here).
+    const skyMat = this.bgGlow.material as THREE.MeshBasicMaterial;
+    if (themed && td) {
+      skyMat.color.setRGB(td.sky.glow[0], td.sky.glow[1], td.sky.glow[2]);
+      skyMat.opacity = 0.15 * td.sky.intensity;
+      this.bgGlow.position.y = td.sky.position === 'low' ? -17 : td.sky.position === 'top' ? 17 : 0;
+    } else {
+      skyMat.opacity = 0.15;
+      this.bgGlow.position.y = 0;
+    }
+
+    // The sky glows (primary, plus World 3's secondary nebula glow)
+    // are baked into the backdrop canvas in makeBackdropTexture,
+    // composited additively over its dark base exactly as the
+    // separate glow planes rendered them; the shipped glow plane is
+    // hidden for themed worlds and restored for unthemed ones in
+    // the backdrop block below.
+
+    // The themed backdrop: one opaque plane whose canvas composites
+    // the sky, the baked glows, the far and mid silhouette layers,
+    // and the ground strip (see the field comment for why it is a
+    // single plane). Unthemed worlds hide it and keep the shipped
+    // glow plane exactly as before.
+    const painters = themed && td ? this.themePainters(worldIndex) : null;
+    if (painters && td) {
+      if (!this.backdropMesh) {
+        this.backdropMesh = new THREE.Mesh(new THREE.PlaneGeometry(460, 130), new THREE.MeshBasicMaterial({}));
+        this.backdropMesh.position.set(0, -16, -44);
+        this.scene.add(this.backdropMesh);
+      }
+      this.backdropTex?.dispose();
+      this.backdropTex = this.makeBackdropTexture(painters, td);
+      this.backdropTex.repeat.x = 2;
+      const mat = this.backdropMesh.material as THREE.MeshBasicMaterial;
+      mat.map = this.backdropTex; mat.needsUpdate = true;
+      this.backdropMesh.visible = true;
+      this.bgGlow.visible = false;
+    } else {
+      if (this.backdropMesh) this.backdropMesh.visible = false;
+      this.bgGlow.visible = true;
+    }
+
+    // Atmosphere behavior from the sheet; unthemed worlds keep the
+    // shipped falling drift at the moderate anchor and full budget.
+    if (themed && td) {
+      this.atmosphereDir = td.atmosphere.direction;
+      this.atmosphereSpeed = td.atmosphere.speed === 'slow' ? 0.9 : td.atmosphere.speed === 'fast' ? 3.2 : 1.8;
+      this.atmosphereCount = td.atmosphere.density === 'sparse' ? 3000 : td.atmosphere.density === 'dense' ? 4500 : 3750;
+    } else {
+      this.atmosphereDir = 'falling';
+      this.atmosphereSpeed = 1.8;
+      this.atmosphereCount = 4500;
+    }
+    this.particles.geometry.setDrawRange(0, this.atmosphereCount);
+  }
+
+  private sceneStats() {
+    let livePoints = 0, pointsObjects = 0, objects = 0;
+    if (this.scene) {
+      this.scene.traverse((o) => {
+        objects++;
+        const pts = o as THREE.Points;
+        if (pts.isPoints) {
+          pointsObjects++;
+          const geo = pts.geometry;
+          const total = geo.attributes['position']?.count ?? 0;
+          const drawn = geo.drawRange && geo.drawRange.count !== Infinity ? Math.min(geo.drawRange.count, total) : total;
+          livePoints += drawn;
+        }
+      });
+    }
+    return {
+      livePoints, pointsObjects, objects,
+      pixelRatio: this.renderer ? this.renderer.getPixelRatio() : 0,
+      themedWorldIndex: this.themedWorldIndex,
+      atmosphereDir: this.atmosphereDir,
+      atmosphereCount: this.atmosphereCount,
+      frameEmaMs: Math.round(this.frameEmaMs * 10) / 10,
+    };
+  }
+
+  private makeBlobTexture(): THREE.Texture {
+    if (this.blobTexture) return this.blobTexture;
+    const canvas = document.createElement('canvas');
+    canvas.width = 256; canvas.height = 256;
+    const ctx = canvas.getContext('2d')!;
+    // The hot spot sits off center so the glow's slow rotation and
+    // orbit read as motion instead of a static radial disc.
+    const g = ctx.createRadialGradient(108, 128, 8, 128, 128, 126);
+    g.addColorStop(0, 'rgba(255,255,255,0.9)');
+    g.addColorStop(0.45, 'rgba(255,255,255,0.38)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 256, 256);
+    this.blobTexture = new THREE.CanvasTexture(canvas);
+    return this.blobTexture;
+  }
+
+  private makeLayerTexture(w: number, h: number, paint: (ctx: CanvasRenderingContext2D, w: number, h: number) => void): THREE.CanvasTexture {
+    const tex = new THREE.CanvasTexture(this.makeLayerCanvas(w, h, paint));
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    return tex;
+  }
+
+  private makeLayerCanvas(w: number, h: number, paint: (ctx: CanvasRenderingContext2D, w: number, h: number) => void): HTMLCanvasElement {
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d')!;
+    paint(ctx, w, h);
+    return canvas;
+  }
+
+  // Composites a world's whole backdrop into one canvas: a deep
+  // vertical gradient from the palette, the sky glows baked with
+  // additive compositing (the secondary glow included for World 3),
+  // the far silhouette layer, the mid silhouette layer, and the
+  // ground strip drawn at the v-band whose projection matches the
+  // shipped ground line (its top edge about 85 percent down the
+  // field; the strip keeps its own painted gradient and features).
+  private makeBackdropTexture(painters: any, td: any): THREE.CanvasTexture {
+    const W = 1024, H = 512;
+    const farC = this.makeLayerCanvas(W, H, (c, w, h) => painters.far(c, w, h, td));
+    const midC = this.makeLayerCanvas(W, H, (c, w, h) => painters.mid(c, w, h, td));
+    const gndC = this.makeLayerCanvas(W, 128, (c, w, h) => painters.ground(c, w, h, td));
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d')!;
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, this.silColor(td.palette.deep, 0.30));
+    grad.addColorStop(0.55, this.silColor(td.palette.deep, 0.13));
+    grad.addColorStop(1, this.silColor(td.palette.deep, 0.20));
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'lighter';
+    const bakeGlow = (cx: number, cy: number, r: number, rgb: any, alpha: number) => {
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      const lin = (v: number) => Math.round(255 * Math.pow(Math.min(1, Math.max(0, v)), 2.2));
+      g.addColorStop(0, `rgba(${lin(rgb[0])},${lin(rgb[1])},${lin(rgb[2])},${alpha})`);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+    };
+    const gy = td.sky.position === 'low' ? H * 1.02 : td.sky.position === 'top' ? -H * 0.02 : H * 0.5;
+    bakeGlow(W / 2, gy, W * 0.55, td.sky.glow, 0.15 * td.sky.intensity);
+    if (td.sky.secondaryGlow) bakeGlow(W * 0.68, H * 0.30, W * 0.34, td.sky.secondaryGlow, 0.13);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.drawImage(farC, 0, 0);
+    ctx.drawImage(midC, 0, 0);
+    ctx.drawImage(gndC, 0, H * 0.59, W, H * 0.13);
+    const tex = new THREE.CanvasTexture(canvas);
+    // No sRGB texture format here on purpose: the harness's
+    // software renderer pays a per-texel decode for sRGB sampling
+    // (measured about +20 ms per frame), while real GPUs decode in
+    // hardware for free. The painted colors are pre-linearized in
+    // silColor and bakeGlow instead, which produces the same image
+    // through the default (linear) texture path every other canvas
+    // texture in the game already uses.
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    return tex;
+  }
+
+  // Deterministic per-layer random source, so a world's silhouettes
+  // are the same every visit (and identical in the harness).
+  private themeRng(seed: number): () => number {
+    let a = seed >>> 0;
+    return () => {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // Backdrop paint color: the palette values are authored as sRGB,
+  // but the backdrop texture renders through the default linear
+  // path (see makeBackdropTexture), which brightens bytes on
+  // output. Pre-linearizing each channel (gamma 2.2) makes the
+  // rendered color match the authored one.
+  private silColor(rgb: Rgb3, f: number, a = 1): string {
+    const lin = (v: number) => Math.round(255 * Math.pow(Math.min(1, Math.max(0, v * f)), 2.2));
+    return `rgba(${lin(rgb[0])},${lin(rgb[1])},${lin(rgb[2])},${a})`;
+  }
+
+  // Draws the same shapes at x offsets -w, 0, +w so the repeating
+  // texture wraps seamlessly.
+  private tiled(ctx: CanvasRenderingContext2D, w: number, draw: () => void) {
+    for (const ox of [-w, 0, w]) {
+      ctx.save();
+      ctx.translate(ox, 0);
+      draw();
+      ctx.restore();
+    }
+  }
+
+  private themePainters(worldIndex: number) {
+    switch (worldIndex) {
+      case 0: return { far: this.paintEmberFar.bind(this), mid: this.paintEmberMid.bind(this), ground: this.paintGroundLava.bind(this) };
+      case 1: return { far: this.paintDepthsFar.bind(this), mid: this.paintDepthsMid.bind(this), ground: this.paintGroundVents.bind(this) };
+      case 2: return { far: this.paintVoidFar.bind(this), mid: this.paintVoidMid.bind(this), ground: this.paintGroundMirror.bind(this) };
+      default: return null;
+    }
+  }
+
+  // World 1 far: black basalt spires and broken arches.
+  private paintEmberFar(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(101);
+    const fill = this.silColor(td.palette.deep, 0.32);
+    const base = h * 0.99;
+    ctx.fillStyle = fill;
+    this.tiled(ctx, w, () => {
+      let x = -20;
+      while (x < w * 0.7) {
+        const sw = 14 + rnd() * 32;
+        const sh = h * (0.16 + rnd() * 0.20);
+        ctx.beginPath();
+        ctx.moveTo(x, base);
+        ctx.lineTo(x + sw * 0.18, base - sh * 0.82);
+        ctx.lineTo(x + sw * (0.38 + rnd() * 0.2), base - sh);
+        ctx.lineTo(x + sw * (0.66 + rnd() * 0.16), base - sh * 0.78);
+        ctx.lineTo(x + sw, base);
+        ctx.closePath(); ctx.fill();
+        x += sw + 6 + rnd() * 30;
+      }
+      // Broken arches: two pillars and a half-ring band, the opening
+      // left transparent so the sky glow shows through the ruin.
+      for (let k = 0; k < 2; k++) {
+        const ax = w * (0.24 + 0.44 * k) + rnd() * 40;
+        const aw = 84 + rnd() * 40, ah = h * (0.30 + rnd() * 0.10), pw = 16;
+        ctx.fillRect(ax, base - ah, pw, ah);
+        ctx.fillRect(ax + aw - pw, base - ah, pw, ah);
+        ctx.beginPath();
+        ctx.arc(ax + aw / 2, base - ah + pw, aw / 2 - pw / 2, Math.PI, 0);
+        ctx.lineWidth = pw;
+        ctx.strokeStyle = fill;
+        ctx.stroke();
+      }
+    });
+  }
+
+  // World 1 mid: drifting slag boulders, rim-lit orange from below.
+  private paintEmberMid(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(102);
+    const fill = this.silColor(td.palette.deep, 0.45);
+    const rim = this.silColor(td.palette.bright, 1.0, 0.30);
+    this.tiled(ctx, w, () => {
+      for (let k = 0; k < 12; k++) {
+        const cx = rnd() * w, cy = h * (0.68 + rnd() * 0.26);
+        const rx = 16 + rnd() * 26, ry = rx * (0.45 + rnd() * 0.2);
+        ctx.fillStyle = fill;
+        ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = rim; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke();
+      }
+    });
+  }
+
+  // World 2 far: sunken pillars and a ruined gate.
+  private paintDepthsFar(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(201);
+    const fill = this.silColor(td.palette.deep, 0.36);
+    const base = h * 0.99;
+    ctx.fillStyle = fill;
+    this.tiled(ctx, w, () => {
+      let x = 10;
+      while (x < w * 0.75) {
+        const pw = 20 + rnd() * 20;
+        const broken = rnd() < 0.3;
+        const top = broken ? h * (0.52 + rnd() * 0.14) : h * (0.34 + rnd() * 0.18);
+        ctx.fillRect(x, top, pw, base - top);
+        ctx.fillRect(x - 5, top - 11, pw + 10, 11); // capital
+        x += pw + 44 + rnd() * 90;
+      }
+      // The ruined gate: two tall pillars and a lintel.
+      const gx = w * 0.55, gw = 130, gt = h * 0.30;
+      ctx.fillRect(gx, gt + 30, 34, base - gt - 30);
+      ctx.fillRect(gx + gw - 34, gt + 44, 34, base - gt - 44);
+      ctx.fillRect(gx - 12, gt, gw + 24, 26);
+    });
+  }
+
+  // World 2 mid: slow jellyfish silhouettes drifting up.
+  private paintDepthsMid(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(202);
+    const fill = this.silColor(td.palette.deep, 0.45, 0.9);
+    this.tiled(ctx, w, () => {
+      for (let k = 0; k < 10; k++) {
+        const cx = rnd() * w, cy = h * (0.10 + rnd() * 0.48);
+        const r = 11 + rnd() * 15;
+        ctx.fillStyle = fill;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, r, r * 0.72, 0, Math.PI, Math.PI * 2);
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = fill; ctx.lineWidth = 4;
+        for (let j = -1; j <= 1; j++) {
+          ctx.beginPath();
+          const sx = cx + j * r * 0.42;
+          ctx.moveTo(sx, cy + 2);
+          ctx.quadraticCurveTo(sx + 7, cy + r * 0.9, sx - 4, cy + r * 1.7);
+          ctx.stroke();
+        }
+      }
+    });
+  }
+
+  // World 3 far: giant floating crystal shards, slowly rotating in
+  // the sheet (the layer drift and counter-shift carry the motion).
+  private paintVoidFar(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(301);
+    const fill = this.silColor(td.palette.deep, 0.55);
+    const facet = this.silColor(td.palette.mid, 1.0, 0.4);
+    this.tiled(ctx, w, () => {
+      for (let k = 0; k < 7; k++) {
+        const cx = rnd() * w, cy = h * (0.2 + rnd() * 0.55);
+        const L = 42 + rnd() * 54, Wd = 11 + rnd() * 13, a = (rnd() - 0.5) * 1.1;
+        ctx.save(); ctx.translate(cx, cy); ctx.rotate(a);
+        ctx.fillStyle = fill;
+        ctx.beginPath(); ctx.moveTo(0, -L); ctx.lineTo(Wd, 0); ctx.lineTo(0, L); ctx.lineTo(-Wd, 0); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = facet; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(0, -L); ctx.lineTo(Wd, 0); ctx.stroke();
+        ctx.restore();
+      }
+    });
+  }
+
+  // World 3 mid: smaller shard clusters drifting past.
+  private paintVoidMid(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(302);
+    const fill = this.silColor(td.palette.deep, 0.7);
+    const facet = this.silColor(td.palette.mid, 1.0, 0.3);
+    this.tiled(ctx, w, () => {
+      for (let c = 0; c < 5; c++) {
+        const ccx = rnd() * w, ccy = h * (0.15 + rnd() * 0.6);
+        const n = 3 + Math.floor(rnd() * 3);
+        for (let k = 0; k < n; k++) {
+          const cx = ccx + (rnd() - 0.5) * 100, cy = ccy + (rnd() - 0.5) * 70;
+          const L = 16 + rnd() * 24, Wd = 6 + rnd() * 7, a = (rnd() - 0.5) * 1.4;
+          ctx.save(); ctx.translate(cx, cy); ctx.rotate(a);
+          ctx.fillStyle = fill;
+          ctx.beginPath(); ctx.moveTo(0, -L); ctx.lineTo(Wd, 0); ctx.lineTo(0, L); ctx.lineTo(-Wd, 0); ctx.closePath(); ctx.fill();
+          ctx.strokeStyle = facet; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.moveTo(0, -L); ctx.lineTo(Wd, 0); ctx.stroke();
+          ctx.restore();
+        }
+      }
+    });
+  }
+
+  // World 1 ground: a lava glow line with pulses traveling along it
+  // (the render loop scrolls this texture slowly). The line is a sum
+  // of whole-period sines so it wraps seamlessly.
+  private paintGroundLava(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const yAt = (x: number) => 30 + 7 * Math.sin((2 * Math.PI * 3 * x) / w) + 4 * Math.sin((2 * Math.PI * 7 * x) / w + 1.3);
+    // Deep glow wash under the line.
+    const grad = ctx.createLinearGradient(0, 24, 0, h);
+    grad.addColorStop(0, this.silColor(td.palette.mid, 1.0, 0.13));
+    grad.addColorStop(1, this.silColor(td.palette.mid, 1.0, 0));
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 24, w, h - 24);
+    // Rock mass below the line.
+    ctx.fillStyle = this.silColor(td.palette.deep, 0.22);
+    ctx.beginPath();
+    ctx.moveTo(0, yAt(0));
+    for (let x = 16; x <= w; x += 16) ctx.lineTo(x, yAt(x));
+    ctx.lineTo(w, h); ctx.lineTo(0, h);
+    ctx.closePath(); ctx.fill();
+    // The lava line itself, with a soft bloom.
+    ctx.beginPath();
+    ctx.moveTo(0, yAt(0));
+    for (let x = 8; x <= w; x += 8) ctx.lineTo(x, yAt(x));
+    ctx.strokeStyle = this.silColor(td.palette.mid, 1.0, 0.95);
+    ctx.lineWidth = 4;
+    ctx.shadowColor = this.silColor(td.palette.mid, 1.0, 0.9);
+    ctx.shadowBlur = 16;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    // Brighter pulses spaced along the line.
+    for (let x = 40; x < w; x += 128) {
+      const g = ctx.createRadialGradient(x, yAt(x), 1, x, yAt(x), 17);
+      g.addColorStop(0, this.silColor(td.palette.bright, 1.0, 0.55));
+      g.addColorStop(1, this.silColor(td.palette.bright, 1.0, 0));
+      ctx.fillStyle = g;
+      ctx.fillRect(x - 17, yAt(x) - 17, 34, 34);
+    }
+  }
+
+  // World 2 ground: abyssal dark with faint blue vent glows.
+  private paintGroundVents(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(203);
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, this.silColor(td.palette.deep, 0.05, 0));
+    grad.addColorStop(0.35, this.silColor(td.palette.deep, 0.30));
+    grad.addColorStop(1, this.silColor(td.palette.deep, 0.42));
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+    for (let k = 0; k < 7; k++) {
+      const cx = rnd() * w, cy = 46 + rnd() * 54, r = 18 + rnd() * 30;
+      const g = ctx.createRadialGradient(cx, cy, 1, cx, cy, r);
+      g.addColorStop(0, this.silColor(td.palette.bright, 1.0, 0.16));
+      g.addColorStop(1, this.silColor(td.palette.bright, 1.0, 0));
+      ctx.fillStyle = g;
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+      ctx.fillStyle = this.silColor(td.palette.bright, 1.0, 0.35);
+      ctx.beginPath(); ctx.arc(cx, cy, 2.5, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // World 3 ground: a fractured mirror plane, shimmer only.
+  private paintGroundMirror(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(303);
+    ctx.fillStyle = this.silColor(td.palette.deep, 0.30);
+    ctx.fillRect(0, 18, w, h - 18);
+    // The horizon reflects the glow in one broken streak.
+    const grad = ctx.createLinearGradient(0, 18, 0, 34);
+    grad.addColorStop(0, this.silColor(td.palette.mid, 1.0, 0.16));
+    grad.addColorStop(1, this.silColor(td.palette.mid, 1.0, 0));
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 18, w, 16);
+    // Facet lines catching the mid color.
+    ctx.strokeStyle = this.silColor(td.palette.mid, 1.0, 0.28);
+    ctx.lineWidth = 1.5;
+    for (let k = 0; k < 26; k++) {
+      let x = rnd() * w, y = 22 + rnd() * 60;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      const segs = 2 + Math.floor(rnd() * 3);
+      for (let s = 0; s < segs; s++) {
+        x += (rnd() - 0.5) * 90;
+        y += (rnd() - 0.5) * 26;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
     }
   }
 
@@ -775,17 +1275,23 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
 
   private createParticles() {
     const geometry = new THREE.BufferGeometry();
-    const count = 7000;
+    // Ambient field budget (spec Section 1.4): a per-world budget of
+    // 3000 to 4500 points by atmosphere density, drawn from this one
+    // buffer by draw range. The pre-overhaul field ran 7000, over
+    // the budget the spec sets; the savings fund the parallax and
+    // ground layers of the Stage 6 theme scenes.
+    const count = 4500;
     const positions = new Float32Array(count * 3);
     const colors = new Float32Array(count * 3);
     for (let i = 0; i < count * 3; i += 3) {
       positions[i] = (Math.random() - 0.5) * this.ambientBoxSize;
       positions[i+1] = (Math.random() - 0.5) * this.ambientBoxSize;
-      if (i < 5000 * 3) positions[i+2] = (Math.random() - 0.5) * 40 - 10;
+      if (i < 3150 * 3) positions[i+2] = (Math.random() - 0.5) * 40 - 10;
       else positions[i+2] = Math.random() * 8 - 4;
     }
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geometry.setDrawRange(0, this.atmosphereCount);
     const material = new THREE.PointsMaterial({ size: 0.025, vertexColors: true, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending });
     this.particles = new THREE.Points(geometry, material);
     this.scene.add(this.particles);
@@ -1092,15 +1598,74 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
         const dt = this.lastFrameTime ? Math.min(0.25, (nowMs - this.lastFrameTime) / 1000) : 1 / 60;
         this.lastFrameTime = nowMs;
 
-        // Ambient particles moving downward (1.8 units per second)
+        // Ambient field motion follows the world's atmosphere record
+        // (Stage 6): direction and speed are theme data for themed
+        // worlds; unthemed worlds keep the shipped falling drift
+        // (1.8 units per second, the moderate anchor).
         const positions = this.particles.geometry.attributes['position'].array as Float32Array;
         const halfBox = this.ambientBoxSize / 2;
+        const aDir = this.atmosphereDir;
+        const aSpd = this.atmosphereSpeed;
         for (let i = 0; i < positions.length; i += 3) {
-          positions[i+1] -= 1.8 * dt;
-          if (positions[i+1] < -halfBox) { positions[i+1] = halfBox; positions[i] = (Math.random() - 0.5) * this.ambientBoxSize; }
+          if (aDir === 'rising') {
+            positions[i+1] += aSpd * dt;
+            if (positions[i+1] > halfBox) { positions[i+1] = -halfBox; positions[i] = (Math.random() - 0.5) * this.ambientBoxSize; }
+          } else if (aDir === 'horizontal') {
+            positions[i] += aSpd * dt;
+            if (positions[i] > halfBox) { positions[i] = -halfBox; positions[i+1] = (Math.random() - 0.5) * this.ambientBoxSize; }
+          } else if (aDir === 'mixed') {
+            positions[i+1] += (i % 6 === 0 ? aSpd : -aSpd) * 0.6 * dt;
+            if (positions[i+1] > halfBox) positions[i+1] = -halfBox;
+            else if (positions[i+1] < -halfBox) positions[i+1] = halfBox;
+          } else if (aDir === 'suspended') {
+            positions[i+1] -= aSpd * 0.06 * dt;
+            if (positions[i+1] < -halfBox) positions[i+1] = halfBox;
+          } else { // falling (the shipped behavior)
+            positions[i+1] -= aSpd * dt;
+            if (positions[i+1] < -halfBox) { positions[i+1] = halfBox; positions[i] = (Math.random() - 0.5) * this.ambientBoxSize; }
+          }
         }
         this.particles.geometry.attributes['position'].needsUpdate = true;
         this.particles.rotation.y += 0.006 * dt;
+        // Suspended dust twinkles (Amethyst Void sheet): a slow
+        // global shimmer on the field's opacity, nothing more.
+        const ambMat = this.particles.material as THREE.PointsMaterial;
+        ambMat.opacity = aDir === 'suspended' ? 0.6 * (0.82 + 0.18 * Math.sin(this.themeTime * 0.8)) : 0.6;
+
+        // Theme backdrop animation (Stage 6): the composited
+        // backdrop drifts slowly and counter-shifts against the
+        // bird at a compromise of the sheets' far and mid scroll
+        // factors (the layers share one plane; see the backdrop
+        // field comment). The ambient particle field keeps its own
+        // real depth, so the scene still parallaxes against the
+        // backdrop as the bird moves.
+        this.themeTime += dt;
+        if (this.backdropMesh && this.backdropMesh.visible && this.backdropTex) {
+          this.backdropTex.offset.x = (this.themeTime * 0.0028) % 1;
+          this.backdropMesh.position.x = -this.bird.position.x * 0.08 * 2 * (49 / 20);
+        }
+
+        // Dynamic pixel-ratio step-down (spec Section 1.4): while
+        // the rolling frame time stays over 20 ms, step the ratio
+        // down (2, 1.75, 1.5, 1.25) before any gameplay visual is
+        // touched. Steps only ever go down within a session.
+        this.frameEmaMs = this.frameEmaMs * 0.96 + dt * 1000 * 0.04;
+        if (nowMs - this.lastPrEvalMs > 2000) {
+          this.lastPrEvalMs = nowMs;
+          // The ladder only ever steps DOWN from the renderer's
+          // starting ratio: on a client whose devicePixelRatio is
+          // already at or below a rung, that rung is skipped (an
+          // earlier draft stepped a DPR-1 client UP to 1.75 before
+          // coming back down, making slow frames slower).
+          const initialPr = Math.min(window.devicePixelRatio || 1, 2);
+          const prSteps = [2, 1.75, 1.5, 1.25, 1].filter(s => s <= initialPr + 0.001);
+          if (prSteps.length === 0 || prSteps[0] !== initialPr) prSteps.unshift(initialPr);
+          if (this.frameEmaMs > 20 && this.pixelRatioStep < prSteps.length - 1) {
+            this.pixelRatioStep++;
+            this.renderer.setPixelRatio(prSteps[this.pixelRatioStep]);
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+          }
+        }
 
         // Cruise speed in world units per second at multiplier 1, from
         // the canonical crossing time. No window.innerWidth factor: the
@@ -2696,6 +3261,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       ownerId: data.ownerId,
       owner: (data as any).owner,
       gameMode: this.gameState.currentGameMode(),
+      worldIndex: this.gameState.selectedWorldIndex(),
       bird: this.bird ? { basePositions: this.bird.basePositions, colorAt: (i: number) => this.birdColorAt(this.bird, i) } : null,
     });
 
