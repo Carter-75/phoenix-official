@@ -10,12 +10,12 @@ import * as Matter from 'matter-js';
 import anime from 'animejs';
 import { MlAiService } from '../../services/ml-ai.service';
 import { BattleAiService, BattleContext } from '../../services/battle-ai.service';
-import { EntitySpawnerService } from '../../services/entity-spawner.service';
+import { EntitySpawnerService, SPAWN_DEFS } from '../../services/entity-spawner.service';
 import { AdsService } from '../../services/ads.service';
 
 interface EnemyData {
   id: string;
-  type: 'bat' | 'slime' | 'golem' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance';
+  type: 'bat' | 'slime' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance';
   health: number;
   maxHealth: number;
   lastAttackTime?: number;
@@ -35,6 +35,16 @@ interface EnemyData {
   meteorRushUntil?: number;
   meteorRushDamage?: number;
   meteorRushHits?: string[];
+  // Stage 3 behavior state machine fields (mirror models/game.models.ts).
+  behaviorState?: string;
+  stateUntil?: number;
+  telegraphStart?: number;
+  dashDirX?: number;
+  dashDirY?: number;
+  orbitDir?: number;
+  aimDirX?: number;
+  aimDirY?: number;
+  nextAimAt?: number;
 }
 
 @Component({
@@ -779,7 +789,7 @@ export class GameComponent implements OnInit, OnDestroy {
                 // Armored class body, radius 90 x screenScale).
                 spawnPlacedTarget: (x: number, y: number, hp: number, type: string = 'slime') => {
                     const data = { id: 'placed_' + Math.random().toString(36).slice(2), type, health: hp, maxHealth: hp, lastAttackTime: Date.now() } as EnemyData;
-                    const size = (type === 'golem' ? 60 : 20) * this.screenScale;
+                    const size = (SPAWN_DEFS[type]?.size ?? 20) * this.screenScale;
                     const body = this.spawner.createEnemyBody(x, y, size, type, data);
                     Matter.Body.setStatic(body, true);
                     this.enemies.push(body);
@@ -1147,7 +1157,7 @@ export class GameComponent implements OnInit, OnDestroy {
                     rushContactDamage = data.meteorRushDamage || 0;
                 }
             }
-            this.takeDamage(rushContactDamage > 0 ? rushContactDamage : (data.type === 'boss' || data.type === 'enemy_phoenix' ? 50 : 10),
+            this.takeDamage(rushContactDamage > 0 ? rushContactDamage : this.contactDamageFor(data),
                 data.type === 'boss' || data.type === 'enemy_phoenix' ? 'boss_contact' : undefined);
             
             // Knockback logic: an explicit velocity kick instead of a
@@ -1160,7 +1170,7 @@ export class GameComponent implements OnInit, OnDestroy {
             const force = Matter.Vector.sub(this.playerBody.position, otherBody.position);
             const normalized = Matter.Vector.normalise(force);
             if (data.type !== 'boss') {
-                const kick = (data.type === 'golem' ? 1.5 : data.type === 'bat' ? 50 : data.type === 'slime' ? 30 : 20) * this.speedScale;
+                const kick = (data.type === 'golem' ? 1.5 : data.type === 'pod' ? 5 : data.type === 'bat' ? 50 : data.type === 'mite' ? 40 : data.type === 'slime' || data.type === 'imp' ? 30 : 20) * this.speedScale;
                 const kv = Matter.Body.getVelocity(otherBody);
                 Matter.Body.setVelocity(otherBody, { x: kv.x - normalized.x * kick, y: kv.y - normalized.y * kick });
             }
@@ -1650,6 +1660,14 @@ export class GameComponent implements OnInit, OnDestroy {
         let chaseSpeed = 0.5;
         if (data.type === 'bat') chaseSpeed = 1.685;
         if (data.type === 'slime') chaseSpeed = 0.24;
+        // Stage 3 types (Section 3.3 speeds, translated through the
+        // speed retune halving like every other cap): Brood Pod Slow
+        // (0.4 on the sheet), Aether Wisp Swift (2.0), Mite Swift
+        // (2.2). The Cinder Imp approaches at the Cruise default
+        // (1.0) and its dash is a behavior hook below, not a cap.
+        if (data.type === 'pod') chaseSpeed = 0.2;
+        if (data.type === 'wisp') chaseSpeed = 1.0;
+        if (data.type === 'mite') chaseSpeed = 1.1;
         if (data.type === 'golem') {
             chaseSpeed = 0.005;
             // Golem Ranged Attack
@@ -1934,12 +1952,126 @@ export class GameComponent implements OnInit, OnDestroy {
           dirY = wy / len;
           data.weaveValue = s;
         }
+        // Stage 3 behavior hooks (visual spec Sections 3.2 and 3.3):
+        // a hook replaces the desired velocity (and, for the Imp's
+        // dash, the blend rate) inside the same steering model. Every
+        // speed below is a Section 3.3 sheet value translated through
+        // the retune halving, in LU per second like the caps above.
+        let desiredX = dirX * maxSpeedPx;
+        let desiredY = dirY * maxSpeedPx;
+        let blendK = 2.5;
+        if (data.type === 'imp') {
+          // Cinder Imp (Charger): approach at Cruise to mid range,
+          // flare telegraph 0.5 s, dash in a locked straight line at
+          // Dart speed through the player's position at lock time,
+          // then 0.8 s of tired drift at Slow before it can charge
+          // again. The dash direction locks at the telegraph's end,
+          // so the dodge is to move off the line during the flare.
+          const LU = this.logicalUnit;
+          const distP = Math.hypot(force.x, force.y);
+          const state = data.behaviorState || 'approach';
+          if (state === 'approach') {
+            if (distP <= 0.42 * LU) {
+              data.behaviorState = 'telegraph';
+              data.telegraphStart = now;
+              data.stateUntil = now + 500;
+            }
+          } else if (state === 'telegraph') {
+            desiredX = normalized.x * 0.1 * LU;
+            desiredY = normalized.y * 0.1 * LU;
+            blendK = 4;
+            if (now >= (data.stateUntil || 0)) {
+              data.behaviorState = 'dash';
+              data.dashDirX = normalized.x;
+              data.dashDirY = normalized.y;
+              data.stateUntil = now + 450;
+            }
+          } else if (state === 'dash') {
+            desiredX = (data.dashDirX || 0) * 1.7 * LU; // Dart (3.4 sheet), halved
+            desiredY = (data.dashDirY || 0) * 1.7 * LU;
+            blendK = 14;
+            if (now >= (data.stateUntil || 0)) {
+              data.behaviorState = 'tired';
+              data.stateUntil = now + 800;
+            }
+          } else { // tired
+            desiredX = normalized.x * 0.24 * LU; // Slow drift, flame dimmed
+            desiredY = normalized.y * 0.24 * LU;
+            if (now >= (data.stateUntil || 0)) data.behaviorState = 'approach';
+          }
+        } else if (data.type === 'wisp') {
+          // Aether Wisp (Orbiter): close to a ring at 25 percent of
+          // the min dimension around the player, circle for 2 to 3 s,
+          // then dart in a locked straight line through the player's
+          // position and back out to the ring. All motion at its
+          // Swift cap (2.0 sheet, halved to 1.0).
+          const LU = this.logicalUnit;
+          const capPx = 1.0 * LU;
+          const ringR = 0.25 * LU;
+          const rx = -normalized.x; // unit vector, player to wisp
+          const ry = -normalized.y;
+          const distP = Math.hypot(force.x, force.y);
+          const state = data.behaviorState || 'close';
+          const steerToRing = (): number => {
+            const tx = this.playerBody.position.x + rx * ringR;
+            const ty = this.playerBody.position.y + ry * ringR;
+            const dx = tx - enemy.position.x;
+            const dy = ty - enemy.position.y;
+            const d = Math.hypot(dx, dy) || 1;
+            desiredX = (dx / d) * capPx;
+            desiredY = (dy / d) * capPx;
+            return d;
+          };
+          if (state === 'close' || state === 'return') {
+            if (steerToRing() < 0.05 * LU) {
+              data.behaviorState = 'orbit';
+              data.stateUntil = now + 2000 + Math.random() * 1000;
+            }
+          } else if (state === 'orbit') {
+            const sense = data.orbitDir || 1;
+            const err = distP - ringR;
+            const corr = Math.max(-0.6, Math.min(0.6, err / (0.1 * LU))) * capPx;
+            desiredX = (-ry * sense) * capPx + rx * corr;
+            desiredY = (rx * sense) * capPx + ry * corr;
+            const mag = Math.hypot(desiredX, desiredY);
+            if (mag > capPx) { desiredX = desiredX / mag * capPx; desiredY = desiredY / mag * capPx; }
+            if (now >= (data.stateUntil || 0)) {
+              data.behaviorState = 'dart';
+              data.dashDirX = normalized.x;
+              data.dashDirY = normalized.y;
+              data.stateUntil = now + 1000;
+            }
+          } else { // dart
+            desiredX = (data.dashDirX || 0) * capPx;
+            desiredY = (data.dashDirY || 0) * capPx;
+            blendK = 6;
+            const relX = enemy.position.x - this.playerBody.position.x;
+            const relY = enemy.position.y - this.playerBody.position.y;
+            const passed = relX * (data.dashDirX || 0) + relY * (data.dashDirY || 0) > 0;
+            if (passed || now >= (data.stateUntil || 0)) data.behaviorState = 'return';
+          }
+        } else if (data.type === 'mite') {
+          // Mite (Swarmer): erratic short-hop chase. The aim re-rolls
+          // every 0.4 s with a wide jitter, so a pack shimmers rather
+          // than converging on one line. Speed Swift (2.2 sheet,
+          // halved to 1.1).
+          const capPx = 1.1 * this.logicalUnit;
+          if (!data.nextAimAt || now >= data.nextAimAt) {
+            data.nextAimAt = now + 400;
+            const jitter = (Math.random() - 0.5) * 1.5;
+            const cos = Math.cos(jitter), sin = Math.sin(jitter);
+            data.aimDirX = normalized.x * cos - normalized.y * sin;
+            data.aimDirY = normalized.x * sin + normalized.y * cos;
+          }
+          desiredX = (data.aimDirX ?? normalized.x) * capPx;
+          desiredY = (data.aimDirY ?? normalized.y) * capPx;
+        }
         const vel = Matter.Body.getVelocity(enemy); // px per 1/60 s step
         const curX = vel.x * 60;
         const curY = vel.y * 60;
-        const blend = 1 - Math.exp(-2.5 * delta);
-        const newX = curX + (dirX * maxSpeedPx - curX) * blend;
-        const newY = curY + (dirY * maxSpeedPx - curY) * blend;
+        const blend = 1 - Math.exp(-blendK * delta);
+        const newX = curX + (desiredX - curX) * blend;
+        const newY = curY + (desiredY - curY) * blend;
         Matter.Body.setVelocity(enemy, { x: newX / 60, y: newY / 60 });
       });
 
@@ -2110,8 +2242,9 @@ export class GameComponent implements OnInit, OnDestroy {
                      // code reads these back.
                      health: data.health,
                      maxHealth: data.maxHealth,
-                     attackCharge: data.type === 'golem' ? Math.min(1, Math.max(0, (now - (data.lastAttackTime || 0)) / 3000)) : undefined,
-                     weave: data.type === 'bat' ? data.weaveValue : undefined
+                     attackCharge: data.type === 'golem' ? Math.min(1, Math.max(0, (now - (data.lastAttackTime || 0)) / 3000)) : data.type === 'imp' ? this.impTelegraphCharge(data, now) : undefined,
+                     weave: data.type === 'bat' ? data.weaveValue : undefined,
+                     state: (data.type === 'imp' || data.type === 'wisp') ? data.behaviorState : undefined
                  });
              }
          }
@@ -2632,6 +2765,28 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   }
 
 
+  // Contact damage per type (visual spec Section 3.3): the shipped
+  // pattern is 10 standard and 50 boss; the Stage 3 sheets name two
+  // exceptions, the Mite at 5 and the Cinder Imp at 15 while, and
+  // only while, it is in its dash state.
+  private contactDamageFor(data: EnemyData): number {
+    if (data.type === 'boss' || data.type === 'enemy_phoenix') return 50;
+    if (data.type === 'mite') return 5;
+    if (data.type === 'imp' && data.behaviorState === 'dash') return 15;
+    return 10;
+  }
+
+  // The Imp's published telegraph charge: 0 to 1 across the 0.5 s
+  // flare, held at 1 through the dash, 0 otherwise. The renderer
+  // swells the body and whitens the core off this value.
+  private impTelegraphCharge(data: EnemyData, now: number): number {
+    if (data.behaviorState === 'telegraph') {
+      return Math.min(1, Math.max(0, (now - (data.telegraphStart || now)) / 500));
+    }
+    if (data.behaviorState === 'dash') return 1;
+    return 0;
+  }
+
   private damageEnemy(enemy: Matter.Body, damage: number) {
     const data = enemy.plugin['data'] as EnemyData;
     if (data.immortalUntil && Date.now() < data.immortalUntil) return;
@@ -2735,20 +2890,41 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       Matter.Composite.remove(this.engine.world, enemy);
       this.spliceRemove(this.enemies, enemy);
 
+      // Brood Pod split (visual spec Section 3.3, sheet 6): on death
+      // the Pod bursts into 3 to 5 Mites with outward velocity, in
+      // place (never reassigning the enemies array; the spawner
+      // pushes into it). Killing a Pod at range is the safe play;
+      // the split is the lesson it teaches.
+      if (data.type === 'pod') {
+          const podCtx = this.getSpawnerContext();
+          const podWorld = this.gameState.selectedWorldIndex();
+          const brood = 3 + Math.floor(Math.random() * 3);
+          for (let i = 0; i < brood; i++) {
+              this.spawner.spawnEnemyOfType(podCtx, 'mite',
+                  enemy.position.x + (Math.random() - 0.5) * 30 * this.speedScale,
+                  enemy.position.y + (Math.random() - 0.5) * 30 * this.speedScale,
+                  podWorld, true);
+          }
+      }
+
       if (this.gameState.currentGameMode() === 'ai_vs_ai') {
           this.mlAi.addReward(2);
       }
-      
+
       // Award XP
       let xp = 0;
       if (data.type === 'slime') xp = 2;
       if (data.type === 'bat') xp = 5;
       if (data.type === 'golem') xp = 20;
+      if (data.type === 'imp') xp = 5;
+      if (data.type === 'wisp') xp = 5;
+      if (data.type === 'pod') xp = 15;
+      if (data.type === 'mite') xp = 1;
       if (data.type === 'boss') xp = 500;
       this.gameState.addXp(xp);
-      
+
       // Bestiary Unlock
-      if (!this.gameState.unlockedEnemies().includes(data.type) && ['slime', 'bat', 'golem', 'boss'].includes(data.type)) {
+      if (!this.gameState.unlockedEnemies().includes(data.type) && ['slime', 'bat', 'golem', 'imp', 'wisp', 'pod', 'mite', 'boss'].includes(data.type)) {
           this.gameState.unlockedEnemies.update(arr => [...arr, data.type]);
       }
       

@@ -205,6 +205,170 @@ const DEFS: Record<string, EntityVisualDef> = {
     },
   },
 
+  // 4. Cinder Imp (Stage 3). Charger. A small teardrop of flame,
+  // mostly core with almost no body mass (Section 3.3): a white-hot
+  // heart inside a thin flame skin, two horn points at the crown, and
+  // a sparse spark tail trailing below. The renderer swells and
+  // whitens it through the charge telegraph off the published
+  // attackCharge, so the sampler only draws the resting shape.
+  imp: {
+    count: 800,
+    animated: true,
+    sample: (i, count, r, ctx, out) => {
+      const p = Math.random();
+      if (p < 0.06) {
+        // Horn points: two small clusters at the crown.
+        const side = Math.random() < 0.5 ? -1 : 1;
+        out.x = side * 0.45 * r + (Math.random() - 0.5) * 0.3 * r;
+        out.y = 1.05 * r + (Math.random() - 0.5) * 0.3 * r;
+        out.z = (Math.random() - 0.5) * 0.3 * r;
+        out.cr = 0.5; out.cg = 0.16; out.cb = 0.01;
+        out.layer = 0;
+      } else if (p < 0.16) {
+        // Spark tail: sparse embers trailing below the body.
+        out.x = (Math.random() - 0.5) * 0.5 * r;
+        out.y = -(0.9 + Math.random() * 1.0) * r;
+        out.z = (Math.random() - 0.5) * 0.4 * r;
+        const m = Math.random();
+        out.cr = 0.35 + m * 0.2; out.cg = 0.08 + m * 0.06; out.cb = 0.0;
+        out.layer = 0;
+      } else {
+        // Teardrop body: a sphere sample pinched toward the crown so
+        // the flame tip reads. The inner 60 percent of body points
+        // are the core layer (the imp is mostly core by design).
+        const rad = Math.cbrt(Math.random()) * r;
+        const u = Math.random() * Math.PI * 2;
+        const v = Math.acos(2 * Math.random() - 1);
+        let x = rad * Math.sin(v) * Math.cos(u);
+        let y = rad * Math.cos(v) * 1.15;
+        const z = rad * Math.sin(v) * Math.sin(u);
+        const tip = Math.max(0, y) / (1.15 * r);
+        x *= 1 - tip * 0.55; // pinch toward the crown
+        out.x = x; out.y = y; out.z = z;
+        if (rad < r * 0.62) {
+          const m = Math.random();
+          out.cr = 1.0; out.cg = 0.82 + m * 0.14; out.cb = 0.38 + m * 0.25; // White-hot heart
+          out.layer = 1;
+        } else {
+          const m = Math.random();
+          out.cr = 0.07 + m * 0.04; out.cg = 0.02 + m * 0.012; out.cb = 0.003; // Thin flame skin, stacking-tuned like the Glob membrane
+          out.layer = 0;
+        }
+      }
+    },
+  },
+
+  // 5. Aether Wisp (Stage 3). Orbiter. A hollow ring of points
+  // around a bright core (Section 3.3): the negative space in the
+  // middle is its identity. The ring spans 300 degrees with a 60
+  // degree gap; the renderer rotates the vertices, so the gap
+  // travels. Nothing else in the game is a broken ring, and at 30 px
+  // it never reads as the 200-point coin circle.
+  wisp: {
+    count: 800,
+    animated: true,
+    sample: (i, count, r, ctx, out) => {
+      if (i < count * 0.2) {
+        // Bright core floating in the ring's hollow.
+        const rad = Math.cbrt(Math.random()) * r * 0.3;
+        const u = Math.random() * Math.PI * 2;
+        const v = Math.acos(2 * Math.random() - 1);
+        out.x = rad * Math.sin(v) * Math.cos(u);
+        out.y = rad * Math.sin(v) * Math.sin(u);
+        out.z = rad * Math.cos(v);
+        const m = Math.random();
+        out.cr = 0.85 + m * 0.15; out.cg = 0.97; out.cb = 1.0; // White-cyan
+        out.layer = 1;
+      } else {
+        // Ring: the vertex index walks the 300 degree arc so the gap
+        // is structural, not a sampling accident. Beads every 50th
+        // ring vertex burn brighter as the core layer.
+        const u = (i - count * 0.2) / (count * 0.8);
+        const a = Math.PI / 6 + u * (Math.PI * 5 / 3); // 30 deg to 330 deg
+        const rad = r * (1 + (Math.random() - 0.5) * 0.35);
+        out.x = Math.cos(a) * rad;
+        out.y = Math.sin(a) * rad;
+        out.z = (Math.random() - 0.5) * 0.36 * r;
+        if (i % 50 === 0) {
+          out.cr = 0.6; out.cg = 0.95; out.cb = 1.0;
+          out.layer = 1;
+        } else {
+          const m = Math.random();
+          out.cr = 0.10 + m * 0.06; out.cg = 0.34 + m * 0.14; out.cb = 0.44 + m * 0.16; // Pale cyan ring
+          out.layer = 0;
+        }
+      }
+    },
+  },
+
+  // 6. Brood Pod (Stage 3). Splitter. A fat sphere of clustered
+  // cells, each cell a mini-glob with its own pale heart (Section
+  // 3.3). Cell centers sit on a golden-angle spiral so the cluster
+  // is even; the renderer thins the surface as health drops, so the
+  // damage state reads on the body.
+  pod: {
+    count: 800,
+    animated: true,
+    sample: (i, count, r, ctx, out) => {
+      const CELLS = 14;
+      const k = i % CELLS;
+      const cy = 1 - (k / (CELLS - 1)) * 2;
+      const crad = Math.sqrt(Math.max(0, 1 - cy * cy));
+      const theta = k * 2.39996; // golden angle
+      const cx = Math.cos(theta) * crad * 0.52 * r;
+      const cyy = cy * 0.52 * r;
+      const cz = Math.sin(theta) * crad * 0.52 * r;
+      const rad = Math.cbrt(Math.random()) * r * 0.44;
+      const u = Math.random() * Math.PI * 2;
+      const v = Math.acos(2 * Math.random() - 1);
+      out.x = cx + rad * Math.sin(v) * Math.cos(u);
+      out.y = cyy + rad * Math.sin(v) * Math.sin(u);
+      out.z = cz + rad * Math.cos(v);
+      if (rad < r * 0.2) {
+        const m = Math.random();
+        out.cr = 0.45 + m * 0.2; out.cg = 0.85 + m * 0.15; out.cb = 0.68 + m * 0.2; // Pale cell heart
+        out.layer = 1;
+      } else {
+        const m = Math.random();
+        out.cr = 0.016 + m * 0.012; out.cg = 0.075 + m * 0.035; out.cb = 0.06 + m * 0.025; // Murky teal cell skin
+        out.layer = 0;
+      }
+    },
+  },
+
+  // 7. Mite (Stage 3). Swarmer. A 16 px spark with a single wing
+  // pair, drawn at the size floor (Section 3.3): a bright core mote
+  // and two small wing fans the renderer flaps like the Gloomwing's,
+  // faster. Only 200 points; a pack of five costs less than one
+  // standard enemy.
+  mite: {
+    count: 200,
+    animated: true,
+    sample: (i, count, r, ctx, out) => {
+      const p = Math.random();
+      if (p < 0.4) {
+        const rad = Math.cbrt(Math.random()) * r * 0.45;
+        const u = Math.random() * Math.PI * 2;
+        const v = Math.acos(2 * Math.random() - 1);
+        out.x = rad * Math.sin(v) * Math.cos(u);
+        out.y = rad * Math.sin(v) * Math.sin(u);
+        out.z = rad * Math.cos(v);
+        const m = Math.random();
+        out.cr = 1.0; out.cg = 0.82 + m * 0.16; out.cb = 0.35 + m * 0.25; // Hot spark heart
+        out.layer = 1;
+      } else {
+        const isLeft = p < 0.7;
+        const span = (0.4 + Math.random() * 1.1) * r;
+        out.x = isLeft ? -span : span;
+        out.y = (Math.random() - 0.5) * 0.5 * r + span * 0.15;
+        out.z = (Math.random() - 0.5) * 0.2 * r;
+        const m = Math.random();
+        out.cr = 0.22 + m * 0.12; out.cg = 0.10 + m * 0.05; out.cb = 0.015; // Dim amber wing
+        out.layer = 0;
+      }
+    },
+  },
+
   // Boss construction (fiery skull) kept as shipped; its full redesign
   // is the boss stages (9 and 10). White-hot eye sockets are the core
   // layer, which is what the boss phase flashes pulse (Section 3.1).

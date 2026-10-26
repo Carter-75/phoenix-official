@@ -1923,7 +1923,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
 
   // Enemy types get the shared death burst on removal (Section 3.1);
   // everything else (pickups, projectiles, effects) just disappears.
-  private static readonly BURST_TYPES = ['slime', 'bat', 'golem', 'boss'];
+  private static readonly BURST_TYPES = ['slime', 'bat', 'golem', 'imp', 'wisp', 'pod', 'mite', 'boss'];
 
   private syncEntities() {
     const nowMs = performance.now();
@@ -2197,6 +2197,123 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
             colArr[idx] = cr; colArr[idx + 1] = cg; colArr[idx + 2] = cb;
           }
           colAttr.needsUpdate = true;
+        }
+      }
+      else if (data.type === 'imp') {
+        // Cinder Imp (Section 3.3): across the 0.5 s flare telegraph
+        // the body swells to 130 percent and turns white-hot; the
+        // charge is published by the game from the same state
+        // machine that fires the dash, so the read is the real
+        // thing. In the tired drift after a dash the flame dims.
+        // Colors are recomputed from the pristine builder colors
+        // every frame, like the Golem's charge glow, so no restore
+        // bookkeeping is needed; the generic hit flash pass still
+        // lands on top during its envelope.
+        const charge = data.attackCharge ?? 0;
+        const swell = 1 + 0.3 * charge;
+        entity.mesh.scale.set(swell, swell, swell);
+        if (entity.baseColors && entity.layerFlags) {
+          const colAttr = entity.mesh.geometry.attributes['color'];
+          const colArr = colAttr.array as Float32Array;
+          const dim = data.state === 'tired' ? 0.5 : 1;
+          for (let i = 0; i < entity.layerFlags.length; i++) {
+            const idx = i * 3;
+            let cr = entity.baseColors[idx] * dim;
+            let cg = entity.baseColors[idx + 1] * dim;
+            let cb = entity.baseColors[idx + 2] * dim;
+            if (entity.layerFlags[i] === 1 && charge > 0) {
+              cr = cr + (1 - cr) * charge;
+              cg = cg + (1 - cg) * charge;
+              cb = cb + (1 - cb) * charge;
+            }
+            colArr[idx] = cr; colArr[idx + 1] = cg; colArr[idx + 2] = cb;
+          }
+          colAttr.needsUpdate = true;
+        }
+      }
+      else if (data.type === 'wisp' && entity.basePositions) {
+        // Aether Wisp (Section 3.3): the broken ring rotates slowly,
+        // so the 60 degree gap travels and the hollow center stays
+        // the read. The bright core sits at the center, where
+        // rotation is a no-op, so one rotation covers the whole body.
+        if (!budgeted) {
+          entity.mesh.rotation.z = 0;
+          const pPositions = entity.mesh.geometry.attributes['position'].array as Float32Array;
+          const ang = Date.now() * 0.0008 + (entity.timeOffset || 0);
+          const cos = Math.cos(ang), sin = Math.sin(ang);
+          for (let i = 0; i < pPositions.length; i += 3) {
+            const bx = entity.basePositions[i];
+            const by = entity.basePositions[i + 1];
+            pPositions[i] = bx * cos - by * sin;
+            pPositions[i + 1] = bx * sin + by * cos;
+            pPositions[i + 2] = entity.basePositions[i + 2];
+          }
+          entity.mesh.geometry.attributes['position'].needsUpdate = true;
+        } else {
+          entity.mesh.rotation.z -= 0.8 * dtSec;
+        }
+      }
+      else if (data.type === 'pod' && entity.basePositions) {
+        if (!budgeted) {
+          // Brood Pod (Section 3.3): as the Pod takes damage its
+          // surface thins, cells collapsing inward in index order
+          // (indices interleave across cells, so the thinning is
+          // even over the whole body), and a highlight crawl keeps
+          // the surface alive like the Glob's membrane.
+          const pPositions = entity.mesh.geometry.attributes['position'].array as Float32Array;
+          const total = entity.layerFlags ? entity.layerFlags.length : 1;
+          const hf = data.maxHealth ? Math.max(0, Math.min(1, (data.health ?? data.maxHealth) / data.maxHealth)) : 1;
+          for (let i = 0; i < pPositions.length; i += 3) {
+            const frac = (i / 3) / total;
+            const s = frac > hf ? 0.15 : 1;
+            pPositions[i] = entity.basePositions[i] * s;
+            pPositions[i + 1] = entity.basePositions[i + 1] * s;
+            pPositions[i + 2] = entity.basePositions[i + 2] * s;
+          }
+          entity.mesh.geometry.attributes['position'].needsUpdate = true;
+          if (entity.baseColors && entity.layerFlags) {
+            const colAttr = entity.mesh.geometry.attributes['color'];
+            const colArr = colAttr.array as Float32Array;
+            const crawl = Date.now() * 0.0013 + (entity.timeOffset || 0);
+            for (let i = 0; i < entity.layerFlags.length; i++) {
+              if (entity.layerFlags[i] === 1) continue;
+              const bx = entity.basePositions[i * 3];
+              const bz = entity.basePositions[i * 3 + 2];
+              const d = Math.cos(Math.atan2(bz, bx) - crawl);
+              const boost = d > 0 ? Math.pow(d, 6) * 0.7 : 0;
+              const idx = i * 3;
+              colArr[idx] = entity.baseColors[idx] * (1 + boost);
+              colArr[idx + 1] = entity.baseColors[idx + 1] * (1 + boost);
+              colArr[idx + 2] = entity.baseColors[idx + 2] * (1 + boost);
+            }
+            colAttr.needsUpdate = true;
+          }
+        } else {
+          const t = Date.now() * 0.004 + (entity.timeOffset || 0);
+          const s = 1 + Math.sin(t) * 0.05;
+          entity.mesh.scale.set(s, s, s);
+        }
+      }
+      else if (data.type === 'mite' && entity.basePositions) {
+        // Mite (Section 3.3): the single wing pair flaps fast, the
+        // Gloomwing's motion at swarmer tempo.
+        if (!budgeted) {
+          const pPositions = entity.mesh.geometry.attributes['position'].array as Float32Array;
+          const time = Date.now() * 0.03 + (entity.timeOffset || 0);
+          const r = data.size / 30;
+          for (let i = 0; i < pPositions.length; i += 3) {
+            const baseX = entity.basePositions[i];
+            const baseY = entity.basePositions[i + 1];
+            if (Math.abs(baseX) > 0.5 * r) {
+              pPositions[i + 1] = baseY + Math.sin(time) * Math.abs(baseX) * 0.9;
+            } else {
+              pPositions[i + 1] = baseY;
+            }
+          }
+          entity.mesh.geometry.attributes['position'].needsUpdate = true;
+        } else {
+          const s = 1 + Math.sin(Date.now() * 0.03 + (entity.timeOffset || 0)) * 0.1;
+          entity.mesh.scale.set(s, s, s);
         }
       }
       else if (data.type === 'boss' && entity.basePositions) {

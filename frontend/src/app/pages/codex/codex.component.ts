@@ -48,6 +48,10 @@ export class CodexComponent implements OnInit, OnDestroy {
     { id: 'slime', name: 'Ember Glob', desc: 'A bouncing mass of molten energy.', size: 20 },
     { id: 'bat', name: 'Gloomwing', desc: 'Fast, erratic flyer that haunts the crags.', size: 15 },
     { id: 'golem', name: 'Bastion Golem', desc: 'A slow lumbering tank of molten rock.', size: 60 },
+    { id: 'imp', name: 'Cinder Imp', desc: 'A living spark. When it flares white, get off its line: it is about to charge straight through it.', size: 15 },
+    { id: 'wisp', name: 'Aether Wisp', desc: 'A hollow ring that circles its prey, then darts through the ring it made. Do not stand at the center.', size: 15 },
+    { id: 'pod', name: 'Brood Pod', desc: 'A drifting nest of cells. It bursts into Mites when killed, so finish it from as far away as you can.', size: 25 },
+    { id: 'mite', name: 'Mite', desc: 'A tiny swarmer shaken loose from a Brood Pod. Trivial alone, a screen-filling storm in a pack.', size: 8 },
     { id: 'boss', name: 'Demonic Skull', desc: 'The ruler of the Volcanic Crags. A terrifying fiery entity.', size: 100 }
   ];
 

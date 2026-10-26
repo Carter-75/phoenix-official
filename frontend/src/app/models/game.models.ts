@@ -43,6 +43,12 @@ export interface PhysicsEntity {
   maxHealth?: number;
   attackCharge?: number;
   weave?: number;
+  // Behavior state for the Stage 3 types (the Cinder Imp's approach,
+  // telegraph, dash, tired cycle and the Aether Wisp's close, orbit,
+  // dart, return cycle), published so the renderer can read the
+  // telegraph swell and the tired dim off the body itself. Display
+  // only; gameplay reads the same field on EnemyData.
+  state?: string;
 }
 
 export type Rgb = [number, number, number];
@@ -110,7 +116,7 @@ export interface World {
 
 export interface EnemyData {
   id: string;
-  type: 'bat' | 'slime' | 'golem' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance';
+  type: 'bat' | 'slime' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance';
   health: number;
   maxHealth: number;
   lastAttackTime?: number;
@@ -140,4 +146,17 @@ export interface EnemyData {
   // here each tick so the renderer can bank the mesh in sync (visual
   // spec Section 3.3). Steering data only; never read by gameplay.
   weaveValue?: number;
+  // Stage 3 behavior state machines (Cinder Imp charger, Aether Wisp
+  // orbiter, Mite swarmer). The steering hook owns these fields; the
+  // renderer reads behaviorState through the published PhysicsEntity
+  // state for the telegraph and tired reads.
+  behaviorState?: string; // imp: approach | telegraph | dash | tired; wisp: close | orbit | dart | return
+  stateUntil?: number; // ms timestamp the current state ends
+  telegraphStart?: number; // ms timestamp the imp telegraph began (drives the swell)
+  dashDirX?: number; // locked dash or dart direction (unit vector)
+  dashDirY?: number;
+  orbitDir?: number; // wisp orbit sense, +1 or -1, fixed per body
+  aimDirX?: number; // mite current hop aim (unit vector), re-rolled every 0.4 s
+  aimDirY?: number;
+  nextAimAt?: number; // ms timestamp of the mite's next re-aim
 }
