@@ -1,5 +1,6 @@
 import { Component, ElementRef, OnInit, OnDestroy, ViewChild, NgZone, effect, inject } from '@angular/core';
 import { GameStateService, STAMINA } from '../../services/game-state.service';
+import { AudioService } from '../../services/audio.service';
 import { WORLDS, HOSTILE_RGB } from '../../constants/game.constants';
 import { PhysicsEntity, WorldTheme } from '../../models/game.models';
 import { buildEntityGeometry } from './entity-builder';
@@ -225,8 +226,9 @@ function pointInGlyph(nx: number, nz: number): boolean {
 })
 export class ParticleBgComponent implements OnInit, OnDestroy {
   @ViewChild('bgCanvas', { static: true }) canvasRef!: ElementRef<HTMLCanvasElement>;
-  
+
   private gameState = inject(GameStateService);
+  private audioService = inject(AudioService);
   private renderer!: THREE.WebGLRenderer;
   private scene!: THREE.Scene;
   private camera!: THREE.PerspectiveCamera;
@@ -240,9 +242,9 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
   // atmosphere behavior are driven by each world's Stage 0 themeData
   // record. A world joins this set when its theme batch lands
   // (batch 1: Worlds 1 to 3; batch 2 in Stage 7: Worlds 4 to 6;
-  // Stage 8 adds the rest), and worlds outside the set keep the
-  // shipped presentation exactly.
-  private static readonly THEME_SCENE_WORLDS = new Set([0, 1, 2, 3, 4, 5]);
+  // batch 3 in Stage 8: Worlds 7 to 10). As of Stage 8 the set
+  // covers every world in the game.
+  private static readonly THEME_SCENE_WORLDS = new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
   // Stage 6 theme backdrop: ONE opaque plane carrying the world's
   // whole painted backdrop (sky gradient, baked sky glows, far and
   // mid silhouette layers, ground strip). The layers are composited
@@ -266,6 +268,39 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
   // sine (World 5 sheet). Zero everywhere else, so the shipped
   // falling behavior is byte-identical for the other worlds.
   private atmosphereSway = 0;
+  // Stage 8: Blood Moon's rain falls at a slight angle (World 9
+  // sheet): a constant sideways drift on the falling branch.
+  // Zero everywhere else.
+  private atmosphereDriftX = 0;
+  // Stage 8, World 9: the blood moon is a small canvas-textured
+  // plane in front of the backdrop (never a full-screen layer;
+  // see the Stage 6 backdrop note for why that distinction is
+  // the whole performance story). Its lit fraction follows the
+  // world BGM position, the same clock the wave composer phases
+  // on, so the moon is the run's clock exactly as its sheet
+  // says. The canvas repaints only when the quantized lit step
+  // changes.
+  private moonMesh: THREE.Mesh | null = null;
+  private moonCanvas: HTMLCanvasElement | null = null;
+  private moonTex: THREE.CanvasTexture | null = null;
+  private moonLit = 0.35; // menu default until a BGM clock exists
+  private moonLitStep = -1;
+  // Stage 8, World 10: the rift seam is two narrow additive
+  // planes (a star-white core and a wider violet halo, slightly
+  // angled against each other: the sheet's two glow planes)
+  // standing in front of the backdrop. Narrow strips, not
+  // full-screen layers, so their overdraw is a few percent of
+  // the backdrop's. Their opacity pulses with the audio
+  // intensity (spec Section 6: the one sky that reacts to the
+  // audio system), smoothed so it breathes instead of flickering.
+  private riftCoreMesh: THREE.Mesh | null = null;
+  private riftHaloMesh: THREE.Mesh | null = null;
+  private riftPulse = 0;
+  // Stage 8, World 7: the aurora tint on the falling snow is
+  // refreshed on an interval (the snow falls slowly; a point
+  // crosses an aurora band over tens of seconds), never per
+  // frame. themeTime of the last refresh.
+  private lastAuroraTintAt = -10;
   // Dynamic pixel-ratio step-down state (spec Section 1.4).
   private frameEmaMs = 16;
   private pixelRatioStep = 0;
@@ -519,13 +554,209 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       // Ashen Peaks (world index 4) is the one world whose sheet
       // adds a sideways wind sine to its falling ash.
       this.atmosphereSway = worldIndex === 4 ? 1.6 : 0;
+      // Blood Moon (world index 8) is the one world whose rain
+      // falls at a slight angle: a constant drift on the fall.
+      this.atmosphereDriftX = worldIndex === 8 ? -1.0 : 0;
     } else {
       this.atmosphereDir = 'falling';
       this.atmosphereSpeed = 1.8;
       this.atmosphereCount = 4500;
       this.atmosphereSway = 0;
+      this.atmosphereDriftX = 0;
     }
     this.particles.geometry.setDrawRange(0, this.atmosphereCount);
+
+    // Stage 8 per-world atmosphere colors that the shared
+    // updateColors bands cannot express. updateColors has already
+    // run for this world (the constructor effect calls it first),
+    // so these passes own the ambient color buffer while their
+    // world is selected, and the next world's updateColors pass
+    // restores the standard bands.
+    if (themed && worldIndex === 6) this.tintAuroraSnow();
+    if (themed && worldIndex === 9) this.tintRiftMotes();
+
+    // Stage 8 set pieces that are not part of the composited
+    // backdrop: Blood Moon's moon (World 9) and Abyssal Rift's
+    // seam (World 10). Each exists only in its own world.
+    const wantMoon = themed && worldIndex === 8;
+    if (wantMoon && !this.moonMesh) {
+      this.moonCanvas = document.createElement('canvas');
+      this.moonCanvas.width = 256; this.moonCanvas.height = 256;
+      this.moonTex = new THREE.CanvasTexture(this.moonCanvas);
+      this.moonMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(21, 21),
+        new THREE.MeshBasicMaterial({ map: this.moonTex, transparent: true, depthWrite: false })
+      );
+      this.moonMesh.position.set(5, 20.5, -43.5);
+      this.scene.add(this.moonMesh);
+      this.moonLitStep = -1; // force the first paint
+      this.updateMoon();
+    }
+    if (this.moonMesh) this.moonMesh.visible = wantMoon;
+
+    const wantRift = themed && worldIndex === 9;
+    if (wantRift && !this.riftCoreMesh) {
+      const seamTex = this.makeSeamTexture();
+      const coreMat = new THREE.MeshBasicMaterial({
+        map: seamTex, color: new THREE.Color(0.95, 0.90, 1.0), transparent: true,
+        opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false,
+      });
+      // Seam widths: a first cut (13-unit core, 44-unit halo)
+      // washed the whole portrait frame in violet and broke
+      // the darkest-world read in the Stage 8 menu census
+      // (World 10 lum 41.0 vs Blood Moon 22.7), so the seam is
+      // now a true seam: 5-unit core, 16-unit halo.
+      this.riftCoreMesh = new THREE.Mesh(new THREE.PlaneGeometry(5, 150), coreMat);
+      this.riftCoreMesh.position.set(7, 0, -43.4);
+      this.riftCoreMesh.rotation.z = 0.035;
+      this.scene.add(this.riftCoreMesh);
+      const haloMat = new THREE.MeshBasicMaterial({
+        map: seamTex, color: new THREE.Color(0.40, 0.13, 0.72), transparent: true,
+        opacity: 0.19, blending: THREE.AdditiveBlending, depthWrite: false,
+      });
+      this.riftHaloMesh = new THREE.Mesh(new THREE.PlaneGeometry(16, 150), haloMat);
+      this.riftHaloMesh.position.set(7, 0, -43.6);
+      this.riftHaloMesh.rotation.z = -0.025;
+      this.scene.add(this.riftHaloMesh);
+    }
+    if (this.riftCoreMesh) this.riftCoreMesh.visible = wantRift;
+    if (this.riftHaloMesh) this.riftHaloMesh.visible = wantRift;
+  }
+
+  // World 7 atmosphere color (Neon Nebula sheet): fine snow
+  // drifting through colored light, each point tinted by the
+  // aurora band it is in. The bands are horizontal: the top of
+  // the field leans teal (the secondary glow), the middle keeps
+  // the nebula magenta, the bottom deepens. A per-point shade
+  // jitter keeps the snow from reading as three flat strata.
+  // Called on world entry and refreshed on an interval from the
+  // animation loop (snow crosses a band over tens of seconds,
+  // so the tint never needs per-frame work).
+  private tintAuroraSnow() {
+    if (!this.particles) return;
+    const td = WORLDS[6].themeData;
+    const pos = this.particles.geometry.attributes['position'].array as Float32Array;
+    const col = this.particles.geometry.attributes['color'].array as Float32Array;
+    const bright = td.palette.bright, mid = td.palette.mid, deep = td.palette.deep;
+    const teal = td.sky.secondaryGlow ?? [0.0, 0.9, 0.8];
+    for (let i = 0; i < pos.length; i += 3) {
+      const pi = i / 3;
+      const jitter = 0.8 + 0.35 * (((pi * 2654435761) >>> 0) % 1000) / 1000;
+      const y = pos[i + 1];
+      let r: number, g: number, b: number;
+      if (y > 13) { // top band: magenta leaning teal
+        r = (bright[0] + (teal[0] - bright[0]) * 0.55) * jitter;
+        g = (bright[1] + (teal[1] - bright[1]) * 0.55) * jitter;
+        b = (bright[2] + (teal[2] - bright[2]) * 0.55) * jitter;
+      } else if (y > -13) { // middle band: the nebula magenta
+        r = mid[0] * jitter; g = mid[1] * jitter; b = mid[2] * jitter;
+      } else { // bottom band: deep magenta, lifted so snow reads
+        r = deep[0] * 1.5 * jitter; g = deep[1] * 1.5 * jitter; b = deep[2] * 1.5 * jitter;
+      }
+      col[i] = Math.min(1, r); col[i + 1] = Math.min(1, g); col[i + 2] = Math.min(1, b);
+    }
+    this.particles.geometry.attributes['color'].needsUpdate = true;
+  }
+
+  // World 10 atmosphere color (Abyssal Rift sheet): rift motes
+  // and sparse static stars. One in ten points is a star (star
+  // white at full brightness, and the motion branch holds it
+  // still); the rest are motes in two violet depths.
+  private tintRiftMotes() {
+    if (!this.particles) return;
+    const td = WORLDS[9].themeData;
+    const col = this.particles.geometry.attributes['color'].array as Float32Array;
+    const bright = td.palette.bright;
+    for (let i = 0; i < col.length; i += 3) {
+      const pi = i / 3;
+      const h = (((pi * 2654435761) >>> 0) % 1000) / 1000;
+      if (pi % 10 === 0) { col[i] = bright[0]; col[i + 1] = bright[1]; col[i + 2] = bright[2]; }
+      else if (h < 0.45) { col[i] = 0.30; col[i + 1] = 0.05; col[i + 2] = 0.55; }
+      else { col[i] = 0.10; col[i + 1] = 0.03; col[i + 2] = 0.22; }
+    }
+    this.particles.geometry.attributes['color'].needsUpdate = true;
+  }
+
+  // Blood Moon update (World 9 sheet): the moon waxes as the run
+  // progresses. Progress is the world BGM position over its
+  // duration, the composer's own phase clock (entity-spawner
+  // phaseProgress), so the moon and the waves agree about what
+  // time it is. Before any BGM clock exists (menu before the
+  // track loads) the moon holds a mid crescent. The canvas
+  // repaints only when the lit fraction crosses a 1/40 step.
+  private updateMoon() {
+    if (!this.moonMesh || !this.moonCanvas || !this.moonTex) return;
+    const dur = this.audioService.getBgmDuration();
+    let lit = 0.35;
+    if (dur > 0) {
+      const p = Math.min(1, Math.max(0, this.audioService.getBgmCurrentTime() / dur));
+      lit = 0.08 + 0.92 * p;
+    }
+    this.moonLit = lit;
+    const step = Math.round(lit * 40);
+    if (step === this.moonLitStep) return;
+    this.moonLitStep = step;
+    const ctx = this.moonCanvas.getContext('2d')!;
+    const cx = 128, cy = 128, r = 116;
+    ctx.clearRect(0, 0, 256, 256);
+    // The unlit side: a barely-there dark red disc, so the
+    // moon's full circle reads even at crescent.
+    ctx.fillStyle = this.silColor([0.30, 0.05, 0.05], 1.0, 0.9);
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+    // The lit side, waxing from the right: the right limb arc,
+    // closed by the terminator half-ellipse whose bulge flips
+    // at half phase.
+    ctx.fillStyle = this.silColor([0.62, 0.13, 0.10], 1.0, 1.0);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, false);
+    const rx = r * Math.abs(2 * lit - 1);
+    if (lit < 0.5) ctx.ellipse(cx, cy, rx, r, 0, Math.PI / 2, -Math.PI / 2, true);
+    else ctx.ellipse(cx, cy, rx, r, 0, Math.PI / 2, Math.PI * 1.5, false);
+    ctx.closePath(); ctx.fill();
+    // Surface mottling on the lit face: a few soft dark patches,
+    // clipped to the disc.
+    ctx.save();
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.clip();
+    ctx.fillStyle = 'rgba(10, 0, 0, 0.16)';
+    const blotches: Array<[number, number, number]> = [[-30, -18, 26], [22, 30, 19], [38, -34, 14], [-8, 48, 12]];
+    for (const [bx, by, br] of blotches) {
+      ctx.beginPath(); ctx.ellipse(cx + bx, cy + by, br, br * 0.7, 0.6, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+    this.moonTex.needsUpdate = true;
+  }
+
+  // Heart Pod beat (World 9 sheet: the cells visibly beat).
+  // A double-thump scale pulse on a 1.15 s cycle: a strong
+  // first beat, a softer second, then rest. Applied to Brood
+  // Pod entities while Blood Moon is the selected world (see
+  // the pod animation branch); it is the Heart Pod variant's
+  // one tweak, in the renderer because a builder palette
+  // cannot move.
+  private heartBeatScale(timeOffset: number): number {
+    const c = (Date.now() * 0.001 + timeOffset) % 1.15;
+    let s = 0;
+    if (c < 0.16) s = Math.sin((c / 0.16) * Math.PI) * 0.085;
+    else if (c > 0.24 && c < 0.40) s = Math.sin(((c - 0.24) / 0.16) * Math.PI) * 0.05;
+    return 1 + s;
+  }
+
+  // The rift seam's falloff texture: a horizontal gradient that
+  // is bright at the center line and gone at the edges, shared
+  // by the core and halo planes at different widths and colors.
+  private makeSeamTexture(): THREE.Texture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128; canvas.height = 8;
+    const ctx = canvas.getContext('2d')!;
+    const g = ctx.createLinearGradient(0, 0, 128, 0);
+    g.addColorStop(0, 'rgba(255,255,255,0)');
+    g.addColorStop(0.38, 'rgba(255,255,255,0.28)');
+    g.addColorStop(0.5, 'rgba(255,255,255,1)');
+    g.addColorStop(0.62, 'rgba(255,255,255,0.28)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 128, 8);
+    return new THREE.CanvasTexture(canvas);
   }
 
   private sceneStats() {
@@ -550,6 +781,9 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       atmosphereDir: this.atmosphereDir,
       atmosphereCount: this.atmosphereCount,
       atmosphereSway: this.atmosphereSway,
+      atmosphereDriftX: this.atmosphereDriftX,
+      moonLit: this.themedWorldIndex === 8 ? Math.round(this.moonLit * 100) / 100 : -1,
+      riftPulse: this.themedWorldIndex === 9 ? Math.round(this.riftPulse * 100) / 100 : -1,
       frameEmaMs: Math.round(this.frameEmaMs * 10) / 10,
     };
   }
@@ -616,9 +850,25 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, W, H);
     };
-    const gy = td.sky.position === 'low' ? H * 1.02 : td.sky.position === 'top' ? -H * 0.02 : H * 0.5;
-    bakeGlow(W / 2, gy, W * 0.55, td.sky.glow, 0.15 * td.sky.intensity);
-    if (td.sky.secondaryGlow) bakeGlow(W * 0.68, H * 0.30, W * 0.34, td.sky.secondaryGlow, 0.13);
+    // Glow placement from the sheet's sky position. Golden Sands
+    // (Stage 8) is the one off-center sky: a huge low sun baked
+    // at the bottom-left corner. Blood Moon's glow rides high.
+    // Abyssal Rift's primary light is the seam, which lives on
+    // its own planes (applyThemeScene), so its backdrop takes
+    // only the dim violet ambience of the secondary glow below.
+    const gy = td.sky.position === 'low' ? H * 1.02 : td.sky.position === 'top' ? -H * 0.02
+      : td.sky.position === 'high' ? H * 0.06 : td.sky.position === 'corner' ? H * 1.04 : H * 0.5;
+    const gx = td.sky.position === 'corner' ? W * 0.08 : W / 2;
+    const gr = td.sky.position === 'corner' ? W * 0.62 : W * 0.55;
+    const ga = td.sky.position === 'off-center vertical rift' ? 0 : 0.15 * td.sky.intensity;
+    bakeGlow(gx, gy, gr, td.sky.glow, ga);
+    // The Rift's secondary wash is dimmer than the standard
+    // bake: at 0.13 the broad violet glow kept World 10 within
+    // noise of Blood Moon's menu luminance, and the sheet
+    // calls the Rift the darkest world in the game (Stage 8
+    // menu census, runs B and C: 22.0/22.7 then 22.4/22.0).
+    const secAlpha = td.sky.position === 'off-center vertical rift' ? 0.07 : 0.13;
+    if (td.sky.secondaryGlow) bakeGlow(W * 0.68, H * 0.30, W * 0.34, td.sky.secondaryGlow, secAlpha);
     ctx.globalCompositeOperation = 'source-over';
     ctx.drawImage(farC, 0, 0);
     ctx.drawImage(midC, 0, 0);
@@ -677,6 +927,10 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       case 3: return { far: this.paintCanopyFar.bind(this), mid: this.paintCanopyMid.bind(this), ground: this.paintGroundForest.bind(this) };
       case 4: return { far: this.paintAshenFar.bind(this), mid: this.paintAshenMid.bind(this), ground: this.paintGroundAshRidge.bind(this) };
       case 5: return { far: this.paintCavernFar.bind(this), mid: this.paintCavernMid.bind(this), ground: this.paintGroundCrystal.bind(this) };
+      case 6: return { far: this.paintNebulaFar.bind(this), mid: this.paintNebulaMid.bind(this), ground: this.paintGroundIce.bind(this) };
+      case 7: return { far: this.paintSandsFar.bind(this), mid: this.paintSandsMid.bind(this), ground: this.paintGroundDune.bind(this) };
+      case 8: return { far: this.paintBloodFar.bind(this), mid: this.paintBloodMid.bind(this), ground: this.paintGroundBloodRidge.bind(this) };
+      case 9: return { far: this.paintRiftFar.bind(this), mid: this.paintRiftMid.bind(this), ground: this.paintGroundNone.bind(this) };
       default: return null;
     }
   }
@@ -1207,6 +1461,495 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       }
       ctx.stroke();
     }
+  }
+
+  // ----------------------------------------------------------------
+  // Stage 8 theme painters: Worlds 7 to 10, same composited-
+  // backdrop contract as batches 1 and 2 (dark silhouettes against
+  // the baked glow, deterministic per-layer seeds, tiled for the
+  // wrap). The two set pieces that cannot live in a static bake,
+  // Blood Moon's waxing moon and the Rift's pulsing seam, are
+  // separate small meshes managed in applyThemeScene.
+  // ----------------------------------------------------------------
+
+  // World 7 far: the aurora curtain across the top third (two
+  // wavy ribbons, magenta and teal, baked soft over the sky
+  // glows), nebula cloud silhouettes, and a ringed planet.
+  private paintNebulaFar(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(701);
+    // Aurora ribbons: horizontal bands with a sine top edge and
+    // a long vertical fade, so the curtain hangs and dissolves.
+    const ribbon = (baseY: number, amp: number, periods: number, phase: number, rgb: Rgb3, alpha: number) => {
+      const grad = ctx.createLinearGradient(0, baseY - 26, 0, baseY + h * 0.30);
+      grad.addColorStop(0, this.silColor(rgb, 1.0, 0));
+      grad.addColorStop(0.35, this.silColor(rgb, 1.0, alpha));
+      grad.addColorStop(1, this.silColor(rgb, 1.0, 0));
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(0, baseY + h * 0.30);
+      ctx.lineTo(0, baseY + amp * Math.sin(phase));
+      for (let x = 16; x <= w; x += 16) ctx.lineTo(x, baseY + amp * Math.sin((2 * Math.PI * periods * x) / w + phase));
+      ctx.lineTo(w, baseY + h * 0.30);
+      ctx.closePath(); ctx.fill();
+    };
+    ribbon(h * 0.06, 13, 2, 0.7, td.sky.secondaryGlow ?? [0.0, 0.9, 0.8], 0.16); // teal curtain
+    ribbon(h * 0.16, 17, 3, 2.4, td.palette.bright, 0.13); // magenta curtain behind it
+    this.tiled(ctx, w, () => {
+      // Nebula clouds: clusters of soft dark ellipses with a
+      // faint magenta rim on the lit side.
+      for (let c = 0; c < 6; c++) {
+        const ccx = rnd() * w, ccy = h * (0.30 + rnd() * 0.5);
+        const n = 3 + Math.floor(rnd() * 3);
+        for (let k = 0; k < n; k++) {
+          const cx = ccx + (rnd() - 0.5) * 120, cy = ccy + (rnd() - 0.5) * 42;
+          const rx = 34 + rnd() * 62, ry = rx * (0.30 + rnd() * 0.16);
+          ctx.fillStyle = this.silColor(td.palette.deep, 0.42);
+          ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+          ctx.strokeStyle = this.silColor(td.palette.mid, 1.0, 0.16);
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, Math.PI * 1.15, Math.PI * 1.75); ctx.stroke();
+        }
+      }
+      // The ringed planet, high right: a dark disc with a pale
+      // ice rim, crossed by its ring.
+      const px = w * 0.78, py = h * 0.20, pr = 34;
+      ctx.fillStyle = this.silColor(td.palette.deep, 0.60);
+      ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = this.silColor([0.90, 0.97, 1.0], 1.0, 0.30);
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(px, py, pr, Math.PI * 1.05, Math.PI * 1.65); ctx.stroke();
+      ctx.strokeStyle = this.silColor([0.90, 0.97, 1.0], 1.0, 0.22);
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.ellipse(px, py, pr * 1.9, pr * 0.42, -0.32, 0, Math.PI * 2); ctx.stroke();
+    });
+  }
+
+  // World 7 mid: ice asteroids, faceted and tumbling: angular
+  // shards of dark magenta rock with ice-white facet lines.
+  private paintNebulaMid(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(702);
+    const fill = this.silColor(td.palette.deep, 0.58);
+    const facet = this.silColor([0.90, 0.97, 1.0], 1.0, 0.30);
+    this.tiled(ctx, w, () => {
+      for (let k = 0; k < 12; k++) {
+        const cx = rnd() * w, cy = h * (0.12 + rnd() * 0.66);
+        const R = 12 + rnd() * 26, rot = rnd() * Math.PI * 2;
+        const verts = 5 + Math.floor(rnd() * 3);
+        ctx.fillStyle = fill;
+        ctx.beginPath();
+        for (let vIdx = 0; vIdx < verts; vIdx++) {
+          const a = rot + (vIdx / verts) * Math.PI * 2;
+          const rr = R * (0.62 + rnd() * 0.5);
+          const vx = cx + Math.cos(a) * rr, vy = cy + Math.sin(a) * rr * 0.78;
+          if (vIdx === 0) ctx.moveTo(vx, vy); else ctx.lineTo(vx, vy);
+        }
+        ctx.closePath(); ctx.fill();
+        // One or two facet lines from the center of the rock.
+        ctx.strokeStyle = facet; ctx.lineWidth = 1.5;
+        for (let f = 0; f < 2; f++) {
+          const a = rot + rnd() * Math.PI * 2;
+          ctx.beginPath(); ctx.moveTo(cx, cy);
+          ctx.lineTo(cx + Math.cos(a) * R * 0.8, cy + Math.sin(a) * R * 0.62);
+          ctx.stroke();
+        }
+      }
+    });
+  }
+
+  // World 7 ground: an ice plain horizon with the aurora
+  // reflected in it: a two-tone streak (magenta, then teal),
+  // crack lines in pale ice, and dim mirrored glow pools.
+  private paintGroundIce(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(703);
+    ctx.fillStyle = this.silColor(td.palette.deep, 0.34);
+    ctx.fillRect(0, 18, w, h - 18);
+    // The aurora reflection: magenta wash on the left reach of
+    // the strip, teal on the right, both fading down.
+    const gradM = ctx.createLinearGradient(0, 18, 0, 44);
+    gradM.addColorStop(0, this.silColor(td.palette.mid, 1.0, 0.15));
+    gradM.addColorStop(1, this.silColor(td.palette.mid, 1.0, 0));
+    ctx.fillStyle = gradM;
+    ctx.fillRect(0, 18, w * 0.55, 26);
+    const teal = td.sky.secondaryGlow ?? [0.0, 0.9, 0.8];
+    const gradT = ctx.createLinearGradient(0, 18, 0, 44);
+    gradT.addColorStop(0, this.silColor(teal, 1.0, 0.13));
+    gradT.addColorStop(1, this.silColor(teal, 1.0, 0));
+    ctx.fillStyle = gradT;
+    ctx.fillRect(w * 0.45, 18, w * 0.55, 26);
+    // Mirrored glow pools.
+    for (let k = 0; k < 5; k++) {
+      const cx = rnd() * w, cy = 52 + rnd() * 52, rx = 26 + rnd() * 40;
+      const rgb = k % 2 === 0 ? td.palette.bright : teal;
+      const g = ctx.createRadialGradient(cx, cy, 1, cx, cy, rx);
+      g.addColorStop(0, this.silColor(rgb, 1.0, 0.07));
+      g.addColorStop(1, this.silColor(rgb, 1.0, 0));
+      ctx.fillStyle = g;
+      ctx.fillRect(cx - rx, cy - rx, rx * 2, rx * 2);
+    }
+    // Ice cracks: pale thin fractures.
+    ctx.strokeStyle = this.silColor([0.90, 0.97, 1.0], 1.0, 0.26);
+    ctx.lineWidth = 1.5;
+    for (let k = 0; k < 22; k++) {
+      let x = rnd() * w, y = 24 + rnd() * 64;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      const segs = 2 + Math.floor(rnd() * 3);
+      for (let s = 0; s < segs; s++) {
+        x += (rnd() - 0.5) * 110;
+        y += (rnd() - 0.5) * 18;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+  }
+
+  // World 8 far: dunes in smooth layered ridges, obelisks, and
+  // the broken colossus (Golden Sands sheet), all matte silhou-
+  // ette against the corner sun's haze.
+  private paintSandsFar(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(801);
+    // Two dune ridges behind everything: sine sums with whole-
+    // number periods so the wrap seam is invisible (the Ashen
+    // ridge trick, smoothed for sand).
+    const dune = (baseY: number, amp: number, f: number, p1: number, p2: number, ph: number) => {
+      const yAt = (x: number) => h * baseY + h * amp * (0.6 * Math.sin((2 * Math.PI * p1 * x) / w + ph) + 0.4 * Math.sin((2 * Math.PI * p2 * x) / w + ph * 1.7));
+      ctx.fillStyle = this.silColor(td.palette.deep, f);
+      ctx.beginPath();
+      ctx.moveTo(0, h);
+      ctx.lineTo(0, yAt(0));
+      for (let x = 12; x <= w; x += 12) ctx.lineTo(x, yAt(x));
+      ctx.lineTo(w, h);
+      ctx.closePath(); ctx.fill();
+    };
+    dune(0.66, 0.05, 0.42, 2, 5, 0.4);
+    dune(0.80, 0.06, 0.58, 3, 7, 1.9);
+    const fill = this.silColor(td.palette.deep, 0.66);
+    const rim = this.silColor(td.palette.mid, 1.0, 0.22);
+    this.tiled(ctx, w, () => {
+      // Obelisks: tapered pillars with a pyramidion cap, some
+      // standing on the far dune line, one snapped short.
+      for (let k = 0; k < 4; k++) {
+        const ox = rnd() * w, ow = 13 + rnd() * 10, oh = h * (0.20 + rnd() * 0.16), oy = h * 0.86;
+        ctx.fillStyle = fill;
+        ctx.beginPath();
+        ctx.moveTo(ox - ow * 0.62, oy);
+        ctx.lineTo(ox - ow * 0.40, oy - oh);
+        ctx.lineTo(ox + ow * 0.40, oy - oh);
+        ctx.lineTo(ox + ow * 0.62, oy);
+        ctx.closePath(); ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(ox - ow * 0.52, oy - oh);
+        ctx.lineTo(ox, oy - oh - ow * 0.72);
+        ctx.lineTo(ox + ow * 0.52, oy - oh);
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = rim; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(ox - ow * 0.40, oy - oh); ctx.lineTo(ox - ow * 0.62, oy); ctx.stroke();
+      }
+      // The broken colossus: a colossal head in profile, cracked
+      // at the crown, with its fallen forearm beside it.
+      const hx = w * 0.66, hy = h * 0.86, hs = h * 0.30;
+      ctx.fillStyle = fill;
+      ctx.beginPath();
+      ctx.moveTo(hx - hs * 0.52, hy);
+      ctx.lineTo(hx - hs * 0.55, hy - hs * 0.52); // jaw and face front
+      ctx.lineTo(hx - hs * 0.30, hy - hs * 0.60);
+      ctx.lineTo(hx - hs * 0.34, hy - hs * 0.88); // brow
+      ctx.lineTo(hx - hs * 0.05, hy - hs * 0.80); // the crack: crown dips
+      ctx.lineTo(hx + hs * 0.10, hy - hs * 0.97); // crown peak
+      ctx.lineTo(hx + hs * 0.48, hy - hs * 0.90);
+      ctx.lineTo(hx + hs * 0.55, hy - hs * 0.40);
+      ctx.lineTo(hx + hs * 0.50, hy);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = this.silColor(td.palette.deep, 0.30); ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(hx - hs * 0.05, hy - hs * 0.80); ctx.lineTo(hx + hs * 0.16, hy - hs * 0.45); ctx.stroke();
+      ctx.fillStyle = this.silColor(td.palette.deep, 0.24);
+      ctx.fillRect(hx - hs * 0.44, hy - hs * 0.44, hs * 0.30, hs * 0.07); // the eye slit, unlit
+      const fx = hx + hs * 0.95, fy = hy - hs * 0.10;
+      ctx.fillStyle = fill;
+      ctx.beginPath(); ctx.ellipse(fx, fy, hs * 0.42, hs * 0.13, -0.18, 0, Math.PI * 2); ctx.fill(); // fallen forearm
+      for (let fg = 0; fg < 3; fg++) { // three finger blocks
+        ctx.fillRect(fx + hs * (0.28 + fg * 0.14), fy - hs * 0.16 - fg * hs * 0.02, hs * 0.09, hs * 0.14);
+      }
+    });
+  }
+
+  // World 8 mid: wind-blown sand sheets (wide, faint, fast in
+  // feel: long horizontal streaks) and tumbling shards of
+  // pottery-bright stone.
+  private paintSandsMid(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(802);
+    this.tiled(ctx, w, () => {
+      // Sand sheets: very flat ellipses at low alpha, in the
+      // palette's bright band so they read as lit dust, not fog.
+      for (let k = 0; k < 9; k++) {
+        const cx = rnd() * w, cy = h * (0.10 + rnd() * 0.72);
+        const rx = 90 + rnd() * 170, ry = 3 + rnd() * 6;
+        ctx.fillStyle = this.silColor(td.palette.bright, 1.0, 0.05 + rnd() * 0.04);
+        ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+      }
+      // Pottery shards: small angular pieces with one lit edge.
+      for (let k = 0; k < 13; k++) {
+        const cx = rnd() * w, cy = h * (0.12 + rnd() * 0.66);
+        const R = 7 + rnd() * 13, rot = rnd() * Math.PI * 2;
+        ctx.fillStyle = this.silColor(td.palette.deep, 0.62);
+        ctx.beginPath();
+        for (let vIdx = 0; vIdx < 4; vIdx++) {
+          const a = rot + (vIdx / 4) * Math.PI * 2;
+          const rr = R * (0.6 + rnd() * 0.55);
+          const vx = cx + Math.cos(a) * rr, vy = cy + Math.sin(a) * rr * 0.8;
+          if (vIdx === 0) ctx.moveTo(vx, vy); else ctx.lineTo(vx, vy);
+        }
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = this.silColor(td.palette.mid, 1.0, 0.30);
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(cx - R * 0.6, cy - R * 0.3); ctx.lineTo(cx + R * 0.4, cy - R * 0.55); ctx.stroke();
+      }
+    });
+  }
+
+  // World 8 ground: a dune ridge line with ruins half-buried:
+  // block tops and a broken column shoulder out of the sand
+  // along the line.
+  private paintGroundDune(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(803);
+    const yAt = (x: number) => 30 + 6 * Math.sin((2 * Math.PI * 3 * x) / w + 0.8) + 3 * Math.sin((2 * Math.PI * 8 * x) / w);
+    // Warm haze wash above the line.
+    const grad = ctx.createLinearGradient(0, 8, 0, 34);
+    grad.addColorStop(0, this.silColor(td.palette.mid, 1.0, 0.10));
+    grad.addColorStop(1, this.silColor(td.palette.mid, 1.0, 0));
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 8, w, 26);
+    // Sand mass below the line.
+    const grad2 = ctx.createLinearGradient(0, 26, 0, h);
+    grad2.addColorStop(0, this.silColor(td.palette.deep, 0.34));
+    grad2.addColorStop(1, this.silColor(td.palette.deep, 0.20));
+    ctx.fillStyle = grad2;
+    ctx.beginPath();
+    ctx.moveTo(0, yAt(0));
+    for (let x = 16; x <= w; x += 16) ctx.lineTo(x, yAt(x));
+    ctx.lineTo(w, h); ctx.lineTo(0, h);
+    ctx.closePath(); ctx.fill();
+    // The ridge line itself, sunlit.
+    ctx.beginPath();
+    ctx.moveTo(0, yAt(0));
+    for (let x = 8; x <= w; x += 8) ctx.lineTo(x, yAt(x));
+    ctx.strokeStyle = this.silColor(td.palette.mid, 1.0, 0.6);
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    // Half-buried ruins: block tops and one broken column,
+    // sunk into the ridge at their bases.
+    ctx.fillStyle = this.silColor(td.palette.deep, 0.55);
+    for (let k = 0; k < 6; k++) {
+      const bx = rnd() * w, bw = 22 + rnd() * 34, bh = 8 + rnd() * 12;
+      ctx.fillRect(bx, yAt(bx) - bh + 4, bw, bh);
+    }
+    const cx0 = rnd() * w;
+    ctx.fillRect(cx0, yAt(cx0) - 26, 11, 30);
+    ctx.fillRect(cx0 - 3, yAt(cx0) - 30, 17, 6); // capital fragment
+  }
+
+  // World 9 far: gothic spires and dead trees (Blood Moon
+  // sheet). The moon itself is not painted here: it waxes with
+  // run progress, so it lives on its own mesh (applyThemeScene).
+  private paintBloodFar(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(901);
+    const fill = this.silColor(td.palette.deep, 0.52);
+    const base = h * 0.99;
+    this.tiled(ctx, w, () => {
+      // Gothic spires: thin towers with a pointed cap and a
+      // crossbar or two, rooted at the base line.
+      for (let k = 0; k < 6; k++) {
+        const sx = rnd() * w, sw = 9 + rnd() * 13, sh = h * (0.24 + rnd() * 0.30);
+        ctx.fillStyle = fill;
+        ctx.fillRect(sx - sw / 2, base - sh, sw, sh);
+        ctx.beginPath();
+        ctx.moveTo(sx - sw * 0.72, base - sh);
+        ctx.lineTo(sx, base - sh - sw * 1.5);
+        ctx.lineTo(sx + sw * 0.72, base - sh);
+        ctx.closePath(); ctx.fill();
+        ctx.fillRect(sx - sw * 0.95, base - sh * (0.45 + rnd() * 0.2), sw * 1.9, 3.5); // crossbar
+      }
+      // Dead trees: a tapering trunk and bare recursive-looking
+      // branches, drawn as tapering strokes.
+      const branch = (x: number, y: number, ang: number, len: number, wd: number, depth: number) => {
+        const ex = x + Math.cos(ang) * len, ey = y - Math.sin(ang) * len;
+        ctx.strokeStyle = fill; ctx.lineWidth = wd;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(ex, ey); ctx.stroke();
+        if (depth <= 0) return;
+        branch(ex, ey, ang + 0.38 + rnd() * 0.25, len * 0.68, wd * 0.62, depth - 1);
+        branch(ex, ey, ang - 0.34 - rnd() * 0.25, len * 0.64, wd * 0.62, depth - 1);
+        if (rnd() < 0.5) branch(ex, ey, ang + (rnd() - 0.5) * 0.2, len * 0.5, wd * 0.5, depth - 1);
+      };
+      for (let k = 0; k < 4; k++) {
+        branch(rnd() * w, base, Math.PI / 2 + (rnd() - 0.5) * 0.14, h * (0.15 + rnd() * 0.07), 7, 3);
+      }
+    });
+  }
+
+  // World 9 mid: floating rock shards and bone-like shards,
+  // moonlit on one edge.
+  private paintBloodMid(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(902);
+    const fill = this.silColor(td.palette.deep, 0.62);
+    const rim = this.silColor(td.palette.mid, 1.0, 0.28);
+    this.tiled(ctx, w, () => {
+      for (let k = 0; k < 10; k++) {
+        const cx = rnd() * w, cy = h * (0.14 + rnd() * 0.6);
+        const R = 10 + rnd() * 22, rot = rnd() * Math.PI * 2;
+        ctx.fillStyle = fill;
+        ctx.beginPath();
+        for (let vIdx = 0; vIdx < 5; vIdx++) {
+          const a = rot + (vIdx / 5) * Math.PI * 2;
+          const rr = R * (0.6 + rnd() * 0.55);
+          const vx = cx + Math.cos(a) * rr, vy = cy + Math.sin(a) * rr * 0.8;
+          if (vIdx === 0) ctx.moveTo(vx, vy); else ctx.lineTo(vx, vy);
+        }
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = rim; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(cx - R * 0.55, cy - R * 0.35); ctx.lineTo(cx + R * 0.3, cy - R * 0.6); ctx.stroke();
+      }
+      // Bone shards: pale elongated capsules with knob ends,
+      // dimmer than any pickup, unmistakably debris. Kept small
+      // and dim: a first cut at stage size read as a bright
+      // gray chain across the menu (Stage 8 screenshot review).
+      for (let k = 0; k < 5; k++) {
+        const cx = rnd() * w, cy = h * (0.2 + rnd() * 0.55);
+        const len = 9 + rnd() * 13, ang = rnd() * Math.PI;
+        const dx = Math.cos(ang), dy = Math.sin(ang);
+        ctx.strokeStyle = this.silColor([0.72, 0.60, 0.52], 1.0, 0.19);
+        ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.moveTo(cx - dx * len / 2, cy - dy * len / 2); ctx.lineTo(cx + dx * len / 2, cy + dy * len / 2); ctx.stroke();
+        ctx.fillStyle = this.silColor([0.72, 0.60, 0.52], 1.0, 0.19);
+        for (const sgn of [-1, 1]) {
+          ctx.beginPath(); ctx.arc(cx + dx * len / 2 * sgn, cy + dy * len / 2 * sgn, 2.9, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+    });
+  }
+
+  // World 9 ground: a dark ridge with the moon's reflection in
+  // a thin red line along its crest.
+  private paintGroundBloodRidge(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const yAt = (x: number) => 30 + 5 * Math.sin((2 * Math.PI * 2 * x) / w + 2.1) + 4 * Math.sin((2 * Math.PI * 6 * x) / w + 0.4);
+    // Ridge mass: the darkest ground in the game so far.
+    const grad = ctx.createLinearGradient(0, 24, 0, h);
+    grad.addColorStop(0, this.silColor(td.palette.deep, 0.50));
+    grad.addColorStop(1, this.silColor(td.palette.deep, 0.34));
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(0, yAt(0));
+    for (let x = 16; x <= w; x += 16) ctx.lineTo(x, yAt(x));
+    ctx.lineTo(w, h); ctx.lineTo(0, h);
+    ctx.closePath(); ctx.fill();
+    // The moon's reflection: a thin red line riding the crest.
+    ctx.beginPath();
+    ctx.moveTo(0, yAt(0));
+    for (let x = 8; x <= w; x += 8) ctx.lineTo(x, yAt(x));
+    ctx.strokeStyle = this.silColor(td.palette.bright, 1.0, 0.55);
+    ctx.lineWidth = 2;
+    ctx.shadowColor = this.silColor(td.palette.bright, 1.0, 0.7);
+    ctx.shadowBlur = 8;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  // World 10 far: broken world shards, one silhouette motif
+  // from each of the nine worlds before it (Abyssal Rift
+  // sheet), drifting in the black. The palette's deep band is
+  // true black, so the shards are drawn in the mid violet
+  // darkened, with a bright edge catching the rift light on a
+  // few of them.
+  private paintRiftFar(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const fill = this.silColor(td.palette.mid, 0.60);
+    const edge = this.silColor(td.palette.bright, 1.0, 0.35);
+    // Nine motifs on a loose scatter, each a simplified glyph
+    // of its world's far layer. Drawn once across the tile;
+    // the tiled() wrap keeps the field continuous.
+    const motifs: Array<[number, number, number, (x: number, y: number, s: number) => void]> = [
+      [0.06, 0.62, 46, (x, y, s) => { // basalt spire (World 1)
+        ctx.beginPath(); ctx.moveTo(x - s * 0.3, y + s); ctx.lineTo(x - s * 0.1, y - s * 0.6); ctx.lineTo(x + s * 0.12, y - s); ctx.lineTo(x + s * 0.3, y - s * 0.55); ctx.lineTo(x + s * 0.34, y + s); ctx.closePath(); ctx.fill();
+      }],
+      [0.17, 0.34, 40, (x, y, s) => { // sunken pillar (World 2)
+        ctx.fillRect(x - s * 0.16, y - s, s * 0.32, s * 2);
+        ctx.fillRect(x - s * 0.3, y - s, s * 0.6, s * 0.18);
+        ctx.fillRect(x - s * 0.3, y + s * 0.82, s * 0.6, s * 0.18);
+      }],
+      [0.28, 0.70, 42, (x, y, s) => { // crystal shard (World 3)
+        ctx.beginPath(); ctx.moveTo(x, y - s); ctx.lineTo(x + s * 0.34, y); ctx.lineTo(x, y + s * 0.4); ctx.lineTo(x - s * 0.34, y); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = edge; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(x, y - s); ctx.lineTo(x + s * 0.34, y); ctx.stroke();
+      }],
+      [0.39, 0.28, 36, (x, y, s) => { // leaf (World 4)
+        ctx.beginPath(); ctx.ellipse(x, y, s * 0.36, s * 0.85, 0.5, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = edge; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(x - s * 0.3, y + s * 0.7); ctx.lineTo(x + s * 0.3, y - s * 0.7); ctx.stroke();
+      }],
+      [0.50, 0.58, 48, (x, y, s) => { // peak (World 5)
+        ctx.beginPath(); ctx.moveTo(x - s, y + s * 0.7); ctx.lineTo(x - s * 0.2, y - s * 0.5); ctx.lineTo(x + s * 0.15, y - s * 0.1); ctx.lineTo(x + s * 0.45, y - s * 0.75); ctx.lineTo(x + s, y + s * 0.7); ctx.closePath(); ctx.fill();
+      }],
+      [0.61, 0.32, 44, (x, y, s) => { // cathedral shard (World 6)
+        ctx.beginPath(); ctx.moveTo(x, y - s); ctx.lineTo(x + s * 0.26, y + s * 0.3); ctx.lineTo(x, y + s * 0.55); ctx.lineTo(x - s * 0.26, y + s * 0.3); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(x - s * 0.5, y + s * 0.55); ctx.lineTo(x - s * 0.36, y - s * 0.3); ctx.lineTo(x - s * 0.2, y + s * 0.55); ctx.closePath(); ctx.fill();
+      }],
+      [0.72, 0.66, 38, (x, y, s) => { // ringed planet fragment (World 7)
+        ctx.beginPath(); ctx.arc(x, y, s * 0.55, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = edge; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(x, y, s * 1.05, s * 0.24, -0.32, 0, Math.PI * 2); ctx.stroke();
+      }],
+      [0.83, 0.36, 42, (x, y, s) => { // obelisk (World 8)
+        ctx.beginPath(); ctx.moveTo(x - s * 0.2, y + s); ctx.lineTo(x - s * 0.13, y - s * 0.7); ctx.lineTo(x, y - s); ctx.lineTo(x + s * 0.13, y - s * 0.7); ctx.lineTo(x + s * 0.2, y + s); ctx.closePath(); ctx.fill();
+      }],
+      [0.93, 0.60, 40, (x, y, s) => { // dead tree (World 9)
+        ctx.strokeStyle = fill; ctx.lineWidth = 5;
+        ctx.beginPath(); ctx.moveTo(x, y + s); ctx.lineTo(x + s * 0.06, y - s * 0.5); ctx.stroke();
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(x + s * 0.06, y - s * 0.5); ctx.lineTo(x - s * 0.4, y - s * 0.85); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x + s * 0.06, y - s * 0.5); ctx.lineTo(x + s * 0.45, y - s * 0.95); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x + s * 0.02, y - s * 0.15); ctx.lineTo(x + s * 0.5, y - s * 0.4); ctx.stroke();
+      }],
+    ];
+    this.tiled(ctx, w, () => {
+      for (const [fx, fy, s, draw] of motifs) {
+        ctx.fillStyle = fill;
+        draw(fx * w, fy * h, s);
+      }
+    });
+  }
+
+  // World 10 mid: rift shards of black glass with bright edges:
+  // near-black violet polygons, one edge each lit star white.
+  private paintRiftMid(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = this.themeRng(1002);
+    const fill = this.silColor(td.palette.mid, 0.34);
+    const edge = this.silColor(td.palette.bright, 1.0, 0.55);
+    this.tiled(ctx, w, () => {
+      for (let k = 0; k < 13; k++) {
+        const cx = rnd() * w, cy = h * (0.10 + rnd() * 0.72);
+        const R = 10 + rnd() * 24, rot = rnd() * Math.PI * 2;
+        const verts = 4 + Math.floor(rnd() * 3);
+        const pts: Array<[number, number]> = [];
+        for (let vIdx = 0; vIdx < verts; vIdx++) {
+          const a = rot + (vIdx / verts) * Math.PI * 2;
+          const rr = R * (0.6 + rnd() * 0.55);
+          pts.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr * 0.82]);
+        }
+        ctx.fillStyle = fill;
+        ctx.beginPath();
+        pts.forEach(([vx, vy], idx) => { if (idx === 0) ctx.moveTo(vx, vy); else ctx.lineTo(vx, vy); });
+        ctx.closePath(); ctx.fill();
+        // The bright edge: the shard's longest upper edge.
+        ctx.strokeStyle = edge; ctx.lineWidth = 1.8;
+        ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); ctx.lineTo(pts[1][0], pts[1][1]); ctx.stroke();
+      }
+    });
+  }
+
+  // World 10 ground: none (World 10 sheet). The horizon band
+  // is removed for the only time in the game; the player flies
+  // over open void with the rift's glow below. The absence is
+  // the theme, so this painter paints nothing.
+  private paintGroundNone(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    // Intentionally empty: no ground strip for the Abyssal Rift.
   }
 
   private onMouseMove(event: MouseEvent) {
@@ -1924,9 +2667,23 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
             positions[i] += aSpd * dt;
             if (positions[i] > halfBox) { positions[i] = -halfBox; positions[i+1] = (Math.random() - 0.5) * this.ambientBoxSize; }
           } else if (aDir === 'mixed') {
-            positions[i+1] += (i % 6 === 0 ? aSpd : -aSpd) * 0.6 * dt;
-            if (positions[i+1] > halfBox) positions[i+1] = -halfBox;
-            else if (positions[i+1] < -halfBox) positions[i+1] = halfBox;
+            if (this.themedWorldIndex === 9) {
+              // Abyssal Rift (Stage 8): motes rise against
+              // gravity on the seam's right side and fall on its
+              // left (the seam stands at local x = 7, where its
+              // planes stand); every tenth point is a star and
+              // does not move at all, the game's only static
+              // atmosphere (World 10 sheet).
+              if ((i / 3) % 10 !== 0) {
+                positions[i+1] += (positions[i] > 7 ? aSpd : -aSpd) * 0.6 * dt;
+                if (positions[i+1] > halfBox) positions[i+1] = -halfBox;
+                else if (positions[i+1] < -halfBox) positions[i+1] = halfBox;
+              }
+            } else {
+              positions[i+1] += (i % 6 === 0 ? aSpd : -aSpd) * 0.6 * dt;
+              if (positions[i+1] > halfBox) positions[i+1] = -halfBox;
+              else if (positions[i+1] < -halfBox) positions[i+1] = halfBox;
+            }
           } else if (aDir === 'suspended') {
             positions[i+1] -= aSpd * 0.06 * dt;
             if (positions[i+1] < -halfBox) positions[i+1] = halfBox;
@@ -1936,6 +2693,13 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
             // on the fall, phased per point. Zero amplitude in every
             // other world, so their fall is unchanged.
             if (this.atmosphereSway > 0) positions[i] += Math.sin(this.themeTime * 0.7 + i * 0.37) * this.atmosphereSway * dt;
+            // Blood Moon rain angle (Stage 8): a constant sideways
+            // drift on the fall. Zero in every other world.
+            if (this.atmosphereDriftX !== 0) {
+              positions[i] += this.atmosphereDriftX * dt;
+              if (positions[i] < -halfBox) positions[i] = halfBox;
+              else if (positions[i] > halfBox) positions[i] = -halfBox;
+            }
             if (positions[i+1] < -halfBox) { positions[i+1] = halfBox; positions[i] = (Math.random() - 0.5) * this.ambientBoxSize; }
           }
         }
@@ -1957,6 +2721,31 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
         if (this.backdropMesh && this.backdropMesh.visible && this.backdropTex) {
           this.backdropTex.offset.x = (this.themeTime * 0.0028) % 1;
           this.backdropMesh.position.x = -this.bird.position.x * 0.08 * 2 * (49 / 20);
+        }
+
+        // Stage 8 set pieces. Blood Moon: the moon follows the
+        // BGM clock (updateMoon repaints only on a lit-step
+        // change, so the per-frame cost is two getters).
+        if (this.moonMesh && this.moonMesh.visible) this.updateMoon();
+        // Abyssal Rift: the seam pulses with the audio intensity
+        // (the one reactive sky, spec Section 6), smoothed toward
+        // the live value; a small idle shimmer keeps the seam
+        // breathing where no analyser signal exists.
+        if (this.riftCoreMesh && this.riftCoreMesh.visible && this.riftHaloMesh) {
+          const target = this.audioService.getAudioIntensity();
+          this.riftPulse += (target - this.riftPulse) * Math.min(1, dt * 5);
+          const shimmer = 0.05 * Math.sin(this.themeTime * 1.3);
+          (this.riftCoreMesh.material as THREE.MeshBasicMaterial).opacity = 0.52 + 0.40 * this.riftPulse + shimmer;
+          (this.riftHaloMesh.material as THREE.MeshBasicMaterial).opacity = 0.17 + 0.28 * this.riftPulse + shimmer * 0.6;
+          const sx = 1 + 0.18 * this.riftPulse;
+          this.riftCoreMesh.scale.x = sx;
+          this.riftHaloMesh.scale.x = sx;
+        }
+        // Neon Nebula: refresh the aurora tint on the snow twice
+        // a second (band crossings take tens of seconds).
+        if (this.themedWorldIndex === 6 && this.themeTime - this.lastAuroraTintAt > 0.5) {
+          this.lastAuroraTintAt = this.themeTime;
+          this.tintAuroraSnow();
         }
 
         // Dynamic pixel-ratio step-down (spec Section 1.4): while
@@ -3147,9 +3936,12 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
           const pPositions = entity.mesh.geometry.attributes['position'].array as Float32Array;
           const total = entity.layerFlags ? entity.layerFlags.length : 1;
           const hf = data.maxHealth ? Math.max(0, Math.min(1, (data.health ?? data.maxHealth) / data.maxHealth)) : 1;
+          // Heart Pod (Blood Moon): the whole body rides the
+          // heartbeat scale on top of the thinning.
+          const beat = this.gameState.selectedWorldIndex() === 8 ? this.heartBeatScale(entity.timeOffset || 0) : 1;
           for (let i = 0; i < pPositions.length; i += 3) {
             const frac = (i / 3) / total;
-            const s = frac > hf ? 0.15 : 1;
+            const s = (frac > hf ? 0.15 : 1) * beat;
             pPositions[i] = entity.basePositions[i] * s;
             pPositions[i + 1] = entity.basePositions[i + 1] * s;
             pPositions[i + 2] = entity.basePositions[i + 2] * s;
@@ -3173,8 +3965,11 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
             colAttr.needsUpdate = true;
           }
         } else {
-          const t = Date.now() * 0.004 + (entity.timeOffset || 0);
-          const s = 1 + Math.sin(t) * 0.05;
+          // Budgeted path: a gentle breathing pulse, or the
+          // Heart Pod's heartbeat in Blood Moon.
+          const s = this.gameState.selectedWorldIndex() === 8
+            ? this.heartBeatScale(entity.timeOffset || 0)
+            : 1 + Math.sin(Date.now() * 0.004 + (entity.timeOffset || 0)) * 0.05;
           entity.mesh.scale.set(s, s, s);
         }
       }

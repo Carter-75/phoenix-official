@@ -55,7 +55,8 @@ export interface EntityBuildContext {
 // 2 Gloomwing note is the standing warning: keep the blue base low
 // relative to red wherever a wing must not walk to the hostile
 // magenta, and verify by census). Worlds 4 to 6 variants landed
-// with Stage 7; Worlds 7 to 10 land with Stage 8.
+// with Stage 7 and Worlds 7 to 10 with Stage 8, which completes
+// the variant map: every world now restyles its sheet's types.
 // ---------------------------------------------------------------------------
 export interface VariantPalette {
   core: Rgb; // core layer base color (sparse points may take it at full value)
@@ -71,6 +72,12 @@ export interface VariantPalette {
   // Stage 7: the Thornmother's one geometry tweak: her dome and
   // her Thorn Mines' shells carry the mine family's spike factor.
   thorned?: boolean;
+  // Stage 8: the Desert Seedmother's mines (Golden Sands sheet)
+  // are sand-buried: the Rift Mine sampler flattens the shell's
+  // lower half so the mine reads half-sunk, its blinking core the
+  // only part showing. Positions only; the physics body is not
+  // built here and does not change.
+  buried?: boolean;
 }
 
 export const VARIANT_PALETTES: Record<number, Record<string, VariantPalette>> = {
@@ -141,6 +148,99 @@ export const VARIANT_PALETTES: Record<number, Record<string, VariantPalette>> = 
     // crystal cells (sheet). Cell hearts go cyan-white; the shell
     // is a warm rock gray so the cells read as crystals in stone.
     pod: { core: [0.35, 0.85, 1.0], body: [0.038, 0.036, 0.034], accent: [0.35, 0.85, 1.0] },
+  },
+  // World 7, Neon Nebula (world index 6). Stage 8 batch. The
+  // world's ice identity rides in the variants: pale ice bodies
+  // and white cores against the nebula's magenta.
+  6: {
+    // Neon Wisp (the Aether Wisp in this world): ring tinted
+    // pink, core pink-white (sheet). The ring base keeps green
+    // near zero so stacks read pink-magenta, and the core is a
+    // saturated pink-white so it never matches the default's
+    // cyan (a near-neutral white core read as no separation in
+    // the Stage 8 portrait census, so the pink was deepened).
+    wisp: { core: [1.0, 0.34, 0.56], body: [0.150, 0.010, 0.052], accent: [1.0, 0.30, 0.64] },
+    // Frostwraith (the Shroud Phantom in this world): pale body,
+    // snow trail (sheet). Hood and trailing wisps go pale
+    // blue-gray, clearly brighter than the default's slate
+    // violet; the eyes stay ice white.
+    phantom: { core: [0.90, 0.97, 1.0], body: [0.066, 0.078, 0.104], accent: [0.90, 0.97, 1.0] },
+    // Rime Moth (the Pyre Moth in this world): ice blue-white
+    // body (sheet); the warm cream-orange fuzz goes pale ice,
+    // the hot center an ice-white core.
+    pyre_moth: { core: [0.90, 0.97, 1.0], body: [0.045, 0.065, 0.088], accent: [0.90, 0.97, 1.0] },
+  },
+  // World 8, Golden Sands (world index 7). Stage 8 batch. Matte
+  // sand and stone everywhere; gold lives on the Shieldback's
+  // face, bronze and tan on the rest.
+  7: {
+    // Gilded Shieldback: shield face gold-bronze (sheet). The
+    // rim ring goes full gold, the face plate a bronze band,
+    // the mass behind a dark warm brown.
+    shieldback: { core: [0.95, 0.68, 0.22], body: [0.030, 0.020, 0.006], accent: [0.95, 0.68, 0.22], rim: [0.95, 0.68, 0.22], face: [0.088, 0.058, 0.016] },
+    // Desert Seedmother: a sandy dome the color of the dunes;
+    // her eggs keep their hostile hearts (they are mines) under
+    // sand-dark shells.
+    seedmother: { core: [1.0, 0.18, 0.42], body: [0.088, 0.046, 0.012], accent: [0.062, 0.033, 0.009] },
+    // The Desert Seedmother's mines, sand-buried (sheet): the
+    // shell is sand-matte and its lower half is flattened (the
+    // buried tweak in the Rift Mine sampler), so mostly the
+    // blinking hostile core shows.
+    rift_mine: { core: [1.0, 0.18, 0.42], body: [0.056, 0.042, 0.013], accent: [0.056, 0.042, 0.013], buried: true },
+    // Sandstone Golem: rocks tan, core amber (sheet). The body
+    // value is the rock tint multiplier, as in the other golem
+    // variants: tan stone against the default's gray.
+    golem: { core: [0.95, 0.62, 0.10], body: [0.52, 0.40, 0.20], accent: [0.95, 0.62, 0.10] },
+  },
+  // World 9, Blood Moon (world index 8). Stage 8 batch. Every
+  // variant is a shade of the moon's own red.
+  8: {
+    // Blood Chanter: bell body dark red (sheet); the note-sparks
+    // go blood crimson (blue kept low, so they read blood, not
+    // the hostile magenta), the rim lip a dull dried red.
+    chanter: { core: [0.97, 0.13, 0.12], body: [0.125, 0.010, 0.013], accent: [0.55, 0.07, 0.06] },
+    // Blood Moth (the Pyre Moth in this world): deep red body
+    // (sheet); the warm fuzz and hot center both go blood.
+    pyre_moth: { core: [1.0, 0.26, 0.18], body: [0.076, 0.010, 0.012], accent: [1.0, 0.26, 0.18] },
+    // Bloodwyrm (the Loom Serpent in this world): deep red
+    // segmented ribbon (sheet). Head core blood-white, fins and
+    // skull mass deep red, the gold spine gone ember-red.
+    serpent: { core: [1.0, 0.36, 0.26], body: [0.056, 0.008, 0.010], accent: [0.50, 0.14, 0.07] },
+    serpent_segment: { core: [0.44, 0.12, 0.06], body: [0.044, 0.007, 0.009], accent: [0.44, 0.12, 0.06] },
+    // Heart Pod (the Brood Pod in this world): the cells
+    // visibly beat (sheet). The beat itself is the renderer's
+    // scale pulse for pods in this world (particle-bg); here
+    // the cell hearts go blood pink and the shell a dark
+    // blood-brown.
+    pod: { core: [1.0, 0.13, 0.11], body: [0.115, 0.022, 0.018], accent: [1.0, 0.13, 0.11] },
+  },
+  // World 10, Abyssal Rift (world index 9). Stage 8 batch. The
+  // whole roster returns Rift-touched (World 10 sheet): deep
+  // palettes shifted toward black with white accents, cores at
+  // full brightness. One treatment for every type: bodies go
+  // black-violet, cores and accents go star white (the palette's
+  // bright band, 0.95 / 0.90 / 1.0), and the hostile hearts that
+  // are hostile by rule (mine cores, the wraith's eye, the
+  // mother's eggs) stay hostile.
+  9: {
+    slime: { core: [0.95, 0.90, 1.0], body: [0.014, 0.007, 0.027], accent: [0.95, 0.90, 1.0] },
+    bat: { core: [0.95, 0.90, 1.0], body: [0.010, 0.005, 0.021], accent: [0.95, 0.90, 1.0] },
+    golem: { core: [0.95, 0.90, 1.0], body: [0.17, 0.15, 0.24], accent: [0.95, 0.90, 1.0] },
+    imp: { core: [0.95, 0.90, 1.0], body: [0.012, 0.006, 0.025], accent: [0.72, 0.58, 1.0] },
+    wisp: { core: [0.97, 0.94, 1.0], body: [0.016, 0.008, 0.031], accent: [0.97, 0.94, 1.0] },
+    pod: { core: [0.95, 0.90, 1.0], body: [0.016, 0.010, 0.025], accent: [0.95, 0.90, 1.0] },
+    mite: { core: [0.95, 0.90, 1.0], body: [0.020, 0.012, 0.034], accent: [0.95, 0.90, 1.0] },
+    sentry_shard: { core: [0.97, 0.94, 1.0], body: [0.014, 0.010, 0.029], accent: [0.97, 0.94, 1.0] },
+    seedmother: { core: [1.0, 0.18, 0.42], body: [0.020, 0.012, 0.031], accent: [0.012, 0.008, 0.023] },
+    rift_mine: { core: [1.0, 0.18, 0.42], body: [0.010, 0.006, 0.021], accent: [0.010, 0.006, 0.021] },
+    shieldback: { core: [0.95, 0.90, 1.0], body: [0.010, 0.007, 0.019], accent: [0.95, 0.90, 1.0], rim: [0.92, 0.88, 1.0], face: [0.032, 0.025, 0.054] },
+    pyre_moth: { core: [0.97, 0.94, 1.0], body: [0.016, 0.010, 0.029], accent: [0.97, 0.94, 1.0] },
+    phantom: { core: [0.95, 0.90, 1.0], body: [0.013, 0.009, 0.024], accent: [0.95, 0.90, 1.0] },
+    wraith: { core: [1.0, 0.18, 0.42], body: [0.016, 0.012, 0.031], accent: [0.058, 0.048, 0.088] },
+    chanter: { core: [0.95, 0.90, 1.0], body: [0.018, 0.010, 0.031], accent: [0.42, 0.36, 0.58] },
+    serpent: { core: [0.72, 0.45, 1.0], body: [0.014, 0.008, 0.026], accent: [0.55, 0.38, 0.95] },
+    serpent_segment: { core: [0.42, 0.28, 0.78], body: [0.012, 0.007, 0.023], accent: [0.42, 0.28, 0.78] },
+    darter: { core: [0.97, 0.94, 1.0], body: [0.014, 0.010, 0.029], accent: [0.97, 0.94, 1.0] },
   },
 };
 
@@ -436,6 +536,11 @@ const DEFS: Record<string, EntityVisualDef> = {
     count: 800,
     animated: true,
     sample: (i, count, r, ctx, out) => {
+      // Stage 8 variants: the Neon Wisp (Neon Nebula) wears a
+      // pink ring around a white core; the Rift-touched wisp
+      // (Abyssal Rift) a black-violet ring around a star-white
+      // core. Positions unchanged.
+      const variant = variantFor(ctx, 'wisp');
       if (i < count * 0.2) {
         // Bright core floating in the ring's hollow.
         const rad = Math.cbrt(Math.random()) * r * 0.3;
@@ -445,7 +550,8 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.y = rad * Math.sin(v) * Math.sin(u);
         out.z = rad * Math.cos(v);
         const m = Math.random();
-        out.cr = 0.85 + m * 0.15; out.cg = 0.97; out.cb = 1.0; // White-cyan
+        if (variant) { const s = 0.85 + m * 0.15; out.cr = variant.core[0] * s; out.cg = variant.core[1] * s; out.cb = variant.core[2] * s; }
+        else { out.cr = 0.85 + m * 0.15; out.cg = 0.97; out.cb = 1.0; } // White-cyan
         out.layer = 1;
       } else {
         // Ring: the vertex index walks the 300 degree arc so the gap
@@ -458,11 +564,13 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.y = Math.sin(a) * rad;
         out.z = (Math.random() - 0.5) * 0.36 * r;
         if (i % 50 === 0) {
-          out.cr = 0.6; out.cg = 0.95; out.cb = 1.0;
+          if (variant) { out.cr = variant.accent[0]; out.cg = variant.accent[1]; out.cb = variant.accent[2]; }
+          else { out.cr = 0.6; out.cg = 0.95; out.cb = 1.0; }
           out.layer = 1;
         } else {
           const m = Math.random();
-          out.cr = 0.10 + m * 0.06; out.cg = 0.34 + m * 0.14; out.cb = 0.44 + m * 0.16; // Pale cyan ring
+          if (variant) { const s = 0.75 + m * 0.55; out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s; }
+          else { out.cr = 0.10 + m * 0.06; out.cg = 0.34 + m * 0.14; out.cb = 0.44 + m * 0.16; } // Pale cyan ring
           out.layer = 0;
         }
       }
@@ -518,6 +626,9 @@ const DEFS: Record<string, EntityVisualDef> = {
     count: 200,
     animated: true,
     sample: (i, count, r, ctx, out) => {
+      // Stage 8 variant: the Rift-touched mite (Abyssal Rift)
+      // burns star white at the heart with black-violet wings.
+      const variant = variantFor(ctx, 'mite');
       const p = Math.random();
       if (p < 0.4) {
         const rad = Math.cbrt(Math.random()) * r * 0.45;
@@ -527,7 +638,8 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.y = rad * Math.sin(v) * Math.sin(u);
         out.z = rad * Math.cos(v);
         const m = Math.random();
-        out.cr = 1.0; out.cg = 0.82 + m * 0.16; out.cb = 0.35 + m * 0.25; // Hot spark heart
+        if (variant) { const s = 0.87 + m * 0.26; out.cr = variant.core[0] * s; out.cg = variant.core[1] * s; out.cb = variant.core[2] * s; }
+        else { out.cr = 1.0; out.cg = 0.82 + m * 0.16; out.cb = 0.35 + m * 0.25; } // Hot spark heart
         out.layer = 1;
       } else {
         const isLeft = p < 0.7;
@@ -536,7 +648,8 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.y = (Math.random() - 0.5) * 0.5 * r + span * 0.15;
         out.z = (Math.random() - 0.5) * 0.2 * r;
         const m = Math.random();
-        out.cr = 0.22 + m * 0.12; out.cg = 0.10 + m * 0.05; out.cb = 0.015; // Dim amber wing
+        if (variant) { const s = 0.75 + m * 0.55; out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s; }
+        else { out.cr = 0.22 + m * 0.12; out.cg = 0.10 + m * 0.05; out.cb = 0.015; } // Dim amber wing
         out.layer = 0;
       }
     },
@@ -672,6 +785,11 @@ const DEFS: Record<string, EntityVisualDef> = {
         // Stage 7 variant: the Thorn Mine (Verdant Canopy) runs
         // the spike factor stronger (the root tangle) and wears a
         // green-brown shell; the hostile heart above is unchanged.
+        // Stage 8 variant: the Desert mine (Golden Sands) is
+        // sand-buried: the shell's lower half is flattened so the
+        // mine reads half-sunk in the dune, its core the part
+        // that shows. Positions only; the physics body is built
+        // elsewhere and keeps the round hitbox.
         const variant = variantFor(ctx, 'rift_mine');
         const spikeAmp = variant?.thorned ? 0.55 : 0.38;
         const spike = 1 + spikeAmp * Math.abs(Math.sin(u * 3) * Math.sin(v * 4));
@@ -679,6 +797,7 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.x = rad * Math.sin(v) * Math.cos(u);
         out.y = rad * Math.sin(v) * Math.sin(u);
         out.z = rad * Math.cos(v);
+        if (variant?.buried && out.y < 0) out.y *= 0.45;
         const m = Math.random();
         if (variant) { const s = 0.75 + m * 0.55; out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s; }
         else { out.cr = 0.014 + m * 0.01; out.cg = 0.008 + m * 0.006; out.cb = 0.026 + m * 0.014; } // Near-black violet
@@ -740,6 +859,11 @@ const DEFS: Record<string, EntityVisualDef> = {
     count: 800,
     animated: true,
     sample: (i, count, r, ctx, out) => {
+      // Stage 8 variants: the Rime Moth (Neon Nebula) is ice
+      // blue-white, the Blood Moth (Blood Moon) deep red, the
+      // Rift-touched moth (Abyssal Rift) black-violet with a
+      // star-white center. Positions unchanged.
+      const variant = variantFor(ctx, 'pyre_moth');
       const p = Math.random();
       if (p < 0.55) {
         // Fuzzy body: sphere sample with radius jitter so the edge
@@ -752,11 +876,13 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.z = rad * Math.cos(v);
         if (rad < r * 0.4) {
           const m = Math.random();
-          out.cr = 1.0; out.cg = 0.72 + m * 0.2; out.cb = 0.3 + m * 0.2; // Hot center
+          if (variant) { const s = 0.87 + m * 0.26; out.cr = variant.core[0] * s; out.cg = variant.core[1] * s; out.cb = variant.core[2] * s; }
+          else { out.cr = 1.0; out.cg = 0.72 + m * 0.2; out.cb = 0.3 + m * 0.2; } // Hot center
           out.layer = 1;
         } else {
           const m = Math.random();
-          out.cr = 0.09 + m * 0.05; out.cg = 0.045 + m * 0.025; out.cb = 0.012 + m * 0.008; // Warm cream-orange fuzz, stacking-tuned
+          if (variant) { const s = 0.75 + m * 0.55; out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s; }
+          else { out.cr = 0.09 + m * 0.05; out.cg = 0.045 + m * 0.025; out.cb = 0.012 + m * 0.008; } // Warm cream-orange fuzz, stacking-tuned
           out.layer = 0;
         }
       } else {
@@ -767,7 +893,8 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.y = span * 0.42 + (Math.random() - 0.5) * 0.3 * r;
         out.z = -span * 0.25 + (Math.random() - 0.5) * 0.2 * r;
         const m = Math.random();
-        out.cr = 0.05 + m * 0.03; out.cg = 0.028 + m * 0.016; out.cb = 0.008;
+        if (variant) { const s = 0.55 + m * 0.4; out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s; }
+        else { out.cr = 0.05 + m * 0.03; out.cg = 0.028 + m * 0.016; out.cb = 0.008; }
         out.layer = 0;
       }
     },
@@ -783,6 +910,11 @@ const DEFS: Record<string, EntityVisualDef> = {
     count: 800,
     animated: true,
     sample: (i, count, r, ctx, out) => {
+      // Stage 8 variants: the Frostwraith (Neon Nebula) is pale
+      // with a snow trail; the Rift-touched phantom (Abyssal
+      // Rift) is black-violet with star-white eyes. Positions
+      // unchanged.
+      const variant = variantFor(ctx, 'phantom');
       const p = Math.random();
       if (p < 0.05) {
         // Two eye accents under the hood.
@@ -791,7 +923,8 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.y = 0.62 * r + (Math.random() - 0.5) * 0.14 * r;
         out.z = 0.3 * r + (Math.random() - 0.5) * 0.1 * r;
         const m = Math.random();
-        out.cr = 0.85 + m * 0.15; out.cg = 0.8 + m * 0.12; out.cb = 1.0; // Pale violet-white
+        if (variant) { const s = 0.85 + m * 0.15; out.cr = variant.accent[0] * s; out.cg = variant.accent[1] * s; out.cb = variant.accent[2] * s; }
+        else { out.cr = 0.85 + m * 0.15; out.cg = 0.8 + m * 0.12; out.cb = 1.0; } // Pale violet-white
         out.layer = 1;
       } else if (p < 0.38) {
         // Hood: a dome arc over the head, open at the face.
@@ -802,18 +935,22 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.y = 0.5 * r + rad * Math.cos(v);
         out.z = rad * Math.sin(v) * Math.sin(u) * 0.8 - 0.08 * r;
         const m = Math.random();
-        out.cr = 0.03 + m * 0.016; out.cg = 0.026 + m * 0.012; out.cb = 0.055 + m * 0.025; // Matte slate-violet
+        if (variant) { const s = 0.75 + m * 0.55; out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s; }
+        else { out.cr = 0.03 + m * 0.016; out.cg = 0.026 + m * 0.012; out.cb = 0.055 + m * 0.025; } // Matte slate-violet
         out.layer = 0;
       } else {
         // Trailing body: wisps falling away below the hood, spread
         // thin so the shape reads as sparse cloth, not a solid.
+        // For the Frostwraith this trail is the sheet's snow
+        // trail: the same pale body color, a step dimmer.
         const t = Math.random();
         out.y = (0.35 - t * 2.0) * r;
         const spread = (0.34 - t * 0.16) * r;
         out.x = (Math.random() - 0.5) * 2 * spread;
         out.z = (Math.random() - 0.5) * 0.5 * r;
         const m = Math.random();
-        out.cr = 0.024 + m * 0.012; out.cg = 0.02 + m * 0.01; out.cb = 0.045 + m * 0.02;
+        if (variant) { const s = 0.6 + m * 0.45; out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s; }
+        else { out.cr = 0.024 + m * 0.012; out.cg = 0.02 + m * 0.01; out.cb = 0.045 + m * 0.02; }
         out.layer = 0;
       }
     },
@@ -828,6 +965,11 @@ const DEFS: Record<string, EntityVisualDef> = {
     count: 800,
     animated: true,
     sample: (i, count, r, ctx, out) => {
+      // Stage 8 variant: the Rift-touched wraith (Abyssal Rift)
+      // carries a white-violet spearhead on a black-violet
+      // shaft. The aiming eye stays hostile in every world: it
+      // is the telegraph's source. Positions unchanged.
+      const variant = variantFor(ctx, 'wraith');
       const p = Math.random();
       if (p < 0.07) {
         // Aiming eye: a tight hostile-bright cluster ahead of center.
@@ -846,7 +988,8 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.y = (Math.random() - 0.5) * (0.5 - t * 0.34) * r;
         out.z = (Math.random() - 0.5) * 0.16 * r;
         const m = Math.random();
-        out.cr = 0.10 + m * 0.05; out.cg = 0.095 + m * 0.045; out.cb = 0.13 + m * 0.05; // Pale bone-steel
+        if (variant) { const s = 0.75 + m * 0.55; out.cr = variant.accent[0] * s; out.cg = variant.accent[1] * s; out.cb = variant.accent[2] * s; }
+        else { out.cr = 0.10 + m * 0.05; out.cg = 0.095 + m * 0.045; out.cb = 0.13 + m * 0.05; } // Pale bone-steel
         out.layer = 0;
       } else {
         // Shaft and trailing fins: a thin line of points with a
@@ -857,7 +1000,8 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.y = (Math.random() < 0.5 ? -1 : 1) * fin * Math.random() + (Math.random() - 0.5) * 0.09 * r;
         out.z = (Math.random() - 0.5) * 0.09 * r;
         const m = Math.random();
-        out.cr = 0.045 + m * 0.02; out.cg = 0.04 + m * 0.018; out.cb = 0.06 + m * 0.024; // Cold gray-violet
+        if (variant) { const s = 0.75 + m * 0.55; out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s; }
+        else { out.cr = 0.045 + m * 0.02; out.cg = 0.04 + m * 0.018; out.cb = 0.06 + m * 0.024; } // Cold gray-violet
         out.layer = 0;
       }
     },
@@ -874,6 +1018,11 @@ const DEFS: Record<string, EntityVisualDef> = {
     count: 800,
     animated: true,
     sample: (i, count, r, ctx, out) => {
+      // Stage 8 variants: the Blood Chanter (Blood Moon) tolls
+      // in dark red with blood-crimson sparks; the Rift-touched
+      // chanter (Abyssal Rift) in black-violet with star-white
+      // sparks. Positions unchanged.
+      const variant = variantFor(ctx, 'chanter');
       if (i < count * 0.16) {
         // Note-sparks: evenly spaced on the orbit circle so the
         // ring is structural, with jitter so it still reads as
@@ -884,7 +1033,8 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.y = Math.sin(a) * rad * 0.92;
         out.z = (Math.random() - 0.5) * 0.2 * r;
         const m = Math.random();
-        out.cr = 1.0; out.cg = 0.72 + m * 0.2; out.cb = 0.22 + m * 0.14; // Warm gold
+        if (variant) { const s = 0.87 + m * 0.26; out.cr = variant.core[0] * s; out.cg = variant.core[1] * s; out.cb = variant.core[2] * s; }
+        else { out.cr = 1.0; out.cg = 0.72 + m * 0.2; out.cb = 0.22 + m * 0.14; } // Warm gold
         out.layer = 1;
       } else {
         // Bell: a lathed profile, narrow crown, swelling body,
@@ -898,11 +1048,13 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.z = Math.sin(a) * rad * 0.6;
         if (t > 0.93 && Math.random() < 0.5) {
           const m = Math.random();
-          out.cr = 0.5 + m * 0.2; out.cg = 0.36 + m * 0.14; out.cb = 0.1; // Bright rim lip
+          if (variant) { const s = 0.8 + m * 0.4; out.cr = variant.accent[0] * s; out.cg = variant.accent[1] * s; out.cb = variant.accent[2] * s; }
+          else { out.cr = 0.5 + m * 0.2; out.cg = 0.36 + m * 0.14; out.cb = 0.1; } // Bright rim lip
           out.layer = 1;
         } else {
           const m = Math.random();
-          out.cr = 0.05 + m * 0.024; out.cg = 0.036 + m * 0.016; out.cb = 0.012 + m * 0.006; // Deep bronze
+          if (variant) { const s = 0.75 + m * 0.55; out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s; }
+          else { out.cr = 0.05 + m * 0.024; out.cg = 0.036 + m * 0.016; out.cb = 0.012 + m * 0.006; } // Deep bronze
           out.layer = 0;
         }
       }
@@ -917,6 +1069,11 @@ const DEFS: Record<string, EntityVisualDef> = {
     count: 800,
     animated: true,
     sample: (i, count, r, ctx, out) => {
+      // Stage 8 variants: the Bloodwyrm (Blood Moon) runs deep
+      // red with an ember spine; the Rift-touched serpent
+      // (Abyssal Rift) black-violet with a star-white heart and
+      // a violet-white spine. Positions unchanged.
+      const variant = variantFor(ctx, 'serpent');
       const p = Math.random();
       if (p < 0.34) {
         // Bright head core.
@@ -927,7 +1084,8 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.y = rad * Math.sin(v) * Math.sin(u);
         out.z = rad * Math.cos(v);
         const m = Math.random();
-        out.cr = 1.0; out.cg = 0.88 + m * 0.1; out.cb = 0.45 + m * 0.2; // White-gold heart
+        if (variant) { const s = 0.87 + m * 0.26; out.cr = variant.core[0] * s; out.cg = variant.core[1] * s; out.cb = variant.core[2] * s; }
+        else { out.cr = 1.0; out.cg = 0.88 + m * 0.1; out.cb = 0.45 + m * 0.2; } // White-gold heart
         out.layer = 1;
       } else if (p < 0.52) {
         // Swept fins: two flat fans trailing back from the head.
@@ -937,7 +1095,8 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.y = (isLeft ? -1 : 1) * span * 0.55 + (Math.random() - 0.5) * 0.2 * r;
         out.z = -span * 0.2 + (Math.random() - 0.5) * 0.15 * r;
         const m = Math.random();
-        out.cr = 0.03 + m * 0.016; out.cg = 0.09 + m * 0.04; out.cb = 0.045 + m * 0.02; // Deep emerald
+        if (variant) { const s = 0.75 + m * 0.55; out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s; }
+        else { out.cr = 0.03 + m * 0.016; out.cg = 0.09 + m * 0.04; out.cb = 0.045 + m * 0.02; } // Deep emerald
         out.layer = 0;
       } else {
         // Skull mass around the core, tapering toward the neck.
@@ -949,11 +1108,13 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.z = rad * Math.cos(v) * 0.8;
         if (out.y > 0.55 * r && Math.abs(out.x) < 0.3 * r) {
           const m = Math.random();
-          out.cr = 0.55 + m * 0.2; out.cg = 0.42 + m * 0.16; out.cb = 0.1; // Gold spine accent
+          if (variant) { const s = 0.8 + m * 0.4; out.cr = variant.accent[0] * s; out.cg = variant.accent[1] * s; out.cb = variant.accent[2] * s; }
+          else { out.cr = 0.55 + m * 0.2; out.cg = 0.42 + m * 0.16; out.cb = 0.1; } // Gold spine accent
           out.layer = 1;
         } else {
           const m = Math.random();
-          out.cr = 0.018 + m * 0.01; out.cg = 0.065 + m * 0.03; out.cb = 0.032 + m * 0.014;
+          if (variant) { const s = 0.75 + m * 0.55; out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s; }
+          else { out.cr = 0.018 + m * 0.01; out.cg = 0.065 + m * 0.03; out.cb = 0.032 + m * 0.014; }
           out.layer = 0;
         }
       }
@@ -967,6 +1128,9 @@ const DEFS: Record<string, EntityVisualDef> = {
     count: 300,
     animated: false,
     sample: (i, count, r, ctx, out) => {
+      // Stage 8 variants follow the head's: Bloodwyrm segments
+      // run deep red, Rift-touched segments black-violet.
+      const variant = variantFor(ctx, 'serpent_segment');
       const rad = Math.cbrt(Math.random()) * r;
       const u = Math.random() * Math.PI * 2;
       const v = Math.acos(2 * Math.random() - 1);
@@ -975,11 +1139,13 @@ const DEFS: Record<string, EntityVisualDef> = {
       out.z = rad * Math.cos(v) * 0.8;
       if (out.y > 0.5 * r && Math.abs(out.x) < 0.35 * r && Math.random() < 0.5) {
         const m = Math.random();
-        out.cr = 0.4 + m * 0.18; out.cg = 0.3 + m * 0.13; out.cb = 0.08; // Gold spine
+        if (variant) { const s = 0.8 + m * 0.4; out.cr = variant.accent[0] * s; out.cg = variant.accent[1] * s; out.cb = variant.accent[2] * s; }
+        else { out.cr = 0.4 + m * 0.18; out.cg = 0.3 + m * 0.13; out.cb = 0.08; } // Gold spine
         out.layer = 1;
       } else {
         const m = Math.random();
-        out.cr = 0.014 + m * 0.008; out.cg = 0.05 + m * 0.024; out.cb = 0.024 + m * 0.01; // Dim emerald
+        if (variant) { const s = 0.75 + m * 0.55; out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s; }
+        else { out.cr = 0.014 + m * 0.008; out.cg = 0.05 + m * 0.024; out.cb = 0.024 + m * 0.01; } // Dim emerald
         out.layer = 0;
       }
     },
@@ -994,6 +1160,11 @@ const DEFS: Record<string, EntityVisualDef> = {
     count: 800,
     animated: true,
     sample: (i, count, r, ctx, out) => {
+      // Stage 8 variant: the Rift-touched darter (Abyssal Rift)
+      // keeps the ice-white read but over a black-violet body,
+      // its sparks and nose gone full star white. Positions
+      // unchanged.
+      const variant = variantFor(ctx, 'darter');
       const p = Math.random();
       if (p < 0.08) {
         // Wingtip sparks at the rear corners.
@@ -1002,7 +1173,8 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.y = (isLeft ? -1 : 1) * 0.78 * r + (Math.random() - 0.5) * 0.18 * r;
         out.z = (Math.random() - 0.5) * 0.15 * r;
         const m = Math.random();
-        out.cr = 0.8 + m * 0.2; out.cg = 0.95; out.cb = 1.0; // Ice-white sparks
+        if (variant) { const s = 0.87 + m * 0.26; out.cr = variant.accent[0] * s; out.cg = variant.accent[1] * s; out.cb = variant.accent[2] * s; }
+        else { out.cr = 0.8 + m * 0.2; out.cg = 0.95; out.cb = 1.0; } // Ice-white sparks
         out.layer = 1;
       } else {
         // Arrowhead: a swept delta, nose at +x, width tapering with
@@ -1014,11 +1186,13 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.z = (Math.random() - 0.5) * 0.22 * r;
         if (t > 0.82) {
           const m = Math.random();
-          out.cr = 0.5 + m * 0.2; out.cg = 0.85 + m * 0.12; out.cb = 0.95; // Bright nose core
+          if (variant) { const s = 0.8 + m * 0.4; out.cr = variant.core[0] * s; out.cg = variant.core[1] * s; out.cb = variant.core[2] * s; }
+          else { out.cr = 0.5 + m * 0.2; out.cg = 0.85 + m * 0.12; out.cb = 0.95; } // Bright nose core
           out.layer = 1;
         } else {
           const m = Math.random();
-          out.cr = 0.035 + m * 0.016; out.cg = 0.085 + m * 0.035; out.cb = 0.105 + m * 0.04; // Ice cyan-white body
+          if (variant) { const s = 0.75 + m * 0.55; out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s; }
+          else { out.cr = 0.035 + m * 0.016; out.cg = 0.085 + m * 0.035; out.cb = 0.105 + m * 0.04; } // Ice cyan-white body
           out.layer = 0;
         }
       }
