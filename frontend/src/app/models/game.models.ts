@@ -110,7 +110,7 @@ export interface World {
 
 export interface EnemyData {
   id: string;
-  type: 'bat' | 'slime' | 'golem' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix';
+  type: 'bat' | 'slime' | 'golem' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance';
   health: number;
   maxHealth: number;
   lastAttackTime?: number;
@@ -121,6 +121,21 @@ export interface EnemyData {
   owner?: 'player' | 'enemy';
   ownerId?: string;
   immortalUntil?: number;
+  // S2 move payload fields. moveId names the casting move on every
+  // S2 projectile; pierce and hitIds implement Fire Lance (a piercing
+  // projectile records each enemy it has already damaged); targetId
+  // is the Spark Storm homing assignment (an enemy id, or the
+  // '__player__' sentinel when an enemy cast seeks the player bird).
+  moveId?: string;
+  pierce?: boolean;
+  hitIds?: string[];
+  targetId?: string;
+  // S2: Meteor Rush per-cast state, stored on an enemy_phoenix body
+  // when the rival rushes (the player path keeps its state on the
+  // game component next to the drill state).
+  meteorRushUntil?: number;
+  meteorRushDamage?: number;
+  meteorRushHits?: string[];
   // Gloomwing weave: the steering loop stores the current sine value
   // here each tick so the renderer can bank the mesh in sync (visual
   // spec Section 3.3). Steering data only; never read by gameplay.

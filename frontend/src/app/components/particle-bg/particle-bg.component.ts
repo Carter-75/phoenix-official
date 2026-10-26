@@ -30,6 +30,7 @@ interface PhoenixState {
   spoolT: number;
   wasDashing: boolean;
   wasDrilling: boolean;
+  wasRushing: boolean; // S2: Meteor Rush entry flash edge
   flashUntil: number;
   reformUntil: number;
   glowSpanFactor: number;
@@ -429,7 +430,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     return {
       theme, group: new THREE.Group(), particles: new THREE.Points(), fillParticles: null, core: null, glow: null, basePositions: new Float32Array(0),
       inFill: new Uint8Array(0), bufferIndex: new Uint16Array(0), pointRegion: new Uint8Array(0), sparkle: new Uint8Array(0), ashVec: new Float32Array(0),
-      skinId: 'ember', flapRate: 1, climbTime: 0, spoolT: -1, wasDashing: false, wasDrilling: false, flashUntil: 0, reformUntil: 0, glowSpanFactor: 1.35,
+      skinId: 'ember', flapRate: 1, climbTime: 0, spoolT: -1, wasDashing: false, wasDrilling: false, wasRushing: false, flashUntil: 0, reformUntil: 0, glowSpanFactor: 1.35,
       phoenixCount: 4000, currentBank: 0, flapTime: 0, position: new THREE.Vector3(0, -5, -15),
       velocity: new THREE.Vector3(0, 1, 0), previousVelocity: new THREE.Vector3(0, 1, 0),
       targetWaypoint: new THREE.Vector3(), historyPos: [], historyQuat: []
@@ -1407,6 +1408,11 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
                   const drillingNow = this.gameState.isDrilling();
                   if (drillingNow && !bird.wasDrilling) bird.flashUntil = performance.now() + 120;
                   bird.wasDrilling = drillingNow;
+                  // Meteor Rush entry (S2): the same white-hot flash
+                  // marks the rush window opening.
+                  const rushingNow = this.gameState.isMeteorRushing();
+                  if (rushingNow && !bird.wasRushing) bird.flashUntil = performance.now() + 120;
+                  bird.wasRushing = rushingNow;
               }
 
               // Flap rate (spec 2.2): menu cruise is calmer (0.6x), a
@@ -2344,6 +2350,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       r: data.size / 30, // Scale factor, as shipped
       hostile,
       ownerId: data.ownerId,
+      owner: (data as any).owner,
       gameMode: this.gameState.currentGameMode(),
       bird: this.bird ? { basePositions: this.bird.basePositions, colorAt: (i: number) => this.birdColorAt(this.bird, i) } : null,
     });

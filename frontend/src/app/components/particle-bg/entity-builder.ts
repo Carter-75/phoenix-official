@@ -35,6 +35,7 @@ export interface EntityBuildContext {
   r: number;
   hostile: Rgb; // hostile intent color, read from world theme data
   ownerId?: string;
+  owner?: string; // S2: 'player' | 'enemy', for the move projectile colors
   gameMode?: string;
   bird?: BirdColorSource | null;
 }
@@ -422,6 +423,48 @@ const DEFS: Record<string, EntityVisualDef> = {
     sample: (i, count, r, ctx, out) => {
       sphereVertex(out, r);
       flatColor(out, ctx.hostile);
+    },
+  },
+
+  // S2 move projectiles. One builder per move type so each move has
+  // its own silhouette; color follows the same ownership rule as the
+  // basic shots (player fire amber, hostile magenta-red), so a rival
+  // cast reads hostile at a glance.
+  dart: {
+    count: 60,
+    animated: false,
+    sample: (i, count, r, ctx, out) => {
+      octahedronVertex(out, r);
+      flatColor(out, ctx.owner === 'enemy' ? ctx.hostile : (ctx.ownerId === 'player' && ctx.gameMode === 'ai_vs_ai' ? AI_VS_AI_BOTTOM_FIRE : PLAYER_FIRE));
+    },
+  },
+
+  talon: {
+    count: 120,
+    animated: false,
+    sample: (i, count, r, ctx, out) => {
+      sphereVertex(out, r);
+      flatColor(out, ctx.owner === 'enemy' ? ctx.hostile : (ctx.ownerId === 'player' && ctx.gameMode === 'ai_vs_ai' ? AI_VS_AI_BOTTOM_FIRE : PLAYER_FIRE));
+    },
+  },
+
+  spark: {
+    count: 50,
+    animated: true,
+    sample: (i, count, r, ctx, out) => {
+      sphereVertex(out, r * 0.8);
+      const base = ctx.owner === 'enemy' ? ctx.hostile : (ctx.ownerId === 'player' && ctx.gameMode === 'ai_vs_ai' ? AI_VS_AI_BOTTOM_FIRE : PLAYER_FIRE);
+      flatColor(out, base);
+      out.cr *= 1.4; out.cg *= 1.4; out.cb *= 1.4; // sparks burn brighter than a bolt
+    },
+  },
+
+  lance: {
+    count: 220,
+    animated: false,
+    sample: (i, count, r, ctx, out) => {
+      octahedronVertex(out, r);
+      flatColor(out, ctx.owner === 'enemy' ? ctx.hostile : (ctx.ownerId === 'player' && ctx.gameMode === 'ai_vs_ai' ? AI_VS_AI_BOTTOM_FIRE : PLAYER_FIRE));
     },
   },
 };

@@ -167,6 +167,8 @@ export class GameStateService {
   public isPaused = signal<boolean>(false);
   public isRebirthing = signal<boolean>(false);
   public isDrilling = signal<boolean>(false);
+  // S2: Meteor Rush state (mirrors isDrilling; visual flash reads it).
+  public isMeteorRushing = signal<boolean>(false);
   public isDeadMenuOpen = signal<boolean>(false);
   public activeEntities = signal<PhysicsEntity[]>([]);
 

@@ -170,15 +170,21 @@ export const WORLDS: World[] = [
 export const ABILITIES: Record<string, { id: string, type: 'tap' | 'double' | 'hold' | 'triple', name: string, desc: string, icon: string, unlockCost: number, upgradeCost: number, baseCooldown: number }> = {
   'drill_attack': { id: 'drill_attack', type: 'tap', name: 'Drill Attack', desc: 'Spin dash through enemies', icon: '🌪️', unlockCost: 500, upgradeCost: 200, baseCooldown: 20 },
   'fire_breath': { id: 'fire_breath', type: 'tap', name: 'Fire Breath', desc: 'Continuous short-range flame', icon: '🔥', unlockCost: 500, upgradeCost: 200, baseCooldown: 8 },
-  'burst': { id: 'burst', type: 'tap', name: 'Burst', desc: 'Explosive radial attack', icon: '💥', unlockCost: 0, upgradeCost: 350, baseCooldown: 5 },
-  
+  'burst': { id: 'burst', type: 'tap', name: 'Burst', desc: 'Radial ring of fire bolts', icon: '💥', unlockCost: 0, upgradeCost: 350, baseCooldown: 6 },
+  'fire_dart': { id: 'fire_dart', type: 'tap', name: 'Fire Dart', desc: 'One fast long-range dart', icon: '🎯', unlockCost: 400, upgradeCost: 200, baseCooldown: 2 },
+  'meteor_rush': { id: 'meteor_rush', type: 'tap', name: 'Meteor Rush', desc: 'Blazing rush through enemies, no protection', icon: '☄️', unlockCost: 400, upgradeCost: 200, baseCooldown: 10 },
+
+  'phoenix_talon': { id: 'phoenix_talon', type: 'double', name: 'Phoenix Talon', desc: 'Fan of three slashing talons', icon: '🦅', unlockCost: 700, upgradeCost: 300, baseCooldown: 7 },
+  'spark_storm': { id: 'spark_storm', type: 'double', name: 'Spark Storm', desc: 'Six sparks that hunt separate targets', icon: '⚡', unlockCost: 700, upgradeCost: 300, baseCooldown: 9 },
+  'fire_lance': { id: 'fire_lance', type: 'double', name: 'Fire Lance', desc: 'Piercing lance that spears a whole line', icon: '🔱', unlockCost: 700, upgradeCost: 300, baseCooldown: 8 },
+
   'phoenix_turret': { id: 'phoenix_turret', type: 'hold', name: 'Phoenix Turret', desc: 'Drop an egg that hatches a turret', icon: '🥚', unlockCost: 800, upgradeCost: 300, baseCooldown: 12 },
   'rebirth': { id: 'rebirth', type: 'hold', name: 'Rebirth (Passive)', desc: 'Revive upon death with shockwave', icon: '✨', unlockCost: 1000, upgradeCost: 500, baseCooldown: 60 },
   'aura': { id: 'aura', type: 'hold', name: 'Aura', desc: 'Continuous damage zone', icon: '🌀', unlockCost: 0, upgradeCost: 400, baseCooldown: 15 },
 };
 
 export const REALM_ABILITIES: Record<number, string[]> = {
-  0: ['drill_attack', 'fire_breath', 'burst', 'phoenix_turret', 'rebirth', 'aura']
+  0: ['drill_attack', 'fire_breath', 'burst', 'fire_dart', 'meteor_rush', 'phoenix_talon', 'spark_storm', 'fire_lance', 'phoenix_turret', 'rebirth', 'aura']
 };
 
 export const ABILITY_UPGRADE_TARGETS: Record<string, { targetLevel: number, stats: Record<string, number> }> = {
@@ -187,7 +193,15 @@ export const ABILITY_UPGRADE_TARGETS: Record<string, { targetLevel: number, stat
   phoenix_turret: { targetLevel: 30, stats: { cooldown: 0.5, duration: 3.0, damage: 3.0 } },
   fire_breath: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0, range: 3.0, ammo: 3.0 } },
   aura: { targetLevel: 30, stats: { damage: 5.0, radius: 3.0 } },
-  rebirth: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } }
+  rebirth: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },
+  // S2 moves: the Section 3.5 default shape (cooldown and damage
+  // only), so their Section 3 level-1 numbers are the shipped ones
+  // and upgrades scale exactly those two axes.
+  fire_dart: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },
+  meteor_rush: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },
+  phoenix_talon: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },
+  spark_storm: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },
+  fire_lance: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } }
 };
 
 // Deterministic ability upgrades (systems spec Section 3.5, stage S1).

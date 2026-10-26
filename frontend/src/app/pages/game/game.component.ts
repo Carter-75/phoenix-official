@@ -15,7 +15,7 @@ import { AdsService } from '../../services/ads.service';
 
 interface EnemyData {
   id: string;
-  type: 'bat' | 'slime' | 'golem' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix';
+  type: 'bat' | 'slime' | 'golem' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance';
   health: number;
   maxHealth: number;
   lastAttackTime?: number;
@@ -27,6 +27,14 @@ interface EnemyData {
   ownerId?: string;
   immortalUntil?: number;
   weaveValue?: number; // Gloomwing weave sine, published for the renderer's banking
+  // S2 move payload fields (mirrors models/game.models.ts EnemyData).
+  moveId?: string;
+  pierce?: boolean;
+  hitIds?: string[];
+  targetId?: string;
+  meteorRushUntil?: number;
+  meteorRushDamage?: number;
+  meteorRushHits?: string[];
 }
 
 @Component({
@@ -583,6 +591,11 @@ export class GameComponent implements OnInit, OnDestroy {
   private tapAbilityEndTime = 0;
 
   private holdAbilityEndTime = 0;
+  // S2: Meteor Rush state for the player-side cast (the rival keeps
+  // its rush state on its body data; see EnemyData.meteorRushUntil).
+  private meteorRushUntilMs = 0;
+  private meteorRushDamageValue = 0;
+  private meteorRushHitIds = new Set<string>();
 
   private doubleAbilityEndTime = 0;
 
@@ -758,6 +771,20 @@ export class GameComponent implements OnInit, OnDestroy {
                     Matter.Composite.add(this.engine.world, proj);
                     setTimeout(() => { if (proj.parent) Matter.Composite.remove(this.engine.world, proj); }, 2500);
                     return proj;
+                },
+                // S2: place a stationary training target with exact HP
+                // at an exact position, built by the spawner's own
+                // body factory so its shape matches a live enemy of
+                // the same type (slime by default; golem gives the
+                // Armored class body, radius 90 x screenScale).
+                spawnPlacedTarget: (x: number, y: number, hp: number, type: string = 'slime') => {
+                    const data = { id: 'placed_' + Math.random().toString(36).slice(2), type, health: hp, maxHealth: hp, lastAttackTime: Date.now() } as EnemyData;
+                    const size = (type === 'golem' ? 60 : 20) * this.screenScale;
+                    const body = this.spawner.createEnemyBody(x, y, size, type, data);
+                    Matter.Body.setStatic(body, true);
+                    this.enemies.push(body);
+                    Matter.Composite.add(this.engine.world, body);
+                    return body;
                 }
             };
         }
@@ -1098,7 +1125,29 @@ export class GameComponent implements OnInit, OnDestroy {
                 this.triggerImpactEffect(otherBody.position.x, otherBody.position.y, false);
                 continue; // Skip player taking damage while drilling
             }
-            this.takeDamage(data.type === 'boss' || data.type === 'enemy_phoenix' ? 50 : 10,
+            // S2 Meteor Rush: crossing an enemy during the player's
+            // rush deals the rush damage to it, once per cast. The
+            // named trade is exposure, so unlike Drill above the rush
+            // does NOT skip the player's own contact damage: control
+            // falls through to the normal takeDamage below.
+            if (this.gameState.isMeteorRushing() && Date.now() <= this.meteorRushUntilMs && data.id && !this.meteorRushHitIds.has(data.id)) {
+                this.meteorRushHitIds.add(data.id);
+                this.damageEnemy(otherBody, this.meteorRushDamageValue);
+                this.triggerImpactEffect(otherBody.position.x, otherBody.position.y, false);
+            }
+            // A rushing rival deals its rush damage to the player once
+            // per cast, in place of the standard phoenix contact hit
+            // for this contact event.
+            let rushContactDamage = 0;
+            if (data.type === 'enemy_phoenix' && data.meteorRushUntil && Date.now() <= data.meteorRushUntil && data.id) {
+                const hits = data.meteorRushHits || (data.meteorRushHits = []);
+                const key = data.id + ':player';
+                if (!hits.includes(key)) {
+                    hits.push(key);
+                    rushContactDamage = data.meteorRushDamage || 0;
+                }
+            }
+            this.takeDamage(rushContactDamage > 0 ? rushContactDamage : (data.type === 'boss' || data.type === 'enemy_phoenix' ? 50 : 10),
                 data.type === 'boss' || data.type === 'enemy_phoenix' ? 'boss_contact' : undefined);
             
             // Knockback logic: an explicit velocity kick instead of a
@@ -1115,7 +1164,7 @@ export class GameComponent implements OnInit, OnDestroy {
                 const kv = Matter.Body.getVelocity(otherBody);
                 Matter.Body.setVelocity(otherBody, { x: kv.x - normalized.x * kick, y: kv.y - normalized.y * kick });
             }
-          } else if (otherBody.label === 'projectile' && (data.type === 'projectile_enemy' || data.type === 'projectile_player' || data.type === 'annihilation_fire' || data.type === 'fire' || data.type === 'aura')) {
+          } else if (otherBody.label === 'projectile' && (data.type === 'projectile_enemy' || data.type === 'projectile_player' || data.type === 'annihilation_fire' || data.type === 'fire' || data.type === 'aura' || data.type === 'dart' || data.type === 'talon' || data.type === 'spark' || data.type === 'lance')) {
             if (data.owner === 'player') continue;
             
             if (data.type === 'projectile_enemy' && this.gameState.currentGameMode() === 'battle') {
@@ -1134,10 +1183,16 @@ export class GameComponent implements OnInit, OnDestroy {
                         }
                     }, 500);
                 }
-            } else if (data.type === 'fire' || data.type === 'projectile_player' || data.type === 'aura') {
-                this.takeDamage(data.burstDamage || 10);
             } else {
-                this.takeDamage(10);
+                // S2: every non-annihilation projectile deals its own
+                // burstDamage payload. projectile_enemy used to deal a
+                // flat 10 here regardless of payload; every shipped
+                // source of projectile_enemy carries exactly 10 at base
+                // stats (golem shots, boss minion fire, rival basic
+                // shots), so base behavior is unchanged, and upgraded
+                // rival casts (burst ring, talon) now land their real
+                // numbers instead of a silent 10.
+                this.takeDamage(data.burstDamage || 10);
             }
             
             if (data.type !== 'aura') {
@@ -1259,7 +1314,18 @@ export class GameComponent implements OnInit, OnDestroy {
                 continue;
             }
 
-            if (projData.type !== 'aura') { 
+            // S2 Fire Lance piercing: a piercing projectile is not
+            // consumed on hit. It records each enemy it has damaged
+            // in hitIds and never damages the same enemy twice.
+            if (projData.pierce) {
+                const pierceTarget = other.plugin['data'] as EnemyData;
+                const pierceId = pierceTarget?.id;
+                if (pierceId) {
+                    if (!projData.hitIds) projData.hitIds = [];
+                    if (projData.hitIds.includes(pierceId)) continue;
+                    projData.hitIds.push(pierceId);
+                }
+            } else if (projData.type !== 'aura') {
                 Matter.Composite.remove(this.engine.world, projectile);
             }
             
@@ -1287,7 +1353,7 @@ export class GameComponent implements OnInit, OnDestroy {
               const oData = other.plugin['data'] as EnemyData;
               
               if (pData && oData && pData.owner && oData.owner && pData.owner !== oData.owner) {
-                  const destructible = ['fire', 'projectile_player', 'projectile_enemy'];
+                  const destructible = ['fire', 'projectile_player', 'projectile_enemy', 'dart', 'talon', 'spark', 'lance'];
                   if (destructible.includes(pData.type) && destructible.includes(oData.type)) {
                       const pDamage = pData.burstDamage || this.gameState.currentStats().damage;
                       const oDamage = oData.burstDamage || (oData.type === 'fire' ? 10 : this.gameState.currentStats().damage);
@@ -1508,6 +1574,22 @@ export class GameComponent implements OnInit, OnDestroy {
                       this.battleAi.ai2.holdFatigue = (this.battleAi.ai2.holdFatigue || 0) + 0.3;
                   }
               }
+              // S2: ai2's double slot chains on its tap decision, the
+              // same relationship the player's parser gives the double
+              // slot (it fires as part of a tap sequence), gated by
+              // the double slot's own cooldown clock and fatigue.
+              {
+                  const dblAbility = this.battleAi.ai2.abilities.find(ab => ABILITIES[ab]?.type === 'double');
+                  if (dblAbility && mlAction.useTap > 0.5) {
+                      const dblFatigueMult = 1 + (this.battleAi.ai2.doubleFatigue || 0);
+                      if (!this.battleAi.ai2.lastDoubleTime || now - this.battleAi.ai2.lastDoubleTime > (this.battleAi.ai2.doubleCooldown || 0) * 1000 * dblFatigueMult) {
+                          const cd = this.triggerAbility(dblAbility, this.playerBody, mlAction.targetX, mlAction.targetY, this.battleAi.ai2.stats, 'player');
+                          this.battleAi.ai2.lastDoubleTime = now;
+                          this.battleAi.ai2.doubleCooldown = cd;
+                          this.battleAi.ai2.doubleFatigue = (this.battleAi.ai2.doubleFatigue || 0) + 0.3;
+                      }
+                  }
+              }
           }
 
           // Auto-fire (Normal projectiles)
@@ -1718,6 +1800,19 @@ export class GameComponent implements OnInit, OnDestroy {
                     eAny.holdCooldown = cd;
                     this.battleAi.ai1.holdFatigue += 0.3;
                 }
+
+                // S2: the rival's double slot chains on its tap
+                // decision (the parser relationship), tracked on the
+                // body exactly like its tap slot, through the same
+                // triggerAbility path and the same constants.
+                const dblAb = this.battleAi.ai1.abilities.find(ab => ABILITIES[ab]?.type === 'double');
+                const dblFatigueMult = 1 + (this.battleAi.ai1.doubleFatigue || 0);
+                if (mlAction.useTap > 0.5 && dblAb && (!eAny.lastDoubleAbilityTime || now >= eAny.lastDoubleAbilityTime + (eAny.doubleCooldown || 0) * dblFatigueMult)) {
+                    const cd = this.triggerAbility(dblAb, enemy, mlAction.targetX, mlAction.targetY, this.battleAi.ai1.stats, 'enemy');
+                    eAny.lastDoubleAbilityTime = now;
+                    eAny.doubleCooldown = cd;
+                    this.battleAi.ai1.doubleFatigue += 0.3;
+                }
             }
 
             // Soft boundary repulsion
@@ -1923,6 +2018,53 @@ export class GameComponent implements OnInit, OnDestroy {
           });
       }
 
+      // 4.55 Spark Storm homing (S2): each spark steers toward the
+      // target it was assigned at cast time (round robin over the
+      // live targets, so the swarm spreads across the field instead
+      // of piling onto one enemy). Steering rotates the velocity
+      // vector by at most 0.15 rad per step and preserves speed, so
+      // a spark curves smoothly and a moving target can still shake
+      // it. A spark whose target died retargets to the nearest live
+      // enemy; an enemy-cast spark seeks the player bird.
+      Matter.Composite.allBodies(this.engine.world).forEach(body => {
+          if (body.label !== 'projectile') return;
+          const data = body.plugin['data'] as EnemyData;
+          if (!data || data.type !== 'spark' || !data.targetId) return;
+          let targetPos: { x: number, y: number } | null = null;
+          if (data.targetId === '__player__') {
+              targetPos = this.playerBody.position;
+          } else {
+              const t = this.enemies.find(e => (e.plugin['data'] as EnemyData)?.id === data.targetId);
+              if (t) {
+                  targetPos = t.position;
+              } else {
+                  let best: Matter.Body | null = null;
+                  let bestDist = Infinity;
+                  for (const e of this.enemies) {
+                      const d = Matter.Vector.magnitude(Matter.Vector.sub(e.position, body.position));
+                      if (d < bestDist) { bestDist = d; best = e; }
+                  }
+                  if (best) {
+                      const found: Matter.Body = best;
+                      data.targetId = (found.plugin['data'] as EnemyData).id;
+                      targetPos = found.position;
+                  }
+              }
+          }
+          if (!targetPos) return;
+          const vel = Matter.Body.getVelocity(body);
+          const speed = Math.hypot(vel.x, vel.y);
+          if (speed <= 0) return;
+          const cur = Math.atan2(vel.y, vel.x);
+          const want = Math.atan2(targetPos.y - body.position.y, targetPos.x - body.position.x);
+          let diff = want - cur;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          const turn = Math.max(-0.15, Math.min(0.15, diff));
+          const na = cur + turn;
+          Matter.Body.setVelocity(body, { x: Math.cos(na) * speed, y: Math.sin(na) * speed });
+      });
+
       // 4.6 Cleanup off-screen items (in place, never reassigned: the
       // spawner context holds this.items by reference)
       for (let i = this.items.length - 1; i >= 0; i--) {
@@ -2111,15 +2253,24 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       
       const tapAbilities = realmAbilities.filter(k => ABILITIES[k]?.type === 'tap' && k !== 'rebirth');
       const holdAbilities = realmAbilities.filter(k => ABILITIES[k]?.type === 'hold' && k !== 'rebirth');
-      
+      // S2 (spec Section 7.2): the rival learns each family in the
+      // stage it ships, so it now also draws a double move.
+      const doubleAbilities = realmAbilities.filter(k => ABILITIES[k]?.type === 'double' && k !== 'rebirth');
+
       let tap = tapAbilities.length > 0 ? tapAbilities[Math.floor(Math.random() * tapAbilities.length)] : 'burst';
       let hold = holdAbilities.length > 0 ? holdAbilities[Math.floor(Math.random() * holdAbilities.length)] : 'aura';
-      
-      this.battleAi.ai1.abilities = [tap, hold];
-      
+      let dbl = doubleAbilities.length > 0 ? doubleAbilities[Math.floor(Math.random() * doubleAbilities.length)] : null;
+
+      this.battleAi.ai1.abilities = dbl ? [tap, hold, dbl] : [tap, hold];
+
       const playerTapLevel = playerStats.activeTapAbility ? (playerStats.unlockedAbilities[playerStats.activeTapAbility]?.level || 1) : 1;
       const playerHoldLevel = playerStats.activeHoldAbility ? (playerStats.unlockedAbilities[playerStats.activeHoldAbility]?.level || 1) : 1;
-      const avgPlayerLevel = Math.max(1, Math.floor((playerTapLevel + playerHoldLevel) / 2));
+      // The AI loadout rule (Section 7.2): AI ability levels are the
+      // average of the player's EQUIPPED levels. The double slot joins
+      // the average when the player has one equipped.
+      const playerDoubleLevel = playerStats.activeDoubleAbility ? (playerStats.unlockedAbilities[playerStats.activeDoubleAbility]?.level || 1) : null;
+      const equippedLevels = [playerTapLevel, playerHoldLevel, ...(playerDoubleLevel !== null ? [playerDoubleLevel] : [])];
+      const avgPlayerLevel = Math.max(1, Math.floor(equippedLevels.reduce((a, b) => a + b, 0) / equippedLevels.length));
       
       this.battleAi.ai1.abilities.forEach(id => {
           this.battleAi.ai1.stats.unlockedAbilities[id] = { level: avgPlayerLevel, modifiers: {} };
@@ -2159,12 +2310,17 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       
       let tap = playerStats.activeTapAbility || 'burst';
       let hold = playerStats.activeHoldAbility || 'aura';
-      
-      this.battleAi.ai2.abilities = [tap, hold];
-      
+      // S2: ai2 mirrors the player's double slot too (null when the
+      // player has none equipped, exactly like its tap/hold mirror).
+      let dbl = playerStats.activeDoubleAbility || null;
+
+      this.battleAi.ai2.abilities = dbl ? [tap, hold, dbl] : [tap, hold];
+
       const playerTapLevel = playerStats.activeTapAbility ? (playerStats.unlockedAbilities[playerStats.activeTapAbility]?.level || 1) : 1;
       const playerHoldLevel = playerStats.activeHoldAbility ? (playerStats.unlockedAbilities[playerStats.activeHoldAbility]?.level || 1) : 1;
-      const avgPlayerLevel = Math.max(1, Math.floor((playerTapLevel + playerHoldLevel) / 2));
+      const playerDoubleLevel = playerStats.activeDoubleAbility ? (playerStats.unlockedAbilities[playerStats.activeDoubleAbility]?.level || 1) : null;
+      const equippedLevels = [playerTapLevel, playerHoldLevel, ...(playerDoubleLevel !== null ? [playerDoubleLevel] : [])];
+      const avgPlayerLevel = Math.max(1, Math.floor(equippedLevels.reduce((a, b) => a + b, 0) / equippedLevels.length));
       
       this.battleAi.ai2.abilities.forEach(id => {
           this.battleAi.ai2.stats.unlockedAbilities[id] = { level: avgPlayerLevel, modifiers: {} };
@@ -2192,8 +2348,10 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   private resetCooldowns() {
       this.battleAi.ai1.lastTapTime = 0;
       this.battleAi.ai1.lastHoldTime = 0;
+      this.battleAi.ai1.lastDoubleTime = 0;
       this.battleAi.ai2.lastTapTime = 0;
       this.battleAi.ai2.lastHoldTime = 0;
+      this.battleAi.ai2.lastDoubleTime = 0;
       this.lastClickTime = 0;
       this.holdAbilityEndTime = 0;
       this.doubleAbilityEndTime = 0;
@@ -2204,6 +2362,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       this.tripleCooldown.set(0);
       this.battleAi.ai2.tapCooldown = 0;
       this.battleAi.ai2.holdCooldown = 0;
+      this.battleAi.ai2.doubleCooldown = 0;
   }
 
 
@@ -2238,9 +2397,12 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       const id = this.gameState.currentStats().activeTapAbility || 'burst';
       const abilityData = this.gameState.worldUpgrades()[this.gameState.selectedWorldIndex()]?.unlockedAbilities[id];
       const mod = abilityData?.modifiers?.['cooldown'] || 1.0;
-      if (id === 'drill_attack') return 3 * mod; 
-      if (id === 'fire_breath') return 8 * mod;  
-      return 5 * mod; // burst
+      if (id === 'drill_attack') return 3 * mod;
+      if (id === 'fire_breath') return 8 * mod;
+      // S2: burst (now 6 s) and the new tap moves read their real
+      // base cooldown from ABILITIES; the old hardcoded 5 here was
+      // burst's pre-S2 value.
+      return (ABILITIES[id]?.baseCooldown || 5) * mod;
   }
 
 
@@ -3382,6 +3544,11 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       
       if (ability === 'drill_attack') return this.triggerDrillAttack(sourceBody, targetX, targetY, stats, ownerId);
       else if (ability === 'burst') return this.triggerBurst(sourceBody, targetX, targetY, stats, ownerId);
+      else if (ability === 'fire_dart') return this.triggerFireDart(sourceBody, targetX, targetY, stats, ownerId);
+      else if (ability === 'meteor_rush') return this.triggerMeteorRush(sourceBody, targetX, targetY, stats, ownerId);
+      else if (ability === 'phoenix_talon') return this.triggerPhoenixTalon(sourceBody, targetX, targetY, stats, ownerId);
+      else if (ability === 'spark_storm') return this.triggerSparkStorm(sourceBody, targetX, targetY, stats, ownerId);
+      else if (ability === 'fire_lance') return this.triggerFireLance(sourceBody, targetX, targetY, stats, ownerId);
       else if (ability === 'fire_breath') return this.triggerFireBreath(sourceBody, targetX, targetY, stats, ownerId);
       else if (ability === 'phoenix_turret') return this.triggerPhoenixTurret(sourceBody, targetX, targetY, stats, ownerId);
       else if (ability === 'aura') return this.triggerAura(sourceBody, targetX, targetY, stats, ownerId);
@@ -3482,7 +3649,13 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
               const fireDir = { x: Math.cos(angle), y: Math.sin(angle) };
               const proj = Matter.Bodies.circle(sourceBody.position.x, sourceBody.position.y, 15, {
                   isSensor: true, label: 'projectile',
-                  plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: damage, ownerId: ownerId } as EnemyData }
+                  // S2 root fix: pellets now carry owner alongside
+                  // ownerId (the aura convention). Without owner, the
+                  // collision branches could not skip the caster, so a
+                  // fire breath cast was eaten by the caster's own body
+                  // at spawn and damaged the caster instead of the
+                  // target (probe: STAGE-S2.md).
+                  plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: damage, owner: ownerId, ownerId: ownerId } as EnemyData }
               });
               Matter.Body.setVelocity(proj, Matter.Vector.mult(fireDir, range));
               Matter.Composite.add(this.engine.world, proj);
@@ -3714,32 +3887,189 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   }
 
 
+  // Aim direction from a body toward a target point, with a safe
+  // fallback (straight up) when the point sits exactly on the body.
+  private aimAngle(sourceBody: Matter.Body, targetX: number, targetY: number): number {
+      const dx = targetX - sourceBody.position.x;
+      const dy = targetY - sourceBody.position.y;
+      if (dx === 0 && dy === 0) return -Math.PI / 2;
+      return Math.atan2(dy, dx);
+  }
+
+  // S2 shared projectile construction. Every ability projectile
+  // carries BOTH owner and ownerId (the convention the aura fix
+  // established): the player collision branch skips owner 'player',
+  // the enemy branch skips owner 'enemy', and the projectile clash
+  // branch requires owner on both bodies. A projectile missing owner
+  // collides with its own caster at spawn: that is the defect the S2
+  // probes measured on fire breath and on the old burst fan
+  // (STAGE-S2.md), and no S2 move may reintroduce it.
+  private spawnAbilityProjectile(opts: {
+      x: number, y: number, radius: number, type: EnemyData['type'], moveId: string,
+      damage: number, ownerId: string, angle: number, speedPerStep: number, lifeMs: number,
+      extra?: Partial<EnemyData>
+  }): Matter.Body {
+      const data = {
+          id: Math.random().toString(), type: opts.type, health: 1, maxHealth: 1,
+          burstDamage: opts.damage, owner: opts.ownerId, ownerId: opts.ownerId,
+          moveId: opts.moveId, ...(opts.extra || {})
+      } as EnemyData;
+      const proj = Matter.Bodies.circle(opts.x, opts.y, opts.radius, {
+          label: 'projectile', isSensor: true, plugin: { data }
+      });
+      Matter.Body.setVelocity(proj, { x: Math.cos(opts.angle) * opts.speedPerStep, y: Math.sin(opts.angle) * opts.speedPerStep });
+      Matter.Composite.add(this.engine.world, proj);
+      setTimeout(() => { if (proj.parent) Matter.Composite.remove(this.engine.world, proj); }, opts.lifeMs);
+      return proj;
+  }
+
   private triggerBurst(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
       const abilityData = stats.unlockedAbilities['burst'];
       const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0, count: 1.0 };
-      const baseCooldown = ABILITIES['burst']?.baseCooldown || 5;
-      const cd = baseCooldown * mods['cooldown'];
-      const damage = (stats.damage || 10) * 1.5 * mods['damage'];
-      // 'count' is not one of Burst's upgrade stats (its targets are
-      // cooldown, damage, radius), so the multiplier defaults to 1:
-      // reading it raw made the count NaN and the fan never fired.
-      const count = Math.max(1, Math.floor(3 * (mods['count'] ?? 1)));
-      
-      for(let i = 0; i < count; i++) {
-          const angleOffset = (i - (count - 1)/2) * 0.15;
-          const dir = Matter.Vector.normalise(Matter.Vector.sub({ x: targetX, y: targetY }, sourceBody.position));
-          const rotDir = Matter.Vector.rotate(dir, angleOffset);
-          
-          const projectile = Matter.Bodies.circle(sourceBody.position.x, sourceBody.position.y, 8, {
-              label: 'projectile',
-              isSensor: true,
-              plugin: { data: { id: Math.random().toString(), type: ownerId === 'player' ? 'projectile_player' : 'projectile_enemy', ownerId: ownerId, burstDamage: damage, health: 1, maxHealth: 1 } as EnemyData }
+      const baseCooldown = ABILITIES['burst']?.baseCooldown || 6;
+      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
+      // S2 redesign (systems spec Section 3.3): Burst is a true radial
+      // ring, 8 bolts of 0.8 SU each (6.4 SU total), cooldown 6 s.
+      // PI 1.07 at its intended 2.5-target profile, 0.27 against a
+      // single target: the ring is the crowd answer, not a duel tool.
+      // The aimed fan it used to fire moved to Phoenix Talon with its
+      // geometry unchanged. The ring count is the move's identity, not
+      // an upgrade axis: Burst's upgrade targets stay cooldown, damage
+      // and radius, and only cooldown and damage are read here (the
+      // same convention the old fan used for 'count').
+      const damage = (stats.damage || 10) * 0.8 * (mods['damage'] ?? 1.0);
+      const type = ownerId === 'player' ? 'projectile_player' : 'projectile_enemy';
+      for (let k = 0; k < 8; k++) {
+          this.spawnAbilityProjectile({
+              x: sourceBody.position.x, y: sourceBody.position.y, radius: 8,
+              type, moveId: 'burst', damage, ownerId,
+              angle: k * Math.PI / 4, speedPerStep: this.scaledSpeed(10), lifeMs: 1000
           });
-          Matter.Body.setVelocity(projectile, Matter.Vector.mult(rotDir, this.scaledSpeed(10)));
-          Matter.Composite.add(this.engine.world, projectile);
-          setTimeout(() => { if (projectile.parent) Matter.Composite.remove(this.engine.world, projectile); }, 2000);
       }
       this.audioService.playSFX('shoot');
+      return cd;
+  }
+
+  private triggerPhoenixTalon(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
+      const abilityData = stats.unlockedAbilities['phoenix_talon'];
+      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
+      const baseCooldown = ABILITIES['phoenix_talon']?.baseCooldown || 7;
+      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
+      // Section 3.3: three slashes of 1.5 SU in a fan, the exact
+      // geometry Burst fired before S2 (offsets (i-1) x 0.15 rad
+      // around the aim direction, speed 10, 2 s life). PI 0.96.
+      const damage = (stats.damage || 10) * 1.5 * (mods['damage'] ?? 1.0);
+      const type = ownerId === 'player' ? 'projectile_player' : 'projectile_enemy';
+      const baseAngle = this.aimAngle(sourceBody, targetX, targetY);
+      for (let i = 0; i < 3; i++) {
+          this.spawnAbilityProjectile({
+              x: sourceBody.position.x, y: sourceBody.position.y, radius: 8,
+              type, moveId: 'phoenix_talon', damage, ownerId,
+              angle: baseAngle + (i - 1) * 0.15, speedPerStep: this.scaledSpeed(10), lifeMs: 2000
+          });
+      }
+      this.audioService.playSFX('shoot');
+      return cd;
+  }
+
+  private triggerFireDart(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
+      const abilityData = stats.unlockedAbilities['fire_dart'];
+      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
+      const baseCooldown = ABILITIES['fire_dart']?.baseCooldown || 2;
+      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
+      // Section 3.3: one 1.5 SU projectile, no homing, the shortest
+      // cooldown in the game (2 s). PI 1.1: its trade is that a miss
+      // is a total loss, with no spread and no seeking to save it.
+      const damage = (stats.damage || 10) * 1.5 * (mods['damage'] ?? 1.0);
+      this.spawnAbilityProjectile({
+          x: sourceBody.position.x, y: sourceBody.position.y, radius: 6,
+          type: 'dart', moveId: 'fire_dart', damage, ownerId,
+          angle: this.aimAngle(sourceBody, targetX, targetY), speedPerStep: this.scaledSpeed(12), lifeMs: 2000
+      });
+      this.audioService.playSFX('shoot');
+      return cd;
+  }
+
+  private triggerSparkStorm(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
+      const abilityData = stats.unlockedAbilities['spark_storm'];
+      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
+      const baseCooldown = ABILITIES['spark_storm']?.baseCooldown || 9;
+      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
+      // Section 3.3: 6 homing sparks of 0.8 SU that seek SEPARATE
+      // targets when available (PI 0.8). Targets are assigned round
+      // robin at cast time; the steering lives in the physics loop
+      // (see the spark block in the beforeUpdate handler). An enemy
+      // cast seeks the player bird via the '__player__' sentinel.
+      const damage = (stats.damage || 10) * 0.8 * (mods['damage'] ?? 1.0);
+      const aim = this.aimAngle(sourceBody, targetX, targetY);
+      let targetIds: string[] = [];
+      if (ownerId === 'player') {
+          targetIds = this.enemies
+              .map(e => (e.plugin['data'] as EnemyData)?.id)
+              .filter((id): id is string => !!id);
+      } else {
+          targetIds = ['__player__'];
+      }
+      for (let i = 0; i < 6; i++) {
+          const targetId = targetIds.length ? targetIds[i % targetIds.length] : undefined;
+          this.spawnAbilityProjectile({
+              x: sourceBody.position.x, y: sourceBody.position.y, radius: 5,
+              type: 'spark', moveId: 'spark_storm', damage, ownerId,
+              angle: aim + (i - 2.5) * 0.18, speedPerStep: this.scaledSpeed(8), lifeMs: 2500,
+              extra: targetId ? { targetId } : undefined
+          });
+      }
+      this.audioService.playSFX('shoot');
+      return cd;
+  }
+
+  private triggerFireLance(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
+      const abilityData = stats.unlockedAbilities['fire_lance'];
+      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
+      const baseCooldown = ABILITIES['fire_lance']?.baseCooldown || 8;
+      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
+      // Section 3.3: one 3.5 SU piercing line, no tracking (PI 1.3 at
+      // 2 targets in the line, 0.66 single). Piercing is implemented
+      // in the enemy collision branch: the lance is not consumed on
+      // hit and hitIds records what it has already damaged.
+      const damage = (stats.damage || 10) * 3.5 * (mods['damage'] ?? 1.0);
+      this.spawnAbilityProjectile({
+          x: sourceBody.position.x, y: sourceBody.position.y, radius: 10,
+          type: 'lance', moveId: 'fire_lance', damage, ownerId,
+          angle: this.aimAngle(sourceBody, targetX, targetY), speedPerStep: this.scaledSpeed(13), lifeMs: 1600,
+          extra: { pierce: true, hitIds: [] }
+      });
+      this.audioService.playSFX('shoot');
+      return cd;
+  }
+
+  private triggerMeteorRush(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
+      const abilityData = stats.unlockedAbilities['meteor_rush'];
+      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
+      const baseCooldown = ABILITIES['meteor_rush']?.baseCooldown || 10;
+      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
+      // Section 3.3: 3 SU to each enemy crossed during a 600 ms rush.
+      // The named trade against Drill is exposure: the rush grants NO
+      // damage reduction and does not skip the caster's own contact
+      // damage; the collision branch applies the rush hit and the
+      // normal contact rules independently. PI 0.9 at 2 crossed.
+      const damage = (stats.damage || 10) * 3 * (mods['damage'] ?? 1.0);
+      const duration = 600;
+      this.audioService.playSFX('shoot');
+      if (ownerId === 'player') {
+          this.gameState.isMeteorRushing.set(true);
+          this.meteorRushUntilMs = Date.now() + duration;
+          this.meteorRushDamageValue = damage;
+          this.meteorRushHitIds.clear();
+          setTimeout(() => { this.gameState.isMeteorRushing.set(false); }, duration);
+      } else {
+          const d = sourceBody.plugin['data'] as EnemyData;
+          if (d) {
+              d.meteorRushUntil = Date.now() + duration;
+              d.meteorRushDamage = damage;
+              d.meteorRushHits = [];
+          }
+      }
       return cd;
   }
 

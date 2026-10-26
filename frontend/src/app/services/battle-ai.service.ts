@@ -16,12 +16,16 @@ export interface AiState {
     abilities: string[];
     lastTapTime: number;
     lastHoldTime: number;
+    // S2: the double slot gets its own cast clock, mirroring tap/hold.
+    lastDoubleTime: number;
     tapCooldown: number;
     holdCooldown: number;
+    doubleCooldown: number;
     upgradeTokensBox: number;
     abilityTokensBox: number;
     tapFatigue: number;
     holdFatigue: number;
+    doubleFatigue: number;
     personality: AiPersonality;
 }
 
@@ -71,12 +75,15 @@ export class BattleAiService {
             abilities: [],
             lastTapTime: 0,
             lastHoldTime: 0,
+            lastDoubleTime: 0,
             tapCooldown: 0,
             holdCooldown: 0,
+            doubleCooldown: 0,
             upgradeTokensBox: 0,
             abilityTokensBox: 0,
             tapFatigue: 0,
             holdFatigue: 0,
+            doubleFatigue: 0,
             personality: {
                 aggression: 0.7 + Math.random() * 0.6,  // [0.7, 1.3]
                 caution: 0.7 + Math.random() * 0.6,
