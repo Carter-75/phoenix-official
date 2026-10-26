@@ -57,6 +57,9 @@ export interface PhysicsEntity {
   // hit. Display only.
   facing?: number;
   sparkUntil?: number;
+  // Stage 5: the War Chanter buff is active on this entity; the
+  // renderer washes its colors toward the hostile tint. Display only.
+  buffed?: boolean;
   // Behavior state for the Stage 3 and Stage 4 types (the Cinder Imp's
   // approach, telegraph, dash, tired cycle; the Aether Wisp's close,
   // orbit, dart, return cycle; the Sentry Shard's drift and anchored
@@ -131,7 +134,7 @@ export interface World {
 
 export interface EnemyData {
   id: string;
-  type: 'bat' | 'slime' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite' | 'sentry_shard' | 'seedmother' | 'rift_mine' | 'shieldback' | 'pyre_moth' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance';
+  type: 'bat' | 'slime' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite' | 'sentry_shard' | 'seedmother' | 'rift_mine' | 'shieldback' | 'pyre_moth' | 'phantom' | 'wraith' | 'chanter' | 'serpent' | 'darter' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance' | 'nova';
   health: number;
   maxHealth: number;
   lastAttackTime?: number;
@@ -178,4 +181,15 @@ export interface EnemyData {
   motherId?: string; // rift_mine: id of the Seedmother that laid it (the 4-mine field cap counts these)
   sparkUntil?: number; // shieldback: ms timestamp the spark-off rim flash ends
   infernoUntil?: number; // enemy_phoenix: ms timestamp an active Phoenix Inferno channel ends
+  // Stage 5 behavior fields (roster batch C).
+  buffUntil?: number; // any enemy: War Chanter buff expiry (ms); steering scales speed by 1.25 while active
+  lastPulseAt?: number; // chanter: ms timestamp of its most recent buff pulse
+  anchorX?: number; // phantom: absolute flank anchor (px) it drifts to while phased and reappears at
+  anchorY?: number;
+  passFired?: boolean; // darter: set once the mid-pass spread has fired this pass
+  trail?: Array<{ x: number, y: number }>; // serpent: recent head positions (px), newest first, one per physics step
+  segmentPositions?: Array<{ x: number, y: number }>; // serpent: ribbon segment positions (px), head to tail
+  // S4 ultimates: id of the ultimate cast a projectile belongs to,
+  // so damageEnemy can enforce the per-cast boss HP cap.
+  ultCastId?: string;
 }

@@ -18,14 +18,18 @@ export interface AiState {
     lastHoldTime: number;
     // S2: the double slot gets its own cast clock, mirroring tap/hold.
     lastDoubleTime: number;
+    // S4: the triple (ultimate) slot likewise.
+    lastTripleTime: number;
     tapCooldown: number;
     holdCooldown: number;
     doubleCooldown: number;
+    tripleCooldown: number;
     upgradeTokensBox: number;
     abilityTokensBox: number;
     tapFatigue: number;
     holdFatigue: number;
     doubleFatigue: number;
+    tripleFatigue: number;
     personality: AiPersonality;
 }
 
@@ -76,14 +80,17 @@ export class BattleAiService {
             lastTapTime: 0,
             lastHoldTime: 0,
             lastDoubleTime: 0,
+            lastTripleTime: 0,
             tapCooldown: 0,
             holdCooldown: 0,
             doubleCooldown: 0,
+            tripleCooldown: 0,
             upgradeTokensBox: 0,
             abilityTokensBox: 0,
             tapFatigue: 0,
             holdFatigue: 0,
             doubleFatigue: 0,
+            tripleFatigue: 0,
             personality: {
                 aggression: 0.7 + Math.random() * 0.6,  // [0.7, 1.3]
                 caution: 0.7 + Math.random() * 0.6,
@@ -101,6 +108,7 @@ export class BattleAiService {
         // Fatigue decay (~3% per tick)
         this.ai1.tapFatigue *= 0.97;
         this.ai1.holdFatigue *= 0.97;
+        this.ai1.tripleFatigue *= 0.97;
 
         this.tryPurchaseAiUpgrade('ai1', context);
 
@@ -108,6 +116,7 @@ export class BattleAiService {
             this.ai2.coins += effectiveRate;
             this.ai2.tapFatigue *= 0.97;
             this.ai2.holdFatigue *= 0.97;
+            this.ai2.tripleFatigue *= 0.97;
             this.tryPurchaseAiUpgrade('ai2', context);
         }
 

@@ -382,6 +382,9 @@ import { CommonModule } from '@angular/common';
                   <div class="mt-auto pt-4 border-t border-white/10 flex items-center gap-4">
                      @if (!gameState.currentStats().unlockedAbilities[ability.id]) {
                         <!-- Locked -->
+                        @if (ability.type === 'triple' && !gameState.isWorldBossBeaten(gameState.selectedWorldIndex())) {
+                           <div class="w-full py-3 px-2 text-center text-amber-300/90 text-sm font-bold border border-amber-400/30 rounded-xl bg-amber-400/10">Beat this realm's boss to unlock its ultimate</div>
+                        } @else {
                         <div class="w-full">
                            @if (canAffordWithGemsButNotCoins(ability.unlockCost)) {
                               <div class="flex gap-2 w-full">
@@ -402,6 +405,7 @@ import { CommonModule } from '@angular/common';
                               </button>
                            }
                         </div>
+                        }
                      } @else {
                         <!-- Unlocked -->
                         <div class="flex flex-col w-full gap-2">
@@ -906,6 +910,13 @@ export class ShopComponent implements OnInit {
   }
 
   unlockAbility(id: string, cost: number, useGems: boolean = false, fromAd: boolean = false) {
+    // S4 triple gate (systems spec Section 3.4): an ultimate may
+    // only be unlocked in a world after that world's boss has been
+    // beaten once. Every purchase path, ads included, refuses
+    // before the gate; the template shows the reason on the card.
+    if (ABILITIES[id]?.type === 'triple' && !this.gameState.isWorldBossBeaten(this.gameState.selectedWorldIndex())) {
+        return;
+    }
     if (fromAd) {
          if (!this.gameState.currentStats().unlockedAbilities[id]) {
              this.gameState.worldUpgrades.update(upgrades => {
@@ -988,6 +999,10 @@ export class ShopComponent implements OnInit {
   }
 
   equipAbility(id: string, type: 'tap' | 'double' | 'hold' | 'triple') {
+      // S4 triple gate, equip path (see unlockAbility).
+      if (type === 'triple' && !this.gameState.isWorldBossBeaten(this.gameState.selectedWorldIndex())) {
+          return;
+      }
       this.gameState.worldUpgrades.update(upgrades => {
           const worldId = this.gameState.selectedWorldIndex();
           const stats = upgrades[worldId];

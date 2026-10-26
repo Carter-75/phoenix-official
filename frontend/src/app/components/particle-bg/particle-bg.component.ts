@@ -1928,7 +1928,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
 
   // Enemy types get the shared death burst on removal (Section 3.1);
   // everything else (pickups, projectiles, effects) just disappears.
-  private static readonly BURST_TYPES = ['slime', 'bat', 'golem', 'imp', 'wisp', 'pod', 'mite', 'sentry_shard', 'seedmother', 'rift_mine', 'shieldback', 'pyre_moth', 'boss'];
+  private static readonly BURST_TYPES = ['slime', 'bat', 'golem', 'imp', 'wisp', 'pod', 'mite', 'sentry_shard', 'seedmother', 'rift_mine', 'shieldback', 'pyre_moth', 'phantom', 'wraith', 'chanter', 'serpent', 'darter', 'boss'];
 
   private syncEntities() {
     const nowMs = performance.now();
@@ -2444,6 +2444,93 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
           }
         }
       }
+      else if (data.type === 'phantom') {
+        // Shroud Phantom (Stage 5): opacity IS the phase read.
+        // Solid is the standard 0.9; phased drops to a quarter, so
+        // the shape is a rumor; through the reappear the shimmer
+        // climbs back with the published charge (the 0.7 s
+        // telegraph window the player learns to watch).
+        const mat = entity.mesh.material as THREE.PointsMaterial;
+        if (data.state === 'phased') mat.opacity = 0.25;
+        else if (data.state === 'reappear') mat.opacity = 0.25 + 0.65 * (data.attackCharge ?? 0);
+        else mat.opacity = 0.9;
+        entity.mesh.rotation.y += 0.3 * dtSec;
+      }
+      else if (data.type === 'wraith') {
+        // Lance Wraith (Stage 5): the spear body aligns to its aim
+        // line (published facing), and the aiming eye brightens
+        // through the lock with the published charge, the Sentry
+        // Shard's telegraph pattern.
+        if (data.facing !== undefined) entity.mesh.rotation.z = -data.facing;
+        const charge = data.attackCharge ?? 0;
+        if (entity.baseColors && entity.layerFlags) {
+          const colAttr = entity.mesh.geometry.attributes['color'];
+          const colArr = colAttr.array as Float32Array;
+          const brighten = 1 + charge * 1.3;
+          for (let i = 0; i < entity.layerFlags.length; i++) {
+            if (entity.layerFlags[i] !== 1) continue;
+            const idx = i * 3;
+            colArr[idx] = Math.min(1.8, entity.baseColors[idx] * brighten);
+            colArr[idx + 1] = Math.min(1.8, entity.baseColors[idx + 1] * brighten);
+            colArr[idx + 2] = Math.min(1.8, entity.baseColors[idx + 2] * brighten);
+          }
+          colAttr.needsUpdate = true;
+        }
+      }
+      else if (data.type === 'wraith_line') {
+        // The lock-on line (Stage 5): a thin hostile sprite from the
+        // wraith's eye to the player's position, brightening as the
+        // lock completes. This branch owns its opacity every frame.
+        if (data.facing !== undefined) entity.mesh.rotation.z = -data.facing;
+        (entity.mesh.material as THREE.PointsMaterial).opacity = 0.3 + 0.65 * (data.attackCharge ?? 0);
+      }
+      else if (data.type === 'chanter') {
+        // War Chanter (Stage 5): the note-spark ring orbits by
+        // turning the whole mesh slowly; the bell itself is
+        // rotationally symmetric, so only the ring reads as moving.
+        // A gentle breathing scale keeps the bell alive.
+        entity.mesh.rotation.z += 0.9 * dtSec;
+        const s = 1 + Math.sin(Date.now() * 0.002 + (entity.timeOffset || 0)) * 0.02;
+        entity.mesh.scale.set(s, s, s);
+      }
+      else if (data.type === 'chanter_pulse') {
+        // The buff pulse ring (Stage 5) fades as it expands; the
+        // game grows the published size across the buff radius.
+        (entity.mesh.material as THREE.PointsMaterial).opacity = 0.85 * (1 - (data.attackCharge ?? 0));
+      }
+      else if (data.type === 'serpent') {
+        // Loom Serpent head (Stage 5): faces its travel direction;
+        // through the coil the head swells with the published
+        // charge (the 0.5 s lunge telegraph).
+        if (data.facing !== undefined) entity.mesh.rotation.z = -data.facing;
+        if (data.state === 'coil') {
+          const s = 1 + 0.35 * (data.attackCharge ?? 0);
+          entity.mesh.scale.set(s, s, s);
+        } else {
+          entity.mesh.scale.set(1, 1, 1);
+        }
+      }
+      else if (data.type === 'darter') {
+        // Storm Darter (Stage 5): aligned to its travel direction
+        // (published facing); the wingtip sparks flare through the
+        // line-up with the published charge, so the pass is
+        // announced before it starts.
+        if (data.facing !== undefined) entity.mesh.rotation.z = -data.facing;
+        const charge = data.attackCharge ?? 0;
+        if (entity.baseColors && entity.layerFlags) {
+          const colAttr = entity.mesh.geometry.attributes['color'];
+          const colArr = colAttr.array as Float32Array;
+          const brighten = 1 + charge * 1.2;
+          for (let i = 0; i < entity.layerFlags.length; i++) {
+            if (entity.layerFlags[i] !== 1) continue;
+            const idx = i * 3;
+            colArr[idx] = Math.min(1.8, entity.baseColors[idx] * brighten);
+            colArr[idx + 1] = Math.min(1.8, entity.baseColors[idx + 1] * brighten);
+            colArr[idx + 2] = Math.min(1.8, entity.baseColors[idx + 2] * brighten);
+          }
+          colAttr.needsUpdate = true;
+        }
+      }
       else if (data.type === 'boss' && entity.basePositions) {
         const pPositions = entity.mesh.geometry.attributes['position'].array as Float32Array;
         const time = Date.now() * 0.005 + (entity.timeOffset || 0);
@@ -2529,6 +2616,18 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
           colArr[idx + 2] = entity.baseColors[idx + 2] + (1 - entity.baseColors[idx + 2]) * flashEnv;
         }
         colAttr.needsUpdate = true;
+      }
+
+      // War Chanter buff wash (Stage 5): while the game publishes
+      // the buffed flag, this entity's material tint shifts toward
+      // the hostile color, so a sped-up enemy is visibly a buffed
+      // enemy (design sheet 15). A material tint, not a vertex
+      // rewrite: it composes with every per-type color branch.
+      const pubMat = entity.mesh.material as THREE.PointsMaterial;
+      if (data.buffed) {
+        pubMat.color.setRGB(1.35, 0.55, 0.75);
+      } else if (pubMat.color.r !== 1 || pubMat.color.g !== 1 || pubMat.color.b !== 1) {
+        pubMat.color.setRGB(1, 1, 1);
       }
 
       // Make aura expand dynamically

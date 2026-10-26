@@ -23,7 +23,7 @@
 // (World 1) and Sentry Shard (World 3) shipped in Stage 4, so their
 // weights below are live.
 
-export type SpawnTypeId = 'slime' | 'bat' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite' | 'sentry_shard' | 'seedmother' | 'rift_mine' | 'shieldback' | 'pyre_moth';
+export type SpawnTypeId = 'slime' | 'bat' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite' | 'sentry_shard' | 'seedmother' | 'rift_mine' | 'shieldback' | 'pyre_moth' | 'phantom' | 'wraith' | 'chanter' | 'serpent' | 'darter';
 
 export interface WaveEntry {
   type: string; // SpawnTypeId once shipped; later-stage types are inert until they exist

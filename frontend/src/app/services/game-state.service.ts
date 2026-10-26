@@ -114,6 +114,21 @@ export class GameStateService {
   // Screens: 'menu' | 'game' | 'shop' | 'login' | 'profile' | 'leaderboard' | 'crate_opening'
   public activeScreen = signal<'menu' | 'game' | 'shop' | 'login' | 'profile' | 'leaderboard' | 'codex' | 'crate_opening'>('menu');
   public unlockedWorlds = signal<number[]>([0]); // IDs of unlocked worlds
+  // S4 (systems spec Section 3.4): worlds whose boss has been beaten
+  // at least once. The triple (ultimate) slot is gated on this per
+  // world. Additive field: older saves derive it from unlockedWorlds
+  // (a world is unlocked exactly when the previous world's boss
+  // died, the game's first-defeat definition), so existing players
+  // keep credit for every boss they already beat.
+  public beatenWorlds = signal<number[]>([]);
+  public isWorldBossBeaten(worldIndex: number): boolean {
+      return this.beatenWorlds().includes(worldIndex);
+  }
+  public recordBossBeaten(worldIndex: number) {
+      if (!this.beatenWorlds().includes(worldIndex)) {
+          this.beatenWorlds.update(w => [...w, worldIndex]);
+      }
+  }
   public selectedWorldIndex = signal<number>(0);
   public currentGameMode = signal<'campaign' | 'battle' | 'ai_vs_ai'>('campaign');
   public coinMultiplier = signal<number>(1);
@@ -239,6 +254,13 @@ export class GameStateService {
               if (data.acceptedLegalPolicies !== undefined) this.acceptedLegalPolicies.set(data.acceptedLegalPolicies);
               if (data.activeScreen) this.activeScreen.set(data.activeScreen);
               if (data.unlockedWorlds) this.unlockedWorlds.set(data.unlockedWorlds);
+              if (Array.isArray(data.beatenWorlds)) {
+                  this.beatenWorlds.set(data.beatenWorlds.filter((w: any) => Number.isInteger(w) && w >= 0 && w <= 9));
+              } else if (Array.isArray(data.unlockedWorlds)) {
+                  // Pre-S4 save: derive beaten worlds from unlocks
+                  // (world w is beaten when world w + 1 is unlocked).
+                  this.beatenWorlds.set(data.unlockedWorlds.filter((w: number) => w > 0).map((w: number) => w - 1));
+              }
               if (data.selectedWorldIndex) this.selectedWorldIndex.set(data.selectedWorldIndex);
               if (data.coinMultiplier) this.coinMultiplier.set(data.coinMultiplier);
               if (data.xpMultiplier) this.xpMultiplier.set(data.xpMultiplier);
@@ -304,6 +326,7 @@ export class GameStateService {
               hasRemoveAds: this.hasRemoveAds(),
               reviveTokens: this.reviveTokens(),
               unlockedWorlds: this.unlockedWorlds(),
+              beatenWorlds: this.beatenWorlds(),
               worldUpgrades: this.worldUpgrades(),
               coinMultiplier: this.coinMultiplier(),
               xpMultiplier: this.xpMultiplier(),
@@ -540,6 +563,12 @@ export class GameStateService {
           this.tempXpMultiplierExpiresAt.set(user.boostExpiresAt);
       }
       this.unlockedWorlds.set(user.unlockedWorlds && user.unlockedWorlds.length > 0 ? user.unlockedWorlds : [0]);
+      const serverBeaten = (user as any).beatenWorlds;
+      if (Array.isArray(serverBeaten)) {
+          this.beatenWorlds.set(serverBeaten.filter((w: any) => Number.isInteger(w) && w >= 0 && w <= 9));
+      } else {
+          this.beatenWorlds.set(this.unlockedWorlds().filter(w => w > 0).map(w => w - 1));
+      }
       if (user.worldUpgrades && Object.keys(user.worldUpgrades).length > 0) {
           const upgrades = user.worldUpgrades;
           // Migration for old saves
@@ -688,6 +717,7 @@ export class GameStateService {
           coins: this.coins(),
           gems: this.gems(),
           unlockedWorlds: this.unlockedWorlds(),
+          beatenWorlds: this.beatenWorlds(),
           worldUpgrades: this.worldUpgrades(),
           modifiersVersion: MODIFIERS_VERSION,
           hasPurchasedGems: this.hasPurchasedGems(),

@@ -183,6 +183,17 @@ export const ABILITIES: Record<string, { id: string, type: 'tap' | 'double' | 'h
   'inferno_wave': { id: 'inferno_wave', type: 'hold', name: 'Inferno Wave', desc: 'Expanding ring that hits every enemy once', icon: '⭕', unlockCost: 900, upgradeCost: 400, baseCooldown: 16 },
   'rebirth': { id: 'rebirth', type: 'hold', name: 'Rebirth (Passive)', desc: 'Revive upon death with shockwave', icon: '✨', unlockCost: 1000, upgradeCost: 500, baseCooldown: 75 },
   'aura': { id: 'aura', type: 'hold', name: 'Aura', desc: 'Continuous damage zone', icon: '🌀', unlockCost: 0, upgradeCost: 400, baseCooldown: 17 },
+
+  // S4 ultimates (systems spec Section 3.3, triple-tap slot). All
+  // four are gated: the slot stays locked until the boss of the
+  // world being played has been beaten once (Section 3.4), enforced
+  // in the shop unlock and equip paths and again in the cast path.
+  // Every cast is hard-capped at 25 percent of a boss target's
+  // current HP (Section 1.6, PI_RULES.ultimateBossHpCapFraction).
+  'phoenix_nova': { id: 'phoenix_nova', type: 'triple', name: 'Phoenix Nova', desc: 'Nova ring that devastates everything nearby', icon: '💫', unlockCost: 1500, upgradeCost: 500, baseCooldown: 60 },
+  'supernova': { id: 'supernova', type: 'triple', name: 'Supernova', desc: 'A star swells at the target point, then detonates', icon: '🌟', unlockCost: 1500, upgradeCost: 500, baseCooldown: 75 },
+  'divine_wrath': { id: 'divine_wrath', type: 'triple', name: 'Divine Wrath', desc: 'Columns of white-gold fire strike your enemies', icon: '🌠', unlockCost: 1500, upgradeCost: 500, baseCooldown: 70 },
+  'phoenix_singularity': { id: 'phoenix_singularity', type: 'triple', name: 'Phoenix Singularity', desc: 'A vortex that drags enemies in, then detonates', icon: '🕳️', unlockCost: 1500, upgradeCost: 500, baseCooldown: 90 },
 };
 
 // Gadget slot (systems spec Section 5.3, stage S3): one gadget per
@@ -196,7 +207,7 @@ export const GADGETS: Record<string, { id: string, name: string, desc: string, i
 };
 
 export const REALM_ABILITIES: Record<number, string[]> = {
-  0: ['drill_attack', 'fire_breath', 'burst', 'fire_dart', 'meteor_rush', 'phoenix_talon', 'spark_storm', 'fire_lance', 'phoenix_turret', 'phoenix_inferno', 'inferno_wave', 'rebirth', 'aura']
+  0: ['drill_attack', 'fire_breath', 'burst', 'fire_dart', 'meteor_rush', 'phoenix_talon', 'spark_storm', 'fire_lance', 'phoenix_turret', 'phoenix_inferno', 'inferno_wave', 'rebirth', 'aura', 'phoenix_nova', 'supernova', 'divine_wrath', 'phoenix_singularity']
 };
 
 export const ABILITY_UPGRADE_TARGETS: Record<string, { targetLevel: number, stats: Record<string, number> }> = {
@@ -216,7 +227,12 @@ export const ABILITY_UPGRADE_TARGETS: Record<string, { targetLevel: number, stat
   fire_lance: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },
   // S3 hold moves: the same Section 3.5 default shape as S2.
   phoenix_inferno: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },
-  inferno_wave: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } }
+  inferno_wave: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },
+  // S4 ultimates: the same Section 3.5 default shape as S2 and S3.
+  phoenix_nova: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },
+  supernova: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },
+  divine_wrath: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },
+  phoenix_singularity: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } }
 };
 
 // Deterministic ability upgrades (systems spec Section 3.5, stage S1).

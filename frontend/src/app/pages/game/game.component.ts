@@ -4,6 +4,7 @@ import { GameStateService, STAMINA, createMovementState } from '../../services/g
 import { phoenixSkinForWorld } from '../../components/particle-bg/particle-bg.component';
 import { PhysicsEntity, WorldStats } from '../../models/game.models';
 import { ABILITIES, BASE_STATS, REALM_ABILITIES } from '../../constants/game.constants';
+import { PI_RULES } from '../../data/balance.constants';
 import { AudioService } from '../../services/audio.service';
 import { SettingsComponent } from '../settings/settings.component';
 import * as Matter from 'matter-js';
@@ -15,7 +16,7 @@ import { AdsService } from '../../services/ads.service';
 
 interface EnemyData {
   id: string;
-  type: 'bat' | 'slime' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite' | 'sentry_shard' | 'seedmother' | 'rift_mine' | 'shieldback' | 'pyre_moth' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance';
+  type: 'bat' | 'slime' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite' | 'sentry_shard' | 'seedmother' | 'rift_mine' | 'shieldback' | 'pyre_moth' | 'phantom' | 'wraith' | 'chanter' | 'serpent' | 'darter' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance' | 'nova';
   health: number;
   maxHealth: number;
   lastAttackTime?: number;
@@ -49,6 +50,16 @@ interface EnemyData {
   motherId?: string;
   sparkUntil?: number;
   infernoUntil?: number;
+  // Stage 5 behavior fields (mirror models/game.models.ts).
+  buffUntil?: number;
+  lastPulseAt?: number;
+  anchorX?: number;
+  anchorY?: number;
+  passFired?: boolean;
+  trail?: Array<{ x: number, y: number }>;
+  segmentPositions?: Array<{ x: number, y: number }>;
+  // S4: ultimate cast id on projectiles (boss HP cap enforcement).
+  ultCastId?: string;
 }
 
 @Component({
@@ -830,6 +841,14 @@ export class GameComponent implements OnInit, OnDestroy {
                 // until the Worlds 4, 8, and 10 tables land in Stage 6.
                 spawnMinePattern: (cx: number, cy: number, count: number) => {
                     return this.spawner.spawnMinePattern(this.getSpawnerContext(), cx, cy, count, this.gameState.selectedWorldIndex());
+                },
+                // S4: spawn the campaign boss for the selected world
+                // through the production spawner (real HP law, real
+                // health signals, field cleared). The scripted TTK
+                // probe's seeded route: it skips the survival phase,
+                // never the fight itself.
+                spawnBossNow: () => {
+                    this.spawner.spawnBoss(this.getSpawnerContext());
                 }
             };
         }
@@ -1174,6 +1193,14 @@ export class GameComponent implements OnInit, OnDestroy {
                 continue;
             }
 
+            // Stage 5: a phased or reappearing Shroud Phantom
+            // cannot hit either (design sheet 13). Contact passes
+            // through it in both directions while it is out of
+            // phase: no damage, no knockback.
+            if (data.type === 'phantom' && data.behaviorState !== 'solid') {
+                continue;
+            }
+
             if (this.gameState.isDrilling()) {
                 this.damageEnemy(otherBody, this.gameState.currentStats().burstDamage * 3, this.playerBody.position);
                 this.triggerImpactEffect(otherBody.position.x, otherBody.position.y, false);
@@ -1218,7 +1245,7 @@ export class GameComponent implements OnInit, OnDestroy {
                 const kv = Matter.Body.getVelocity(otherBody);
                 Matter.Body.setVelocity(otherBody, { x: kv.x - normalized.x * kick, y: kv.y - normalized.y * kick });
             }
-          } else if (otherBody.label === 'projectile' && (data.type === 'projectile_enemy' || data.type === 'projectile_player' || data.type === 'annihilation_fire' || data.type === 'fire' || data.type === 'aura' || data.type === 'dart' || data.type === 'talon' || data.type === 'spark' || data.type === 'lance')) {
+          } else if (otherBody.label === 'projectile' && (data.type === 'projectile_enemy' || data.type === 'projectile_player' || data.type === 'annihilation_fire' || data.type === 'fire' || data.type === 'aura' || data.type === 'dart' || data.type === 'talon' || data.type === 'spark' || data.type === 'lance' || data.type === 'nova')) {
             if (data.owner === 'player') continue;
             
             if (data.type === 'projectile_enemy' && this.gameState.currentGameMode() === 'battle') {
@@ -1254,7 +1281,12 @@ export class GameComponent implements OnInit, OnDestroy {
                 if (data.pierce && data.hitIds) {
                     if (!data.hitIds.includes('__player__')) {
                         data.hitIds.push('__player__');
-                        this.takeDamage(data.burstDamage || 10);
+                        // S4: an enemy-cast ultimate's hit on the
+                        // player is clamped by the same per-cast cap
+                        // as its hits on a boss (see clampUltDamage).
+                        let dmg = data.burstDamage || 10;
+                        if (data.ultCastId) dmg = this.clampUltDamage(data.ultCastId, '__player__', this.currentHealth(), dmg);
+                        this.takeDamage(dmg);
                     }
                 } else {
                     this.takeDamage(data.burstDamage || 10);
@@ -1413,13 +1445,16 @@ export class GameComponent implements OnInit, OnDestroy {
                     }
                 }
             }
-            this.damageEnemy(other, damage, projectile.position);
+            this.damageEnemy(other, damage, projectile.position, projData.ultCastId);
           } else if (other.label === 'projectile') {
               const pData = projectile.plugin['data'] as EnemyData;
               const oData = other.plugin['data'] as EnemyData;
               
-              if (pData && oData && pData.owner && oData.owner && pData.owner !== oData.owner) {
-                  const destructible = ['fire', 'projectile_player', 'projectile_enemy', 'dart', 'talon', 'spark', 'lance'];
+              // Stage 5: the Lance Wraith's bolt passes through the
+              // player's fire (design sheet 14), so it is exempt
+              // from the clash on either side of the pair.
+              if (pData && oData && pData.owner && oData.owner && pData.owner !== oData.owner && pData.moveId !== 'wraith_bolt' && oData.moveId !== 'wraith_bolt') {
+                  const destructible = ['fire', 'projectile_player', 'projectile_enemy', 'dart', 'talon', 'spark', 'lance', 'nova'];
                   if (destructible.includes(pData.type) && destructible.includes(oData.type)) {
                       const pDamage = pData.burstDamage || this.gameState.currentStats().damage;
                       const oDamage = oData.burstDamage || (oData.type === 'fire' ? 10 : this.gameState.currentStats().damage);
@@ -1659,6 +1694,20 @@ export class GameComponent implements OnInit, OnDestroy {
                       }
                   }
               }
+              // S4: ai2's triple slot chains on its tap decision,
+              // mirroring its double slot exactly.
+              {
+                  const triAbility = this.battleAi.ai2.abilities.find(ab => ABILITIES[ab]?.type === 'triple');
+                  if (triAbility && mlAction.useTap > 0.5) {
+                      const triFatigueMult = 1 + (this.battleAi.ai2.tripleFatigue || 0);
+                      if (!this.battleAi.ai2.lastTripleTime || now - this.battleAi.ai2.lastTripleTime > (this.battleAi.ai2.tripleCooldown || 0) * 1000 * triFatigueMult) {
+                          const cd = this.triggerAbility(triAbility, this.playerBody, mlAction.targetX, mlAction.targetY, this.battleAi.ai2.stats, 'player');
+                          this.battleAi.ai2.lastTripleTime = now;
+                          this.battleAi.ai2.tripleCooldown = cd;
+                          this.battleAi.ai2.tripleFatigue = (this.battleAi.ai2.tripleFatigue || 0) + 0.3;
+                      }
+                  }
+              }
           }
 
           // Auto-fire (Normal projectiles)
@@ -1754,6 +1803,16 @@ export class GameComponent implements OnInit, OnDestroy {
         if (data.type === 'rift_mine') chaseSpeed = 0;
         if (data.type === 'shieldback') chaseSpeed = 0.25;
         if (data.type === 'pyre_moth') chaseSpeed = 1.2;
+        // Stage 5 types (Section 3.3 speeds through the same halving):
+        // Shroud Phantom Cruise (1.2 sheet), Lance Wraith Slow (0.6),
+        // War Chanter Cruise (1.0), Loom Serpent Swift (2.0), Storm
+        // Darter Cruise between passes (1.0). Their hooks below own
+        // the actual motion; the caps here are the defaults.
+        if (data.type === 'phantom') chaseSpeed = 0.6;
+        if (data.type === 'wraith') chaseSpeed = 0.3;
+        if (data.type === 'chanter') chaseSpeed = 0.5;
+        if (data.type === 'serpent') chaseSpeed = 1.0;
+        if (data.type === 'darter') chaseSpeed = 0.5;
         if (data.type === 'golem') {
             chaseSpeed = 0.005;
             // Golem Ranged Attack
@@ -1916,6 +1975,21 @@ export class GameComponent implements OnInit, OnDestroy {
                     eAny.lastDoubleAbilityTime = now;
                     eAny.doubleCooldown = cd;
                     this.battleAi.ai1.doubleFatigue += 0.3;
+                }
+
+                // S4: the rival's triple (ultimate) slot chains on
+                // its tap decision the same way, on its own body
+                // clock and fatigue, through the same path. The
+                // campaign gate does not apply here: Battle is not a
+                // world run, and the rival's loadout comes from the
+                // realm pool, as with every other family.
+                const triAb = this.battleAi.ai1.abilities.find(ab => ABILITIES[ab]?.type === 'triple');
+                const triFatigueMult = 1 + (this.battleAi.ai1.tripleFatigue || 0);
+                if (mlAction.useTap > 0.5 && triAb && (!eAny.lastTripleAbilityTime || now >= eAny.lastTripleAbilityTime + (eAny.tripleCooldown || 0) * triFatigueMult)) {
+                    const cd = this.triggerAbility(triAb, enemy, mlAction.targetX, mlAction.targetY, this.battleAi.ai1.stats, 'enemy');
+                    eAny.lastTripleAbilityTime = now;
+                    eAny.tripleCooldown = cd;
+                    this.battleAi.ai1.tripleFatigue += 0.3;
                 }
             }
 
@@ -2253,6 +2327,275 @@ export class GameComponent implements OnInit, OnDestroy {
               this.damageEnemy(enemy, 0, enemy.position);
             }
           }
+        } else if (data.type === 'phantom') {
+          // Shroud Phantom (Phaser): a fixed, learnable cycle
+          // (design sheet 13). Solid for 2.5 s, chasing at Cruise.
+          // Phased for 1.0 s: translucent, unable to be hit and
+          // unable to hit (both paths check the phase), drifting
+          // toward a flank anchor beside the player. Then a 0.7 s
+          // reappear shimmer at the anchor (the telegraph; still
+          // harmless and untouchable while it gathers), then solid
+          // again. The teleport at the reappear guarantees the
+          // gather happens at the flank even if the drift fell short.
+          const LU = this.logicalUnit;
+          const state = data.behaviorState || 'solid';
+          if (state === 'solid') {
+            desiredX = normalized.x * 0.6 * LU;
+            desiredY = normalized.y * 0.6 * LU;
+            if (now >= (data.stateUntil || 0)) {
+              let side = Math.random() < 0.5 ? 1 : -1;
+              const m = 0.06 * LU;
+              let ax = this.playerBody.position.x + (-normalized.y) * side * 0.3 * LU;
+              let ay = this.playerBody.position.y + normalized.x * side * 0.3 * LU;
+              if (ax < m || ax > window.innerWidth - m || ay < m || ay > window.innerHeight - m) {
+                side = -side;
+                ax = this.playerBody.position.x + (-normalized.y) * side * 0.3 * LU;
+                ay = this.playerBody.position.y + normalized.x * side * 0.3 * LU;
+              }
+              data.anchorX = Math.max(m, Math.min(window.innerWidth - m, ax));
+              data.anchorY = Math.max(m, Math.min(window.innerHeight - m, ay));
+              data.behaviorState = 'phased';
+              data.stateUntil = now + 1000;
+            }
+          } else if (state === 'phased') {
+            const dx = (data.anchorX ?? enemy.position.x) - enemy.position.x;
+            const dy = (data.anchorY ?? enemy.position.y) - enemy.position.y;
+            const d = Math.hypot(dx, dy) || 1;
+            const sp = Math.min(0.9 * LU, d * 2);
+            desiredX = (dx / d) * sp;
+            desiredY = (dy / d) * sp;
+            blendK = 4;
+            if (now >= (data.stateUntil || 0)) {
+              Matter.Body.setPosition(enemy, { x: data.anchorX ?? enemy.position.x, y: data.anchorY ?? enemy.position.y });
+              Matter.Body.setVelocity(enemy, { x: 0, y: 0 });
+              data.behaviorState = 'reappear';
+              data.telegraphStart = now;
+              data.stateUntil = now + 700;
+            }
+          } else { // reappear
+            desiredX = 0;
+            desiredY = 0;
+            if (now >= (data.stateUntil || 0)) {
+              data.behaviorState = 'solid';
+              data.stateUntil = now + 2500;
+            }
+          }
+        } else if (data.type === 'wraith') {
+          // Lance Wraith (Sniper): holds a ring at about 45 percent
+          // of the min dimension from the player. In band and off
+          // cooldown it locks on for 0.7 s: its aim tracks the
+          // player and the lock line is published for the renderer.
+          // At the lock's end it fires one fast piercing bolt along
+          // the aim, then retreats through its 1.8 s cooldown
+          // (design sheet 14). The aim vector lives on the body
+          // data: the bolt, the published facing, and the renderer
+          // all read the same line.
+          const LU = this.logicalUnit;
+          const distP = Math.hypot(force.x, force.y);
+          const ringR = 0.45 * LU;
+          data.aimDirX = normalized.x;
+          data.aimDirY = normalized.y;
+          const state = data.behaviorState || 'stalk';
+          if (state === 'lock') {
+            desiredX = normalized.x * 0.05 * LU;
+            desiredY = normalized.y * 0.05 * LU;
+            blendK = 4;
+            if (now >= (data.stateUntil || 0)) {
+              this.fireWraithBolt(enemy);
+              data.lastAttackTime = now;
+              data.behaviorState = 'retreat';
+              data.stateUntil = now + 1800;
+            }
+          } else if (state === 'retreat') {
+            desiredX = -normalized.x * 0.3 * LU;
+            desiredY = -normalized.y * 0.3 * LU;
+            if (now >= (data.stateUntil || 0)) data.behaviorState = 'stalk';
+          } else { // stalk: settle onto the ring
+            const err = distP - ringR;
+            const dirS = err >= 0 ? 1 : -1;
+            const mag = Math.min(0.3 * LU, Math.abs(err) * 2);
+            desiredX = normalized.x * dirS * mag;
+            desiredY = normalized.y * dirS * mag;
+            if (Math.abs(err) < 0.08 * LU && now - (data.lastAttackTime || 0) > 2500) {
+              data.behaviorState = 'lock';
+              data.telegraphStart = now;
+              data.stateUntil = now + 700;
+            }
+          }
+        } else if (data.type === 'chanter') {
+          // War Chanter (Support): never attacks (design sheet 15).
+          // It keeps at least 35 percent of the min dimension from
+          // the player, fleeing at Cruise when pressed, and every
+          // 5 s it pulses: every other enemy within 30 percent of
+          // the min dimension gains 25 percent speed for 3 s (the
+          // buffUntil the steering loop and renderer read). Mines
+          // are excluded: they have no speed to gain.
+          const LU = this.logicalUnit;
+          const distP = Math.hypot(force.x, force.y);
+          if (distP < 0.35 * LU) {
+            desiredX = -normalized.x * 0.5 * LU;
+            desiredY = -normalized.y * 0.5 * LU;
+          } else if (distP > 0.5 * LU) {
+            desiredX = normalized.x * 0.3 * LU;
+            desiredY = normalized.y * 0.3 * LU;
+          } else {
+            desiredX = -normalized.y * 0.15 * LU;
+            desiredY = normalized.x * 0.15 * LU;
+          }
+          if (now - (data.lastAttackTime || 0) >= 5000) {
+            data.lastAttackTime = now;
+            data.lastPulseAt = now;
+            const buffR = 0.30 * LU;
+            for (const other of this.enemies) {
+              if (other === enemy) continue;
+              const od = other.plugin['data'] as EnemyData;
+              if (!od || od.type === 'rift_mine') continue;
+              const d = Math.hypot(other.position.x - enemy.position.x, other.position.y - enemy.position.y);
+              if (d <= buffR) od.buffUntil = now + 3000;
+            }
+          }
+        } else if (data.type === 'serpent') {
+          // Loom Serpent (Weaver, elite): a sine-weave chase at
+          // Swift with a wide amplitude. Every 6 s it coils for
+          // 0.5 s (the ribbon bunches, the head flares: the
+          // telegraph), then lunges in a locked straight line at
+          // Dart speed through the player's position (design sheet
+          // 17). The ribbon segments derive from the head's recent
+          // path each tick and are published as virtual entities.
+          const LU = this.logicalUnit;
+          const state = data.behaviorState || 'weave';
+          if (!data.trail) data.trail = [];
+          data.trail.unshift({ x: enemy.position.x, y: enemy.position.y });
+          if (data.trail.length > 300) data.trail.length = 300;
+          const bunch = state === 'coil' ? 1 - 0.65 * Math.min(1, (now - (data.telegraphStart || now)) / 500) : 1;
+          const spacing = 0.085 * LU * bunch;
+          const segs: Array<{ x: number, y: number }> = [];
+          let acc = 0;
+          for (let i = 1; i < data.trail.length && segs.length < 7; i++) {
+            const a = data.trail[i - 1], b = data.trail[i];
+            acc += Math.hypot(b.x - a.x, b.y - a.y);
+            if (acc >= spacing * (segs.length + 1)) segs.push({ x: b.x, y: b.y });
+          }
+          data.segmentPositions = segs;
+          // Published facing follows the head's travel direction.
+          const hv = Matter.Body.getVelocity(enemy);
+          if (Math.abs(hv.x) > 0.01 || Math.abs(hv.y) > 0.01) {
+            const hl = Math.hypot(hv.x, hv.y) || 1;
+            data.aimDirX = hv.x / hl;
+            data.aimDirY = hv.y / hl;
+          }
+          if (state === 'coil') {
+            desiredX = normalized.x * 0.12 * LU;
+            desiredY = normalized.y * 0.12 * LU;
+            blendK = 5;
+            if (now >= (data.stateUntil || 0)) {
+              data.behaviorState = 'lunge';
+              data.dashDirX = normalized.x;
+              data.dashDirY = normalized.y;
+              data.stateUntil = now + 550;
+            }
+          } else if (state === 'lunge') {
+            desiredX = (data.dashDirX || 0) * 1.685 * LU; // Dart cap, the Serpent's strike class
+            desiredY = (data.dashDirY || 0) * 1.685 * LU;
+            blendK = 12;
+            if (now >= (data.stateUntil || 0)) {
+              data.behaviorState = 'weave';
+              data.stateUntil = now + 6000;
+            }
+          } else { // weave
+            let hash = 0;
+            const idStr = data.id || '';
+            for (let ci = 0; ci < idStr.length; ci++) hash = (hash * 31 + idStr.charCodeAt(ci)) | 0;
+            const s = Math.sin((now / 1000) * 3.2 + (Math.abs(hash) % 628) / 100);
+            data.weaveValue = s;
+            const wx = normalized.x + (-normalized.y) * s * 0.9;
+            const wy = normalized.y + normalized.x * s * 0.9;
+            const len = Math.hypot(wx, wy) || 1;
+            desiredX = (wx / len) * 1.0 * LU;
+            desiredY = (wy / len) * 1.0 * LU;
+            if (now >= (data.stateUntil || 0)) {
+              data.behaviorState = 'coil';
+              data.telegraphStart = now;
+              data.stateUntil = now + 500;
+            }
+          }
+        } else if (data.type === 'darter') {
+          // Storm Darter (mobile Shooter): repositions at Cruise
+          // to a staging point at pass distance on its own bearing
+          // from the player, lines up for 0.5 s with wingtips
+          // sparking (the telegraph), then makes a strafing pass
+          // at Dart (3.2 sheet, halved to 1.6) through the player's
+          // locked position, firing a 3-shot spread at the pass
+          // midpoint (design sheet 16). It never hovers near the
+          // player: after the pass it repositions again.
+          const LU = this.logicalUnit;
+          const state = data.behaviorState || 'reposition';
+          if (state === 'pass') {
+            desiredX = (data.dashDirX || 0) * 1.6 * LU;
+            desiredY = (data.dashDirY || 0) * 1.6 * LU;
+            blendK = 10;
+            data.aimDirX = data.dashDirX;
+            data.aimDirY = data.dashDirY;
+            const relX = enemy.position.x - (data.anchorX || 0);
+            const relY = enemy.position.y - (data.anchorY || 0);
+            const along = relX * (data.dashDirX || 0) + relY * (data.dashDirY || 0);
+            // The spread fires at the crossing of the locked
+            // position, or at the end of the pass window if
+            // player-fire knockback held the darter off the
+            // crossing: exactly one spread per pass, at its
+            // closest approach either way.
+            if (!data.passFired && (along >= 0 || now >= (data.stateUntil || 0))) {
+              data.passFired = true;
+              this.fireDarterSpread(enemy);
+            }
+            if (now >= (data.stateUntil || 0) || along > 0.75 * LU) {
+              data.behaviorState = 'reposition';
+            }
+          } else if (state === 'lineup') {
+            desiredX = 0;
+            desiredY = 0;
+            // The aim settles onto the player's current position;
+            // it locks when the pass begins.
+            data.aimDirX = normalized.x;
+            data.aimDirY = normalized.y;
+            if (now >= (data.stateUntil || 0)) {
+              data.dashDirX = normalized.x;
+              data.dashDirY = normalized.y;
+              data.anchorX = this.playerBody.position.x;
+              data.anchorY = this.playerBody.position.y;
+              data.passFired = false;
+              data.behaviorState = 'pass';
+              data.stateUntil = now + 1200;
+            }
+          } else { // reposition
+            const sx = this.playerBody.position.x - normalized.x * 0.55 * LU;
+            const sy = this.playerBody.position.y - normalized.y * 0.55 * LU;
+            const dx = sx - enemy.position.x;
+            const dy = sy - enemy.position.y;
+            const d = Math.hypot(dx, dy) || 1;
+            data.aimDirX = dx / d;
+            data.aimDirY = dy / d;
+            desiredX = (dx / d) * 0.5 * LU;
+            desiredY = (dy / d) * 0.5 * LU;
+            if (d < 0.05 * LU) {
+              data.behaviorState = 'lineup';
+              data.telegraphStart = now;
+              data.stateUntil = now + 500;
+            }
+          }
+        }
+        // War Chanter buff (Stage 5): while the buff window is
+        // open this enemy flies 25 percent faster (design sheet
+        // 15). Applied to the composed desired velocity, so it
+        // covers chase, hooks, and dashes alike; the total clamps
+        // to the game's fastest dash class (the Cinder Imp's
+        // 1.7 LU/s), a speed the field already knows how to show.
+        if (data.buffUntil && now < data.buffUntil) {
+          desiredX *= 1.25;
+          desiredY *= 1.25;
+          const sp = Math.hypot(desiredX, desiredY);
+          const cap = 1.7 * this.logicalUnit;
+          if (sp > cap) { desiredX = desiredX / sp * cap; desiredY = desiredY / sp * cap; }
         }
         const vel = Matter.Body.getVelocity(enemy); // px per 1/60 s step
         const curX = vel.x * 60;
@@ -2430,15 +2773,61 @@ export class GameComponent implements OnInit, OnDestroy {
                      // code reads these back.
                      health: data.health,
                      maxHealth: data.maxHealth,
-                     attackCharge: data.type === 'golem' ? Math.min(1, Math.max(0, (now - (data.lastAttackTime || 0)) / 3000)) : data.type === 'imp' ? this.impTelegraphCharge(data, now) : data.type === 'sentry_shard' ? this.shardCharge(data, now) : data.type === 'rift_mine' ? this.mineArmedCharge(body) : data.type === 'pyre_moth' ? this.mothFuseCharge(data, now) : undefined,
-                     weave: data.type === 'bat' ? data.weaveValue : undefined,
-                     state: (data.type === 'imp' || data.type === 'wisp' || data.type === 'sentry_shard' || data.type === 'seedmother' || data.type === 'rift_mine' || data.type === 'shieldback' || data.type === 'pyre_moth') ? data.behaviorState : undefined,
-                     facing: (data.type === 'shieldback' || data.type === 'sentry_shard') && data.aimDirX !== undefined ? Math.atan2(data.aimDirY || 0, data.aimDirX || 0) : undefined,
-                     sparkUntil: data.type === 'shieldback' ? data.sparkUntil : undefined
+                     attackCharge: data.type === 'golem' ? Math.min(1, Math.max(0, (now - (data.lastAttackTime || 0)) / 3000)) : data.type === 'imp' ? this.impTelegraphCharge(data, now) : data.type === 'sentry_shard' ? this.shardCharge(data, now) : data.type === 'rift_mine' ? this.mineArmedCharge(body) : data.type === 'pyre_moth' ? this.mothFuseCharge(data, now) : data.type === 'phantom' ? this.phantomReappearCharge(data, now) : data.type === 'wraith' ? this.wraithLockCharge(data, now) : data.type === 'serpent' ? this.serpentCoilCharge(data, now) : data.type === 'darter' ? this.darterLineupCharge(data, now) : undefined,
+                     weave: data.type === 'bat' || data.type === 'serpent' ? data.weaveValue : undefined,
+                     state: (data.type === 'imp' || data.type === 'wisp' || data.type === 'sentry_shard' || data.type === 'seedmother' || data.type === 'rift_mine' || data.type === 'shieldback' || data.type === 'pyre_moth' || data.type === 'phantom' || data.type === 'wraith' || data.type === 'chanter' || data.type === 'serpent' || data.type === 'darter') ? data.behaviorState : undefined,
+                     facing: (data.type === 'shieldback' || data.type === 'sentry_shard' || data.type === 'wraith' || data.type === 'darter' || data.type === 'serpent') && data.aimDirX !== undefined ? Math.atan2(data.aimDirY || 0, data.aimDirX || 0) : undefined,
+                     sparkUntil: data.type === 'shieldback' ? data.sparkUntil : undefined,
+                     buffed: data.buffUntil !== undefined && now < data.buffUntil ? true : undefined
                  });
              }
          }
       });
+      // Stage 5 virtual entities (no physics body): the Lance
+      // Wraith's lock-on line, the War Chanter's expanding pulse
+      // ring, and the Loom Serpent's ribbon segments. Display only;
+      // every value derives from the owning body's data.
+      for (const body of renderBodies) {
+          const data = body.plugin['data'] as EnemyData;
+          if (!data) continue;
+          if (data.type === 'wraith' && data.behaviorState === 'lock') {
+              const px = this.playerBody.position.x, py = this.playerBody.position.y;
+              const dx = px - body.position.x, dy = py - body.position.y;
+              const dist = Math.hypot(dx, dy);
+              entities.push({
+                  id: data.id + ':line',
+                  x: body.position.x + dx / 2,
+                  y: body.position.y + dy / 2,
+                  type: 'wraith_line',
+                  size: Math.max(1, dist / 2),
+                  attackCharge: this.wraithLockCharge(data, now),
+                  facing: Math.atan2(dy, dx)
+              });
+          }
+          if (data.type === 'chanter' && data.lastPulseAt && now - data.lastPulseAt < 700) {
+              const p = (now - data.lastPulseAt) / 700;
+              entities.push({
+                  id: data.id + ':pulse',
+                  x: body.position.x,
+                  y: body.position.y,
+                  type: 'chanter_pulse',
+                  size: Math.max(1, 0.30 * this.logicalUnit * p),
+                  attackCharge: p
+              });
+          }
+          if (data.type === 'serpent' && data.segmentPositions) {
+              const headSize = body.circleRadius || 20;
+              data.segmentPositions.forEach((seg, i) => {
+                  entities.push({
+                      id: data.id + ':seg' + i,
+                      x: seg.x,
+                      y: seg.y,
+                      type: 'serpent_segment',
+                      size: headSize * (0.92 - i * 0.07)
+                  });
+              });
+          }
+      }
       // Deduplicate by ID
 const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values());
       this.gameState.activeEntities.set(uniqueEntities);
@@ -2579,12 +2968,15 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       // S2 (spec Section 7.2): the rival learns each family in the
       // stage it ships, so it now also draws a double move.
       const doubleAbilities = realmAbilities.filter(k => ABILITIES[k]?.type === 'double' && k !== 'rebirth');
+      // S4: and an ultimate, drawn the same way from the triple pool.
+      const tripleAbilities = realmAbilities.filter(k => ABILITIES[k]?.type === 'triple' && k !== 'rebirth');
 
       let tap = tapAbilities.length > 0 ? tapAbilities[Math.floor(Math.random() * tapAbilities.length)] : 'burst';
       let hold = holdAbilities.length > 0 ? holdAbilities[Math.floor(Math.random() * holdAbilities.length)] : 'aura';
       let dbl = doubleAbilities.length > 0 ? doubleAbilities[Math.floor(Math.random() * doubleAbilities.length)] : null;
+      let tri = tripleAbilities.length > 0 ? tripleAbilities[Math.floor(Math.random() * tripleAbilities.length)] : null;
 
-      this.battleAi.ai1.abilities = dbl ? [tap, hold, dbl] : [tap, hold];
+      this.battleAi.ai1.abilities = [tap, hold, ...(dbl ? [dbl] : []), ...(tri ? [tri] : [])];
 
       const playerTapLevel = playerStats.activeTapAbility ? (playerStats.unlockedAbilities[playerStats.activeTapAbility]?.level || 1) : 1;
       const playerHoldLevel = playerStats.activeHoldAbility ? (playerStats.unlockedAbilities[playerStats.activeHoldAbility]?.level || 1) : 1;
@@ -2592,7 +2984,9 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       // average of the player's EQUIPPED levels. The double slot joins
       // the average when the player has one equipped.
       const playerDoubleLevel = playerStats.activeDoubleAbility ? (playerStats.unlockedAbilities[playerStats.activeDoubleAbility]?.level || 1) : null;
-      const equippedLevels = [playerTapLevel, playerHoldLevel, ...(playerDoubleLevel !== null ? [playerDoubleLevel] : [])];
+      // S4: the triple slot joins the average the same way.
+      const playerTripleLevel = playerStats.activeTripleAbility ? (playerStats.unlockedAbilities[playerStats.activeTripleAbility]?.level || 1) : null;
+      const equippedLevels = [playerTapLevel, playerHoldLevel, ...(playerDoubleLevel !== null ? [playerDoubleLevel] : []), ...(playerTripleLevel !== null ? [playerTripleLevel] : [])];
       const avgPlayerLevel = Math.max(1, Math.floor(equippedLevels.reduce((a, b) => a + b, 0) / equippedLevels.length));
       
       this.battleAi.ai1.abilities.forEach(id => {
@@ -2636,13 +3030,16 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       // S2: ai2 mirrors the player's double slot too (null when the
       // player has none equipped, exactly like its tap/hold mirror).
       let dbl = playerStats.activeDoubleAbility || null;
+      // S4: and the triple slot, mirrored the same way.
+      let tri = playerStats.activeTripleAbility || null;
 
-      this.battleAi.ai2.abilities = dbl ? [tap, hold, dbl] : [tap, hold];
+      this.battleAi.ai2.abilities = [tap, hold, ...(dbl ? [dbl] : []), ...(tri ? [tri] : [])];
 
       const playerTapLevel = playerStats.activeTapAbility ? (playerStats.unlockedAbilities[playerStats.activeTapAbility]?.level || 1) : 1;
       const playerHoldLevel = playerStats.activeHoldAbility ? (playerStats.unlockedAbilities[playerStats.activeHoldAbility]?.level || 1) : 1;
       const playerDoubleLevel = playerStats.activeDoubleAbility ? (playerStats.unlockedAbilities[playerStats.activeDoubleAbility]?.level || 1) : null;
-      const equippedLevels = [playerTapLevel, playerHoldLevel, ...(playerDoubleLevel !== null ? [playerDoubleLevel] : [])];
+      const playerTripleLevel = playerStats.activeTripleAbility ? (playerStats.unlockedAbilities[playerStats.activeTripleAbility]?.level || 1) : null;
+      const equippedLevels = [playerTapLevel, playerHoldLevel, ...(playerDoubleLevel !== null ? [playerDoubleLevel] : []), ...(playerTripleLevel !== null ? [playerTripleLevel] : [])];
       const avgPlayerLevel = Math.max(1, Math.floor(equippedLevels.reduce((a, b) => a + b, 0) / equippedLevels.length));
       
       this.battleAi.ai2.abilities.forEach(id => {
@@ -2672,9 +3069,11 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       this.battleAi.ai1.lastTapTime = 0;
       this.battleAi.ai1.lastHoldTime = 0;
       this.battleAi.ai1.lastDoubleTime = 0;
+      this.battleAi.ai1.lastTripleTime = 0;
       this.battleAi.ai2.lastTapTime = 0;
       this.battleAi.ai2.lastHoldTime = 0;
       this.battleAi.ai2.lastDoubleTime = 0;
+      this.battleAi.ai2.lastTripleTime = 0;
       this.lastClickTime = 0;
       this.holdAbilityEndTime = 0;
       this.doubleAbilityEndTime = 0;
@@ -2686,6 +3085,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       this.battleAi.ai2.tapCooldown = 0;
       this.battleAi.ai2.holdCooldown = 0;
       this.battleAi.ai2.doubleCooldown = 0;
+      this.battleAi.ai2.tripleCooldown = 0;
   }
 
 
@@ -3001,6 +3401,30 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
     return Math.min(1, Math.max(0, (now - (data.telegraphStart || now)) / 600));
   }
 
+  // Stage 5 published charges, each 0 to 1 across its telegraph
+  // window and 0 outside it: the Phantom's reappear shimmer (0.7 s),
+  // the Wraith's lock (0.7 s), the Serpent's coil (0.5 s), and the
+  // Darter's line-up (0.5 s).
+  private phantomReappearCharge(data: EnemyData, now: number): number {
+    if (data.behaviorState !== 'reappear') return 0;
+    return Math.min(1, Math.max(0, (now - (data.telegraphStart || now)) / 700));
+  }
+
+  private wraithLockCharge(data: EnemyData, now: number): number {
+    if (data.behaviorState !== 'lock') return 0;
+    return Math.min(1, Math.max(0, (now - (data.telegraphStart || now)) / 700));
+  }
+
+  private serpentCoilCharge(data: EnemyData, now: number): number {
+    if (data.behaviorState !== 'coil') return 0;
+    return Math.min(1, Math.max(0, (now - (data.telegraphStart || now)) / 500));
+  }
+
+  private darterLineupCharge(data: EnemyData, now: number): number {
+    if (data.behaviorState !== 'lineup') return 0;
+    return Math.min(1, Math.max(0, (now - (data.telegraphStart || now)) / 500));
+  }
+
   // Rift Mine detonation (design sheet 10): a 4-projectile cross at
   // standard enemy projectile speed and payload. Runs on proximity
   // (steering hook or player contact), never on a shot-clear death:
@@ -3024,9 +3448,57 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
     }
   }
 
-  private damageEnemy(enemy: Matter.Body, damage: number, sourcePos?: { x: number, y: number }) {
+  // S4 ultimate cast registry (systems spec Section 1.6): at cast
+  // time the live HP of every boss-class target (the campaign boss,
+  // the Battle rival) is snapshotted, and every damage packet the
+  // cast deals to such a target is clamped so the cast's total
+  // against that target never exceeds
+  // PI_RULES.ultimateBossHpCapFraction (25 percent) of the
+  // snapshot, the boss's HP at cast time. Packets an enemy cast
+  // deals to the player are keyed '__player__' and clamped by the
+  // same fraction of the player's HP at cast time, so a rival
+  // ultimate is dangerous, never a one-shot. Entries are dropped
+  // a few seconds after the longest ultimate resolves.
+  private ultCastSeq = 0;
+  private ultCasts = new Map<string, { base: Map<string, number>, dealt: Map<string, number> }>();
+
+  private registerUltCast(casterOwnerId: string): string {
+    const id = 'ult_' + (++this.ultCastSeq) + '_' + Date.now();
+    const base = new Map<string, number>();
+    for (const e of this.enemies) {
+      const d = e.plugin['data'] as EnemyData;
+      if (d && (d.type === 'boss' || d.type === 'enemy_phoenix')) base.set(d.id, d.health);
+    }
+    if (casterOwnerId !== 'player') base.set('__player__', this.currentHealth());
+    this.ultCasts.set(id, { base, dealt: new Map<string, number>() });
+    setTimeout(() => this.ultCasts.delete(id), 12000);
+    return id;
+  }
+
+  private clampUltDamage(castId: string, targetKey: string, fallbackBase: number, damage: number): number {
+    const cast = this.ultCasts.get(castId);
+    if (!cast) return damage;
+    if (!cast.base.has(targetKey)) cast.base.set(targetKey, fallbackBase);
+    const base = cast.base.get(targetKey) || 0;
+    const cap = PI_RULES.ultimateBossHpCapFraction * base;
+    const dealt = cast.dealt.get(targetKey) || 0;
+    const clamped = Math.min(damage, Math.max(0, cap - dealt));
+    cast.dealt.set(targetKey, dealt + clamped);
+    return clamped;
+  }
+
+  private damageEnemy(enemy: Matter.Body, damage: number, sourcePos?: { x: number, y: number }, ultCastId?: string) {
     const data = enemy.plugin['data'] as EnemyData;
     if (data.immortalUntil && Date.now() < data.immortalUntil) return;
+    // Shroud Phantom phase rule (design sheet 13): while phased or
+    // gathering at its reappear point it cannot be hit. Shots that
+    // reach it do nothing; the fixed cycle is the counterplay.
+    if (data.type === 'phantom' && data.behaviorState !== 'solid') return;
+    // S4 ultimate cap, enforced per packet before any other
+    // reduction, so the recorded damage number is the real hit.
+    if (ultCastId && damage > 0 && (data.type === 'boss' || data.type === 'enemy_phoenix')) {
+      damage = this.clampUltDamage(ultCastId, data.id, data.health, damage);
+    }
     // Shieldback frontal reduction (design sheet 11, the one new
     // combat rule in the overhaul): the shield face always turns
     // toward the player, and a hit whose source sits in the front
@@ -3201,11 +3673,19 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       if (data.type === 'rift_mine') xp = 5;
       if (data.type === 'shieldback') xp = 20;
       if (data.type === 'pyre_moth') xp = 5;
+      // Stage 5 batch C, on the shipped ladder: Standard kills at
+      // 10, the support at 15 (the Sentry Shard's tier), the elite
+      // Serpent at 50 (between Armored 20 and boss 500).
+      if (data.type === 'phantom') xp = 10;
+      if (data.type === 'wraith') xp = 10;
+      if (data.type === 'chanter') xp = 15;
+      if (data.type === 'serpent') xp = 50;
+      if (data.type === 'darter') xp = 10;
       if (data.type === 'boss') xp = 500;
       this.gameState.addXp(xp);
 
       // Bestiary Unlock
-      if (!this.gameState.unlockedEnemies().includes(data.type) && ['slime', 'bat', 'golem', 'imp', 'wisp', 'pod', 'mite', 'sentry_shard', 'seedmother', 'rift_mine', 'shieldback', 'pyre_moth', 'boss'].includes(data.type)) {
+      if (!this.gameState.unlockedEnemies().includes(data.type) && ['slime', 'bat', 'golem', 'imp', 'wisp', 'pod', 'mite', 'sentry_shard', 'seedmother', 'rift_mine', 'shieldback', 'pyre_moth', 'phantom', 'wraith', 'chanter', 'serpent', 'darter', 'boss'].includes(data.type)) {
           this.gameState.unlockedEnemies.update(arr => [...arr, data.type]);
       }
       
@@ -3231,6 +3711,10 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
         
         // Base gems based on realm index (Only drop on first defeat!)
         const currentWorldIndex = this.gameState.selectedWorldIndex();
+        // S4: this kill feeds the per-world triple gate (systems
+        // spec Section 3.4). Recorded for every defeat, first or
+        // repeat; the record is what the shop and cast paths read.
+        this.gameState.recordBossBeaten(currentWorldIndex);
         const isFirstDefeat = !this.gameState.unlockedWorlds().includes(currentWorldIndex + 1);
         const intendedGems = isFirstDefeat ? this.calculateBossGemDrop(currentWorldIndex) : 0;
         
@@ -3895,6 +4379,11 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
           : family === 'double' ? this.doubleCooldown()
           : this.tripleCooldown();
       if (cooldown > 0) return;
+      // S4 triple gate (systems spec Section 3.4): the cast path
+      // refuses an ultimate until this world's boss has been beaten
+      // once, whatever a save claims is equipped. The shop refuses
+      // the unlock and the equip earlier; this is the last line.
+      if (family === 'triple' && !this.gameState.isWorldBossBeaten(this.gameState.selectedWorldIndex())) return;
       const cd = this.triggerAbility(ability, this.playerBody, this.mouseX, this.mouseY, stats, 'player');
       if (cd <= 0) return;
       if (family === 'tap') {
@@ -4024,6 +4513,53 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   }
 
 
+  // Lance Wraith bolt (Stage 5, design sheet 14): one fast piercing
+  // bolt along the locked aim at Dart-class speed (13 per step, the
+  // Fire Lance's class). No aim spread: the 0.7 s lock line is the
+  // warning, and the dodge is to be off the line when it fires. It
+  // passes through the player's fire (the projectile-clash branch
+  // exempts it) and through the field until its life ends.
+  private fireWraithBolt(source: Matter.Body) {
+    const data = source.plugin['data'] as EnemyData;
+    const dirX = data.aimDirX ?? 1;
+    const dirY = data.aimDirY ?? 0;
+    const proj = Matter.Bodies.circle(
+      source.position.x + dirX * 30 * this.speedScale,
+      source.position.y + dirY * 30 * this.speedScale, 5, {
+      label: 'projectile',
+      isSensor: true,
+      frictionAir: 0,
+      plugin: {
+          data: { id: Math.random().toString(), type: 'projectile_enemy', owner: 'enemy', ownerId: 'enemy', health: 1, maxHealth: 1, burstDamage: 10, moveId: 'wraith_bolt', pierce: true, hitIds: [] } as EnemyData
+      }
+    });
+    Matter.Body.setVelocity(proj, { x: dirX * this.scaledSpeed(13), y: dirY * this.scaledSpeed(13) });
+    Matter.Composite.add(this.engine.world, proj);
+    setTimeout(() => { if (proj.parent) Matter.Composite.remove(this.engine.world, proj); }, 1600);
+  }
+
+  // Storm Darter spread (Stage 5, design sheet 16): a 3-shot fan
+  // across the pass direction, fired once at the pass midpoint at
+  // standard enemy projectile speed and payload.
+  private fireDarterSpread(source: Matter.Body) {
+    const data = source.plugin['data'] as EnemyData;
+    const base = Math.atan2(data.dashDirY ?? 0, data.dashDirX ?? 1);
+    for (const off of [-0.18, 0, 0.18]) {
+      const a = base + off;
+      const proj = Matter.Bodies.circle(source.position.x, source.position.y, 5, {
+        label: 'projectile',
+        isSensor: true,
+        frictionAir: 0,
+        plugin: {
+            data: { id: Math.random().toString(), type: 'projectile_enemy', owner: 'enemy', ownerId: 'enemy', health: 1, maxHealth: 1, burstDamage: 10, moveId: 'darter_spread' } as EnemyData
+        }
+      });
+      Matter.Body.setVelocity(proj, { x: Math.cos(a) * this.scaledSpeed(7.5), y: Math.sin(a) * this.scaledSpeed(7.5) });
+      Matter.Composite.add(this.engine.world, proj);
+      setTimeout(() => { if (proj.parent) Matter.Composite.remove(this.engine.world, proj); }, 1400);
+    }
+  }
+
   private triggerAbility(ability: string, sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
       if (ownerId === 'player' && this.gameState.isRebirthing()) return 0;
       
@@ -4039,6 +4575,10 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       else if (ability === 'phoenix_inferno') return this.triggerPhoenixInferno(sourceBody, targetX, targetY, stats, ownerId);
       else if (ability === 'inferno_wave') return this.triggerInfernoWave(sourceBody, targetX, targetY, stats, ownerId);
       else if (ability === 'aura') return this.triggerAura(sourceBody, targetX, targetY, stats, ownerId);
+      else if (ability === 'phoenix_nova') return this.triggerPhoenixNova(sourceBody, targetX, targetY, stats, ownerId);
+      else if (ability === 'supernova') return this.triggerSupernova(sourceBody, targetX, targetY, stats, ownerId);
+      else if (ability === 'divine_wrath') return this.triggerDivineWrath(sourceBody, targetX, targetY, stats, ownerId);
+      else if (ability === 'phoenix_singularity') return this.triggerPhoenixSingularity(sourceBody, targetX, targetY, stats, ownerId);
       return 0;
   }
 
@@ -4744,6 +5284,199 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
               extra: { pierce: true, hitIds: sharedHitIds }
           });
       }
+      this.audioService.playSFX('shoot');
+      return cd;
+  }
+
+  // S4 ultimates (systems spec Section 3.3, the triple-tap slot).
+  // Shared conventions: modifiers read with the S1 fallbacks (an
+  // absent key is 1.0), damage is SU times the damage stat times
+  // the damage modifier, and every trigger registers its cast
+  // first so every packet against a boss-class target (or the
+  // player, for an enemy cast) passes the per-cast 25 percent cap.
+
+  private triggerPhoenixNova(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
+      const abilityData = stats.unlockedAbilities['phoenix_nova'];
+      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
+      const baseCooldown = ABILITIES['phoenix_nova']?.baseCooldown || 60;
+      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
+      // Section 3.3 (catalog hold_5): 25 SU to everything within
+      // Large radius, clamped by the burst cap. Built as a ring of
+      // 24 piercing bolts sharing one hit set (the Inferno Wave
+      // construction at ultimate density), so each target takes
+      // the packet once per cast. Speed and life are sized to the
+      // Large radius (0.5 x min dimension): at 10 per step for
+      // 900 ms a bolt covers about 0.55 x min dimension on the
+      // reference phone.
+      const damage = (stats.damage || 10) * 25 * (mods['damage'] ?? 1.0);
+      const castId = this.registerUltCast(ownerId);
+      const sharedHitIds: string[] = [];
+      for (let k = 0; k < 24; k++) {
+          this.spawnAbilityProjectile({
+              x: sourceBody.position.x, y: sourceBody.position.y, radius: 10,
+              type: 'nova', moveId: 'phoenix_nova', damage, ownerId,
+              angle: k * Math.PI / 12, speedPerStep: this.scaledSpeed(10), lifeMs: 900,
+              extra: { pierce: true, hitIds: sharedHitIds, ultCastId: castId, owner: ownerId === 'player' ? 'player' : 'enemy' }
+          });
+      }
+      this.audioService.playSFX('explosion');
+      return cd;
+  }
+
+  private triggerSupernova(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
+      const abilityData = stats.unlockedAbilities['supernova'];
+      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
+      const baseCooldown = ABILITIES['supernova']?.baseCooldown || 75;
+      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
+      // Section 3.3 (catalog triple_8): a visible mass swells at
+      // the target point for a 0.8 s fuse (the telegraph: three
+      // harmless fire blobs growing on a 250 ms stagger), then
+      // detonates for 18 SU to everything inside Medium radius
+      // (0.30 x min dimension).
+      const damage = (stats.damage || 10) * 18 * (mods['damage'] ?? 1.0);
+      const castId = this.registerUltCast(ownerId);
+      const radius = 0.30 * this.logicalUnit;
+      for (let i = 0; i < 3; i++) {
+          setTimeout(() => {
+              if (this.gameEnded()) return;
+              const blob = Matter.Bodies.circle(targetX, targetY, (10 + i * 10) * this.speedScale, {
+                  label: 'projectile', isSensor: true,
+                  plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: 0, owner: ownerId === 'player' ? 'player' : 'enemy', ownerId } as EnemyData }
+              });
+              Matter.Composite.add(this.engine.world, blob);
+              setTimeout(() => { if (blob.parent) Matter.Composite.remove(this.engine.world, blob); }, 850 - i * 250);
+          }, i * 250);
+      }
+      setTimeout(() => {
+          if (this.gameEnded() || this.isDead()) return;
+          for (const e of [...this.enemies]) {
+              if (e === sourceBody) continue;
+              const d = e.plugin['data'] as EnemyData;
+              if (!d) continue;
+              if (Math.hypot(e.position.x - targetX, e.position.y - targetY) <= radius) {
+                  this.damageEnemy(e, damage, { x: targetX, y: targetY }, castId);
+              }
+          }
+          if (ownerId !== 'player' && Math.hypot(this.playerBody.position.x - targetX, this.playerBody.position.y - targetY) <= radius) {
+              this.takeDamage(this.clampUltDamage(castId, '__player__', this.currentHealth(), damage));
+          }
+          this.triggerImpactEffect(targetX, targetY, true);
+      }, 800);
+      this.audioService.playSFX('shoot');
+      return cd;
+  }
+
+  private triggerDivineWrath(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
+      const abilityData = stats.unlockedAbilities['divine_wrath'];
+      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
+      const baseCooldown = ABILITIES['divine_wrath']?.baseCooldown || 70;
+      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
+      // Section 3.3 (catalog hold_8): 5 strikes of 3 SU over 2 s,
+      // columns at the enemies nearest the target point inside a
+      // Large area (0.5 x min dimension), cycling the living. The
+      // player cast locks the caster for the first 0.5 s on the
+      // same forced-brake field the Phoenix Inferno channel uses.
+      const damage = (stats.damage || 10) * 3 * (mods['damage'] ?? 1.0);
+      const castId = this.registerUltCast(ownerId);
+      const areaR = 0.5 * this.logicalUnit;
+      const targets = this.enemies
+          .filter(e => e !== sourceBody && Math.hypot(e.position.x - targetX, e.position.y - targetY) <= areaR)
+          .sort((a, b) => Math.hypot(a.position.x - targetX, a.position.y - targetY) - Math.hypot(b.position.x - targetX, b.position.y - targetY))
+          .slice(0, 5);
+      if (ownerId === 'player') {
+          this.playerInfernoUntil = Math.max(this.playerInfernoUntil, Date.now() + 500);
+      }
+      for (let s = 0; s < 5; s++) {
+          setTimeout(() => {
+              if (this.gameEnded()) return;
+              if (ownerId === 'player') {
+                  const live = targets.filter(t => t.parent && ((t.plugin['data'] as EnemyData)?.health || 0) > 0);
+                  if (!live.length) return;
+                  const t = live[s % live.length];
+                  this.damageEnemy(t, damage, t.position, castId);
+                  this.spawnWrathColumn(t.position.x, t.position.y);
+              } else if (Math.hypot(this.playerBody.position.x - targetX, this.playerBody.position.y - targetY) <= areaR) {
+                  this.takeDamage(this.clampUltDamage(castId, '__player__', this.currentHealth(), damage));
+                  this.spawnWrathColumn(this.playerBody.position.x, this.playerBody.position.y);
+              }
+          }, s * 400);
+      }
+      this.audioService.playSFX('explosion');
+      return cd;
+  }
+
+  // A Divine Wrath strike visual: a short-lived column of harmless
+  // fire bodies (burstDamage 0, so every collision branch skips it).
+  private spawnWrathColumn(x: number, y: number) {
+      for (let i = 0; i < 4; i++) {
+          const blob = Matter.Bodies.circle(x + (Math.random() - 0.5) * 20 * this.speedScale, y - i * 34 * this.speedScale, 12 * this.speedScale, {
+              label: 'projectile', isSensor: true,
+              plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: 0 } as EnemyData }
+          });
+          Matter.Composite.add(this.engine.world, blob);
+          setTimeout(() => { if (blob.parent) Matter.Composite.remove(this.engine.world, blob); }, 220);
+      }
+  }
+
+  private triggerPhoenixSingularity(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
+      const abilityData = stats.unlockedAbilities['phoenix_singularity'];
+      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
+      const baseCooldown = ABILITIES['phoenix_singularity']?.baseCooldown || 90;
+      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
+      // Section 3.3 (catalog hold_24): a vortex at the target point
+      // pulls everything inside Medium radius (0.30 x min
+      // dimension) toward it for 2 s, then detonates for 15 SU
+      // inside the same radius. The pull blends velocities toward
+      // the point every 50 ms; the detonation is the packet the
+      // cast clamp caps. An enemy cast cannot drag the player body
+      // (it is position-slaved to the renderer), so against the
+      // player the detonation is the threat, as with Supernova.
+      const damage = (stats.damage || 10) * 15 * (mods['damage'] ?? 1.0);
+      const castId = this.registerUltCast(ownerId);
+      const radius = 0.30 * this.logicalUnit;
+      const pullStart = Date.now();
+      let tick = 0;
+      const swirl = setInterval(() => {
+          if (this.gameEnded()) { clearInterval(swirl); return; }
+          tick++;
+          for (const e of this.enemies) {
+              if (e === sourceBody) continue;
+              const dx = targetX - e.position.x, dy = targetY - e.position.y;
+              const d = Math.hypot(dx, dy);
+              if (d > radius || d < 1) continue;
+              const v = Matter.Body.getVelocity(e);
+              const pull = 0.9 * this.logicalUnit; // px per second toward the point
+              Matter.Body.setVelocity(e, {
+                  x: (v.x * 60 + ((dx / d) * pull - v.x * 60) * 0.25) / 60,
+                  y: (v.y * 60 + ((dy / d) * pull - v.y * 60) * 0.25) / 60
+              });
+          }
+          if (tick % 4 === 0) {
+              const a = Math.random() * Math.PI * 2;
+              const blob = Matter.Bodies.circle(targetX + Math.cos(a) * radius * 0.7, targetY + Math.sin(a) * radius * 0.7, 9 * this.speedScale, {
+                  label: 'projectile', isSensor: true,
+                  plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: 0, owner: ownerId === 'player' ? 'player' : 'enemy', ownerId } as EnemyData }
+              });
+              Matter.Composite.add(this.engine.world, blob);
+              setTimeout(() => { if (blob.parent) Matter.Composite.remove(this.engine.world, blob); }, 200);
+          }
+          if (Date.now() - pullStart >= 2000) {
+              clearInterval(swirl);
+              if (this.isDead()) return;
+              for (const e of [...this.enemies]) {
+                  if (e === sourceBody) continue;
+                  const d = e.plugin['data'] as EnemyData;
+                  if (!d) continue;
+                  if (Math.hypot(e.position.x - targetX, e.position.y - targetY) <= radius) {
+                      this.damageEnemy(e, damage, { x: targetX, y: targetY }, castId);
+                  }
+              }
+              if (ownerId !== 'player' && Math.hypot(this.playerBody.position.x - targetX, this.playerBody.position.y - targetY) <= radius) {
+                  this.takeDamage(this.clampUltDamage(castId, '__player__', this.currentHealth(), damage));
+              }
+              this.triggerImpactEffect(targetX, targetY, true);
+          }
+      }, 50);
       this.audioService.playSFX('shoot');
       return cd;
   }

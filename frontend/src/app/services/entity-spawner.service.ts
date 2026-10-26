@@ -27,6 +27,11 @@ export const SPAWN_DEFS: Record<string, { size: number; health: number }> = {
     rift_mine: { size: 10, health: 10 }, // Rift Mine: Fragile (10), 20 px spiked sphere
     shieldback: { size: 50, health: 200 }, // Shieldback: Armored (200), 100 px beetle
     pyre_moth: { size: 17, health: 10 }, // Pyre Moth: Fragile (10), 34 px fuzzy ball
+    phantom: { size: 30, health: 20 }, // Shroud Phantom: Standard (20), 60 px hooded shape
+    wraith: { size: 35, health: 20 }, // Lance Wraith: Standard (20), 70 px spear figure
+    chanter: { size: 25, health: 20 }, // War Chanter: Standard (20), 50 px bell
+    serpent: { size: 25, health: 400 }, // Loom Serpent: Elite (400), segmented ribbon
+    darter: { size: 22, health: 20 }, // Storm Darter: Standard (20), 44 px arrowhead
 };
 
 export interface SpawnerContext {
@@ -302,6 +307,23 @@ export class EntitySpawnerService {
             data.behaviorState = 'cross';
         }
         if (type === 'pyre_moth') data.behaviorState = 'chase';
+        // Stage 5 behavior init (roster batch C). The phase and buff
+        // cycles run on fixed timers so they can be learned (design
+        // sheet 13): the Phantom starts solid for 2.5 s; the Chanter's
+        // first pulse lands 5 s in (lastAttackTime starts at spawn).
+        if (type === 'phantom') {
+            data.behaviorState = 'solid';
+            data.stateUntil = Date.now() + 2500;
+        }
+        if (type === 'wraith') data.behaviorState = 'stalk';
+        if (type === 'chanter') data.behaviorState = 'roam';
+        if (type === 'serpent') {
+            data.behaviorState = 'weave';
+            data.stateUntil = Date.now() + 6000; // first coil 6 s in
+            data.trail = [];
+            data.segmentPositions = [];
+        }
+        if (type === 'darter') data.behaviorState = 'reposition';
         const body = this.createEnemyBody(x, y, def.size * ctx.screenScale, type, data);
         if (burst) {
             const angle = Math.random() * Math.PI * 2;

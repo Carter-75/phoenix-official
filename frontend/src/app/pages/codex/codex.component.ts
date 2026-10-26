@@ -57,6 +57,11 @@ export class CodexComponent implements OnInit, OnDestroy {
     { id: 'rift_mine', name: 'Rift Mine', desc: 'A spiked hazard with a blinking core. Shoot it from range to clear it safely; walk close and it bursts into a cross of fire.', size: 10 },
     { id: 'shieldback', name: 'Shieldback', desc: 'Its shield face always turns toward you and turns your fire aside: hits from the front land at quarter strength and spark off. Circle behind it, or pierce its flank, for full damage.', size: 50 },
     { id: 'pyre_moth', name: 'Pyre Moth', desc: 'A soft ball of flame with slow wings. When it starts flashing, back away: dead or alive, it bursts into a ring of fire.', size: 17 },
+    { id: 'phantom', name: 'Shroud Phantom', desc: 'It fades out and slips away, then gathers again at your flank. Watch for the shimmer where it will return: nothing can hurt it while it is gone, and it cannot hurt you.', size: 30 },
+    { id: 'wraith', name: 'Lance Wraith', desc: 'It keeps its distance and draws a thin red line on you. When the line burns bright the bolt is coming: break away from where you stood, or be somewhere else.', size: 35 },
+    { id: 'chanter', name: 'War Chanter', desc: 'It never shoots. Every few seconds its ring pulses and every enemy it touches flies faster. Kill the singer first, or everything else gets worse.', size: 25 },
+    { id: 'serpent', name: 'Loom Serpent', desc: 'A ribbon of segments that weaves after you. When it bunches up and its head flares, it is about to lunge straight through where you are: step aside, not back.', size: 25 },
+    { id: 'darter', name: 'Storm Darter', desc: 'It lines up at the edge, wingtips sparking, then screams across your position spitting a three-shot fan at the midpoint. Keep moving across its line, never along it.', size: 22 },
     { id: 'boss', name: 'Demonic Skull', desc: 'The ruler of the Volcanic Crags. A terrifying fiery entity.', size: 100 }
   ];
 

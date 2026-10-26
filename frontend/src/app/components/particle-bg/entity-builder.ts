@@ -571,6 +571,292 @@ const DEFS: Record<string, EntityVisualDef> = {
     },
   },
 
+  // 13. Shroud Phantom (Stage 5). Phaser. A hooded trailing shape
+  // of sparse points, about 60 px tall (Section 3.3): a hood arc
+  // over two pale eye accents (the core layer), and a body that
+  // dissolves into trailing wisps below. The renderer drives its
+  // opacity through the phase cycle off the published state, so
+  // the sampler only draws the solid shape.
+  phantom: {
+    count: 800,
+    animated: true,
+    sample: (i, count, r, ctx, out) => {
+      const p = Math.random();
+      if (p < 0.05) {
+        // Two eye accents under the hood.
+        const side = Math.random() < 0.5 ? -1 : 1;
+        out.x = side * 0.26 * r + (Math.random() - 0.5) * 0.16 * r;
+        out.y = 0.62 * r + (Math.random() - 0.5) * 0.14 * r;
+        out.z = 0.3 * r + (Math.random() - 0.5) * 0.1 * r;
+        const m = Math.random();
+        out.cr = 0.85 + m * 0.15; out.cg = 0.8 + m * 0.12; out.cb = 1.0; // Pale violet-white
+        out.layer = 1;
+      } else if (p < 0.38) {
+        // Hood: a dome arc over the head, open at the face.
+        const rad = Math.cbrt(Math.random()) * r * 0.62;
+        const u = Math.random() * Math.PI * 2;
+        const v = Math.acos(Math.random() * 0.9); // upper cap
+        out.x = rad * Math.sin(v) * Math.cos(u);
+        out.y = 0.5 * r + rad * Math.cos(v);
+        out.z = rad * Math.sin(v) * Math.sin(u) * 0.8 - 0.08 * r;
+        const m = Math.random();
+        out.cr = 0.03 + m * 0.016; out.cg = 0.026 + m * 0.012; out.cb = 0.055 + m * 0.025; // Matte slate-violet
+        out.layer = 0;
+      } else {
+        // Trailing body: wisps falling away below the hood, spread
+        // thin so the shape reads as sparse cloth, not a solid.
+        const t = Math.random();
+        out.y = (0.35 - t * 2.0) * r;
+        const spread = (0.34 - t * 0.16) * r;
+        out.x = (Math.random() - 0.5) * 2 * spread;
+        out.z = (Math.random() - 0.5) * 0.5 * r;
+        const m = Math.random();
+        out.cr = 0.024 + m * 0.012; out.cg = 0.02 + m * 0.01; out.cb = 0.045 + m * 0.02;
+        out.layer = 0;
+      }
+    },
+  },
+
+  // 14. Lance Wraith (Stage 5). Sniper. A tall thin spear figure,
+  // about 70 px long, built along local x like the Sentry Shard so
+  // the renderer can align the body to its aim line via the
+  // published facing (Section 3.3). One bright aiming eye in the
+  // hostile color is the core layer: it is the telegraph's source.
+  wraith: {
+    count: 800,
+    animated: true,
+    sample: (i, count, r, ctx, out) => {
+      const p = Math.random();
+      if (p < 0.07) {
+        // Aiming eye: a tight hostile-bright cluster ahead of center.
+        const rad = Math.cbrt(Math.random()) * r * 0.16;
+        const u = Math.random() * Math.PI * 2;
+        const v = Math.acos(2 * Math.random() - 1);
+        out.x = 0.85 * r + rad * Math.sin(v) * Math.cos(u);
+        out.y = rad * Math.sin(v) * Math.sin(u);
+        out.z = rad * Math.cos(v) + 0.22 * r;
+        out.cr = ctx.hostile[0]; out.cg = ctx.hostile[1]; out.cb = ctx.hostile[2];
+        out.layer = 1;
+      } else if (p < 0.3) {
+        // Spearhead: a flat diamond at the front of the shaft.
+        const t = Math.random();
+        out.x = (1.05 + t * 0.55) * r;
+        out.y = (Math.random() - 0.5) * (0.5 - t * 0.34) * r;
+        out.z = (Math.random() - 0.5) * 0.16 * r;
+        const m = Math.random();
+        out.cr = 0.10 + m * 0.05; out.cg = 0.095 + m * 0.045; out.cb = 0.13 + m * 0.05; // Pale bone-steel
+        out.layer = 0;
+      } else {
+        // Shaft and trailing fins: a thin line of points with a
+        // forked tail, sparse toward the back.
+        const t = Math.random();
+        out.x = (1.0 - t * 2.6) * r;
+        const fin = t > 0.82 ? (t - 0.82) * 2.4 * r : 0;
+        out.y = (Math.random() < 0.5 ? -1 : 1) * fin * Math.random() + (Math.random() - 0.5) * 0.09 * r;
+        out.z = (Math.random() - 0.5) * 0.09 * r;
+        const m = Math.random();
+        out.cr = 0.045 + m * 0.02; out.cg = 0.04 + m * 0.018; out.cb = 0.06 + m * 0.024; // Cold gray-violet
+        out.layer = 0;
+      }
+    },
+  },
+
+  // 15. War Chanter (Stage 5). Support. A bell-shaped body, about
+  // 50 px, with a ring of orbiting note-sparks (Section 3.3): the
+  // bell profile flares at the rim, and the sparks sit on a circle
+  // in the screen plane that the renderer rotates slowly, so the
+  // ring visibly orbits. The sparks are the core layer in warm gold;
+  // the hostile read of its pulse comes from the separate expanding
+  // pulse ring and the tint wash on the enemies it buffs.
+  chanter: {
+    count: 800,
+    animated: true,
+    sample: (i, count, r, ctx, out) => {
+      if (i < count * 0.16) {
+        // Note-sparks: evenly spaced on the orbit circle so the
+        // ring is structural, with jitter so it still reads as
+        // sparks, not a drawn circle.
+        const a = (i / (count * 0.16)) * Math.PI * 2;
+        const rad = r * 1.12 * (1 + (Math.random() - 0.5) * 0.1);
+        out.x = Math.cos(a) * rad;
+        out.y = Math.sin(a) * rad * 0.92;
+        out.z = (Math.random() - 0.5) * 0.2 * r;
+        const m = Math.random();
+        out.cr = 1.0; out.cg = 0.72 + m * 0.2; out.cb = 0.22 + m * 0.14; // Warm gold
+        out.layer = 1;
+      } else {
+        // Bell: a lathed profile, narrow crown, swelling body,
+        // flared rim at the bottom.
+        const t = Math.random(); // 0 at the crown, 1 at the rim
+        out.y = (0.85 - t * 1.8) * r;
+        const profile = 0.3 + 0.52 * Math.sin(Math.min(1, t * 1.15) * Math.PI * 0.62) + (t > 0.85 ? (t - 0.85) * 1.5 : 0);
+        const a = Math.random() * Math.PI * 2;
+        const rad = Math.cbrt(Math.random()) * r * profile;
+        out.x = Math.cos(a) * rad;
+        out.z = Math.sin(a) * rad * 0.6;
+        if (t > 0.93 && Math.random() < 0.5) {
+          const m = Math.random();
+          out.cr = 0.5 + m * 0.2; out.cg = 0.36 + m * 0.14; out.cb = 0.1; // Bright rim lip
+          out.layer = 1;
+        } else {
+          const m = Math.random();
+          out.cr = 0.05 + m * 0.024; out.cg = 0.036 + m * 0.016; out.cb = 0.012 + m * 0.006; // Deep bronze
+          out.layer = 0;
+        }
+      }
+    },
+  },
+
+  // 17. Loom Serpent head (Stage 5). Weaver (elite). A bright head
+  // core with two swept fins and a gold spine line (Section 3.3);
+  // the ribbon body is published as separate serpent_segment
+  // entities so the segments can gap and bunch honestly.
+  serpent: {
+    count: 800,
+    animated: true,
+    sample: (i, count, r, ctx, out) => {
+      const p = Math.random();
+      if (p < 0.34) {
+        // Bright head core.
+        const rad = Math.cbrt(Math.random()) * r * 0.52;
+        const u = Math.random() * Math.PI * 2;
+        const v = Math.acos(2 * Math.random() - 1);
+        out.x = rad * Math.sin(v) * Math.cos(u) + 0.25 * r;
+        out.y = rad * Math.sin(v) * Math.sin(u);
+        out.z = rad * Math.cos(v);
+        const m = Math.random();
+        out.cr = 1.0; out.cg = 0.88 + m * 0.1; out.cb = 0.45 + m * 0.2; // White-gold heart
+        out.layer = 1;
+      } else if (p < 0.52) {
+        // Swept fins: two flat fans trailing back from the head.
+        const isLeft = p < 0.43;
+        const span = (0.3 + Math.random() * 1.1) * r;
+        out.x = -span * 0.8 + (Math.random() - 0.5) * 0.2 * r;
+        out.y = (isLeft ? -1 : 1) * span * 0.55 + (Math.random() - 0.5) * 0.2 * r;
+        out.z = -span * 0.2 + (Math.random() - 0.5) * 0.15 * r;
+        const m = Math.random();
+        out.cr = 0.03 + m * 0.016; out.cg = 0.09 + m * 0.04; out.cb = 0.045 + m * 0.02; // Deep emerald
+        out.layer = 0;
+      } else {
+        // Skull mass around the core, tapering toward the neck.
+        const rad = Math.cbrt(Math.random()) * r;
+        const u = Math.random() * Math.PI * 2;
+        const v = Math.acos(2 * Math.random() - 1);
+        out.x = rad * Math.sin(v) * Math.cos(u) * 1.15 - 0.1 * r;
+        out.y = rad * Math.sin(v) * Math.sin(u) * 0.9;
+        out.z = rad * Math.cos(v) * 0.8;
+        if (out.y > 0.55 * r && Math.abs(out.x) < 0.3 * r) {
+          const m = Math.random();
+          out.cr = 0.55 + m * 0.2; out.cg = 0.42 + m * 0.16; out.cb = 0.1; // Gold spine accent
+          out.layer = 1;
+        } else {
+          const m = Math.random();
+          out.cr = 0.018 + m * 0.01; out.cg = 0.065 + m * 0.03; out.cb = 0.032 + m * 0.014;
+          out.layer = 0;
+        }
+      }
+    },
+  },
+
+  // Loom Serpent ribbon segment (Stage 5): a dimmer emerald glob
+  // with a small gold spine cluster, published per segment by the
+  // game along the head's recent path.
+  serpent_segment: {
+    count: 300,
+    animated: false,
+    sample: (i, count, r, ctx, out) => {
+      const rad = Math.cbrt(Math.random()) * r;
+      const u = Math.random() * Math.PI * 2;
+      const v = Math.acos(2 * Math.random() - 1);
+      out.x = rad * Math.sin(v) * Math.cos(u) * 1.1;
+      out.y = rad * Math.sin(v) * Math.sin(u) * 0.9;
+      out.z = rad * Math.cos(v) * 0.8;
+      if (out.y > 0.5 * r && Math.abs(out.x) < 0.35 * r && Math.random() < 0.5) {
+        const m = Math.random();
+        out.cr = 0.4 + m * 0.18; out.cg = 0.3 + m * 0.13; out.cb = 0.08; // Gold spine
+        out.layer = 1;
+      } else {
+        const m = Math.random();
+        out.cr = 0.014 + m * 0.008; out.cg = 0.05 + m * 0.024; out.cb = 0.024 + m * 0.01; // Dim emerald
+        out.layer = 0;
+      }
+    },
+  },
+
+  // 16. Storm Darter (Stage 5). Mobile shooter. A sleek arrowhead,
+  // about 44 px long along local x, with swept fins and bright
+  // wingtip sparks (Section 3.3). The renderer aligns it to its
+  // travel direction via the published facing, and the sparks flare
+  // through the line-up off the published attackCharge.
+  darter: {
+    count: 800,
+    animated: true,
+    sample: (i, count, r, ctx, out) => {
+      const p = Math.random();
+      if (p < 0.08) {
+        // Wingtip sparks at the rear corners.
+        const isLeft = Math.random() < 0.5;
+        out.x = -1.05 * r + (Math.random() - 0.5) * 0.2 * r;
+        out.y = (isLeft ? -1 : 1) * 0.78 * r + (Math.random() - 0.5) * 0.18 * r;
+        out.z = (Math.random() - 0.5) * 0.15 * r;
+        const m = Math.random();
+        out.cr = 0.8 + m * 0.2; out.cg = 0.95; out.cb = 1.0; // Ice-white sparks
+        out.layer = 1;
+      } else {
+        // Arrowhead: a swept delta, nose at +x, width tapering with
+        // the sweep so the fins read as one shape with the body.
+        const t = Math.random(); // 0 tail, 1 nose
+        out.x = (-1.25 + t * 2.65) * r;
+        const halfWidth = (t < 0.35 ? 0.25 + t * 1.5 : 0.78 - (t - 0.35) * 1.13) * r;
+        out.y = (Math.random() - 0.5) * 2 * halfWidth * Math.sqrt(Math.random());
+        out.z = (Math.random() - 0.5) * 0.22 * r;
+        if (t > 0.82) {
+          const m = Math.random();
+          out.cr = 0.5 + m * 0.2; out.cg = 0.85 + m * 0.12; out.cb = 0.95; // Bright nose core
+          out.layer = 1;
+        } else {
+          const m = Math.random();
+          out.cr = 0.035 + m * 0.016; out.cg = 0.085 + m * 0.035; out.cb = 0.105 + m * 0.04; // Ice cyan-white body
+          out.layer = 0;
+        }
+      }
+    },
+  },
+
+  // The Lance Wraith's lock-on line (Stage 5): a thin stretched
+  // sprite in the hostile color, published by the game between the
+  // wraith's eye and the player's position while it locks. Points
+  // run along local x; the renderer rotates the mesh to the
+  // published facing and brightens it with the lock progress.
+  wraith_line: {
+    count: 120,
+    animated: false,
+    sample: (i, count, r, ctx, out) => {
+      out.x = -r + (i / Math.max(1, count - 1)) * 2 * r;
+      out.y = (Math.random() - 0.5) * 0.05 * r;
+      out.z = (Math.random() - 0.5) * 0.05 * r;
+      flatColor(out, ctx.hostile);
+      out.layer = 1;
+    },
+  },
+
+  // The War Chanter's buff pulse ring (Stage 5): points on a circle
+  // in the screen plane; the game publishes it expanding across the
+  // buff radius in the hostile color, and the renderer fades it
+  // over the published attackCharge.
+  chanter_pulse: {
+    count: 160,
+    animated: false,
+    sample: (i, count, r, ctx, out) => {
+      const a = (i / count) * Math.PI * 2;
+      out.x = Math.cos(a) * r;
+      out.y = Math.sin(a) * r;
+      out.z = (Math.random() - 0.5) * 0.08 * r;
+      flatColor(out, ctx.hostile);
+      out.layer = 0;
+    },
+  },
+
   // Boss construction (fiery skull) kept as shipped; its full redesign
   // is the boss stages (9 and 10). White-hot eye sockets are the core
   // layer, which is what the boss phase flashes pulse (Section 3.1).
@@ -831,6 +1117,20 @@ const DEFS: Record<string, EntityVisualDef> = {
     sample: (i, count, r, ctx, out) => {
       octahedronVertex(out, r);
       flatColor(out, ctx.owner === 'enemy' ? ctx.hostile : (ctx.ownerId === 'player' && ctx.gameMode === 'ai_vs_ai' ? AI_VS_AI_BOTTOM_FIRE : PLAYER_FIRE));
+    },
+  },
+
+  // S4: Phoenix Nova bolts. A larger, brighter orb than the basic
+  // shots, in the same ownership colors, so an ultimate ring reads
+  // as an ultimate at a glance.
+  nova: {
+    count: 200,
+    animated: false,
+    sample: (i, count, r, ctx, out) => {
+      sphereVertex(out, r);
+      const base = ctx.owner === 'enemy' ? ctx.hostile : (ctx.ownerId === 'player' && ctx.gameMode === 'ai_vs_ai' ? AI_VS_AI_BOTTOM_FIRE : PLAYER_FIRE);
+      flatColor(out, base);
+      out.cr *= 1.35; out.cg *= 1.35; out.cb *= 1.35;
     },
   },
 };
