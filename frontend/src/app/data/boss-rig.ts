@@ -50,13 +50,14 @@ export interface BossDef {
   // boss calls, and the alive cap for the heavier types. 'bat'
   // summons use the legacy boss-minion law (5 HP base); the other
   // types spawn through the roster factory at world HP.
-  minionType: 'bat' | 'sentry_shard' | 'imp' | 'phantom';
+  minionType: 'bat' | 'sentry_shard' | 'imp' | 'phantom' | 'pyre_moth' | 'mite';
   minionCap: number; // alive cap for non-bat minions; 0 = uncapped
   minionsPerSummon: number;
   // Movement style: 'chase' is the shipped slow creep toward the
   // player; 'patrolTop' flies wide arcs across the top band (the
-  // Storm Wyvern sheet).
-  movement: 'chase' | 'patrolTop';
+  // Storm Wyvern sheet); 'passes' flies slow heavy passes across
+  // the whole field (the Dragon Emperor sheet, Stage 10).
+  movement: 'chase' | 'patrolTop' | 'passes';
   // Shield shell color: the boss's own palette, never the hostile
   // magenta-red (shield and regen addendum, readability rule).
   shieldColor: [number, number, number];
@@ -78,6 +79,10 @@ export const SIGNATURE_INTERVAL_SEC = 12;       // normal signature cadence
 export const SIGNATURE_INTERVAL_ENRAGED_SEC = 8;
 
 function enrageWindowFor(worldIndex: number): [number, number] {
+  // Anchored to the world's own fresh band top (S6 re-based
+  // BOSS_TTK_BANDS to per-world rows, so this find is per world;
+  // before S6 the bands were group rows and the window was the
+  // group's).
   const band = BOSS_TTK_BANDS.find(b => b.worldIndexes.includes(worldIndex)) || BOSS_TTK_BANDS[0];
   const a = band.freshSeconds[1];
   return [a, Math.round(a * 1.3)];
@@ -116,14 +121,16 @@ export const BOSS_DEFS: Record<number, BossDef> = {
   2: def(2, 'shard_fan', { minionType: 'sentry_shard', minionCap: 2, minionsPerSummon: 1, shieldColor: [0.72, 0.45, 1.0], shieldColorHex: '#b873ff' }),
   3: def(3, 'storm_call', { minionType: 'imp', minionsPerSummon: 2, movement: 'patrolTop', shieldColor: [0.45, 1.0, 0.55], shieldColorHex: '#73ff8c' }),
   4: def(4, 'harvest_arc', { minionType: 'phantom', minionCap: 2, minionsPerSummon: 1, shieldColor: [0.75, 0.72, 0.85], shieldColorHex: '#bfb8d9' }),
-  // Worlds 6 to 10: rig, enrage, and shield systems are live from
-  // Stage 9 (they are rig systems, and the addendum binds every
-  // campaign boss); their signature executors land in Stage 10.
+  // Worlds 6 to 10: rig, enrage, and shield systems live from
+  // Stage 9; their signature executors landed in Stage 10 (S6).
   5: def(5, 'royal_decree', { shieldColor: [1.0, 0.9, 0.45], shieldColorHex: '#ffe673' }),
-  6: def(6, 'frozen_court', { shieldColor: [0.65, 0.95, 1.0], shieldColorHex: '#a6f2ff' }),
-  7: def(7, 'emperors_breath', { minionType: 'imp', minionsPerSummon: 2, shieldColor: [1.0, 0.85, 0.3], shieldColorHex: '#ffd94d' }),
-  8: def(8, 'chaos_roulette', { shieldColor: [1.0, 0.45, 0.4], shieldColorHex: '#ff7366' }),
-  9: def(9, 'singularity', { shieldColor: [0.95, 0.9, 1.0], shieldColorHex: '#f2e6ff' }),
+  6: def(6, 'frozen_court', { minionType: 'pyre_moth', minionCap: 3, minionsPerSummon: 1, shieldColor: [0.65, 0.95, 1.0], shieldColorHex: '#a6f2ff' }),
+  7: def(7, 'emperors_breath', { minionType: 'imp', minionsPerSummon: 2, movement: 'passes', shieldColor: [1.0, 0.85, 0.3], shieldColorHex: '#ffd94d' }),
+  8: def(8, 'chaos_roulette', { minionType: 'pyre_moth', minionCap: 3, minionsPerSummon: 1, shieldColor: [1.0, 0.45, 0.4], shieldColorHex: '#ff7366' }),
+  // World 10 summons Gloomwing variants (the bat law) and, on
+  // alternating summons, Mites; the alternation lives in the game
+  // component's summon path, so the def keeps the bat record.
+  9: def(9, 'singularity', { minionsPerSummon: 2, shieldColor: [0.95, 0.9, 1.0], shieldColorHex: '#f2e6ff' }),
 };
 
 export function bossDefFor(worldIndex: number): BossDef {
@@ -169,6 +176,24 @@ export interface BossFightState {
   nextSignatureAtSec: number;
   sig: BossSigState | null;
   events: BossFightEvent[];
+  // Stage 10 per-boss extras (additive; only the owning world's
+  // executor reads them). World 6: the one-time False Rebirth at
+  // 50 percent HP (ash window on the fight clock, then faster
+  // fans for the rest of the fight). World 9: the chaos form cycle
+  // (form index and the fight time the current form began; the
+  // renderer flows points between forms over the first second).
+  // World 10: Singularity thresholds consumed (66 then 33 percent),
+  // the kit-mirror rotation index, and the below-25-percent finale
+  // rage (summons stop; the drill chains into the burst).
+  rebirthUsed?: boolean;
+  rebirthDone?: boolean;
+  ashUntilSec?: number;
+  formIdx?: number;
+  formStartSec?: number;
+  lastChaosPattern?: string;
+  singIdx?: number;
+  kitIdx?: number;
+  finaleRage?: boolean;
 }
 
 export function createBossFightState(worldIndex: number): BossFightState {

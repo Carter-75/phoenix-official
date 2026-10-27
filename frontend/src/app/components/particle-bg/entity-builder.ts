@@ -45,6 +45,10 @@ export interface EntityBuildContext {
   // Stage 9: the boss's shield palette from the rig data, read by
   // the boss_shield sampler only.
   shieldColor?: Rgb;
+  // Stage 10: the Chaos Demon's form index (0 brute, 1 many-winged,
+  // 2 serpent), read by the World 9 boss sampler only. The renderer
+  // builds all three forms and flows between them.
+  form?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -301,8 +305,9 @@ const AI_ABILITY_RED: Rgb = [1.0, 0.2, 0.2]; // 0xff3333, rival ability tint as 
 // Stage 9 boss constructions. The boss def dispatches on the build
 // context's world index: each world gets its Section 4 sheet body.
 // World 1 keeps the shipped fiery skull (it was always the Inferno
-// Guardian); Worlds 2 to 5 are new here; Worlds 6 to 10 keep the
-// skull until Stage 10 builds their bodies.
+// Guardian); Worlds 2 to 5 landed in Stage 9 and Worlds 6 to 10 in
+// Stage 10 (the phoenix master sampler, the Ice Empress, the Dragon
+// Emperor, and the Chaos Demon's three forms, below the Reaper).
 // ---------------------------------------------------------------------------
 
 function sampleBossSkull(i: number, count: number, r: number, ctx: EntityBuildContext, out: VertexOut) {
@@ -487,6 +492,337 @@ function sampleBossVoidReaper(i: number, count: number, r: number, ctx: EntityBu
     const g = 0.09 + Math.random() * 0.06;
     out.cr = g; out.cg = g; out.cb = g;
     out.layer = 0;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Stage 10 boss constructions (Worlds 6 to 10).
+// ---------------------------------------------------------------------------
+
+interface PhoenixBossPalette {
+  body: [number, number, number];
+  wing: [number, number, number];
+  bright: [number, number, number];
+  heart: [number, number, number];
+  crown: boolean;
+  plumes: number;
+}
+
+// The phoenix master design at boss scale: a frontal flying
+// figure, crested head with the beak pointing at the viewer, two
+// broad layered wings, a tapered body with a bright heart, and
+// long tail plumes streaming down and back. Only two bosses may
+// carry the bird silhouette (readability rule 1.2.3): the Phoenix
+// King (hostile gold-white, crown crest, three plumes) and the
+// Eternal Phoenix (divine white and gold, ray crest, violet heart,
+// five plumes).
+function sampleBossPhoenix(i: number, count: number, r: number, ctx: EntityBuildContext, out: VertexOut, pal: PhoenixBossPalette) {
+  const p = Math.random();
+  const shade = () => 0.7 + Math.random() * 0.55;
+  if (p < 0.30) {
+    // Wings: layered fans from the shoulders, three rows deep,
+    // primaries on the trailing edge with bright tips.
+    const side = i % 2 === 0 ? 1 : -1;
+    const row = Math.floor(Math.random() * 3);
+    const t = Math.random();
+    out.x = side * (0.35 + t * 1.65) * r;
+    out.y = (0.62 - t * 0.42 - row * 0.16) * r + (Math.random() - 0.5) * 0.08 * r;
+    out.z = (Math.random() - 0.5) * 0.14 * r - t * 0.18 * r;
+    if (row === 2 && t > 0.78 && Math.random() < 0.5) {
+      out.cr = pal.bright[0]; out.cg = pal.bright[1]; out.cb = pal.bright[2]; out.layer = 1;
+    } else {
+      const s = shade(); out.cr = pal.wing[0] * s; out.cg = pal.wing[1] * s; out.cb = pal.wing[2] * s; out.layer = 0;
+    }
+  } else if (p < 0.52) {
+    // Body: a tapered ellipsoid, neck to hips.
+    sphereVertex(out, r * 0.5);
+    out.y = out.y * 1.45 - 0.05 * r;
+    out.z = out.z * 0.7 + 0.08 * r;
+    const s = shade(); out.cr = pal.body[0] * s; out.cg = pal.body[1] * s; out.cb = pal.body[2] * s;
+    out.layer = 0;
+  } else if (p < 0.66) {
+    // Head and beak: the head rides high on the body; the beak is
+    // a bright cone pointing forward and down at the viewer.
+    if (Math.random() < 0.68) {
+      sphereVertex(out, r * 0.30);
+      out.x += 0; out.y += 0.88 * r; out.z += 0.18 * r;
+      const eyeL = Math.hypot(out.x + 0.13 * r, out.y - 0.93 * r);
+      const eyeR = Math.hypot(out.x - 0.13 * r, out.y - 0.93 * r);
+      if (Math.min(eyeL, eyeR) < 0.07 * r) { out.cr = pal.heart[0]; out.cg = pal.heart[1]; out.cb = pal.heart[2]; out.layer = 1; }
+      else { const s = shade(); out.cr = pal.body[0] * s * 1.15; out.cg = pal.body[1] * s * 1.15; out.cb = pal.body[2] * s * 1.15; out.layer = 0; }
+    } else {
+      const t = Math.random();
+      const rad = (1 - t) * 0.09 * r;
+      const a = Math.random() * Math.PI * 2;
+      out.x = Math.cos(a) * rad;
+      out.y = 0.82 * r - t * 0.16 * r + Math.sin(a) * rad * 0.6;
+      out.z = 0.38 * r + t * 0.48 * r;
+      out.cr = pal.bright[0]; out.cg = pal.bright[1]; out.cb = pal.bright[2]; out.layer = 1;
+    }
+  } else if (p < 0.78) {
+    // Crest: the King's crown of five gold spikes, or the
+    // Eternal's ray halo arc behind the head.
+    if (pal.crown) {
+      const k = i % 5;
+      const t = Math.random();
+      out.x = (k - 2) * 0.11 * r * (0.5 + t * 0.7);
+      out.y = 1.10 * r + t * 0.40 * r * (1 - Math.abs(k - 2) * 0.17);
+      out.z = 0.10 * r - t * 0.08 * r;
+      if (Math.random() < 0.55) { out.cr = pal.bright[0]; out.cg = pal.bright[1]; out.cb = pal.bright[2]; out.layer = 1; }
+      else { const s = shade(); out.cr = pal.wing[0] * s; out.cg = pal.wing[1] * s; out.cb = pal.wing[2] * s; out.layer = 0; }
+    } else {
+      const a = Math.PI * (0.12 + Math.random() * 0.76);
+      const rad = 0.55 * r;
+      out.x = Math.cos(a) * rad;
+      out.y = 0.88 * r + Math.sin(a) * rad * 0.8;
+      out.z = -0.12 * r;
+      out.cr = pal.bright[0]; out.cg = pal.bright[1]; out.cb = pal.bright[2]; out.layer = 1;
+    }
+  } else if (p < 0.88) {
+    // The heart: the bright core at the chest (layer 1).
+    sphereVertex(out, r * 0.26);
+    out.y += 0.28 * r; out.z += 0.26 * r;
+    out.cr = pal.heart[0]; out.cg = pal.heart[1]; out.cb = pal.heart[2];
+    out.layer = 1;
+  } else {
+    // Tail plumes: long ribbons streaming down and back from the
+    // hips, swaying by lane, tips bright.
+    const lane = i % pal.plumes;
+    const t = Math.random();
+    out.x = (lane - (pal.plumes - 1) / 2) * 0.17 * r * (0.4 + t * 0.85) + Math.sin(t * 3.2 + lane * 1.7) * 0.09 * r;
+    out.y = -0.45 * r - t * 1.75 * r;
+    out.z = -0.08 * r - t * 0.38 * r;
+    if (t > 0.88 && Math.random() < 0.5) { out.cr = pal.bright[0]; out.cg = pal.bright[1]; out.cb = pal.bright[2]; out.layer = 1; }
+    else { const s = shade() * (1 - t * 0.35); out.cr = pal.wing[0] * s; out.cg = pal.wing[1] * s; out.cb = pal.wing[2] * s; out.layer = 0; }
+  }
+}
+
+// Phoenix King (World 6): the master design in hostile gold-white
+// with a crown crest and a long royal tail (three plumes).
+function sampleBossPhoenixKing(i: number, count: number, r: number, ctx: EntityBuildContext, out: VertexOut) {
+  sampleBossPhoenix(i, count, r, ctx, out, {
+    body: [0.48, 0.34, 0.09], wing: [0.62, 0.47, 0.15], bright: [1.0, 0.88, 0.42], heart: [1.0, 0.96, 0.82], crown: true, plumes: 3
+  });
+}
+
+// Eternal Phoenix (World 10): the master design in divine white
+// and gold with a ray crest and a violet heart.
+function sampleBossEternalPhoenix(i: number, count: number, r: number, ctx: EntityBuildContext, out: VertexOut) {
+  sampleBossPhoenix(i, count, r, ctx, out, {
+    body: [0.74, 0.68, 0.52], wing: [0.86, 0.80, 0.62], bright: [1.0, 1.0, 1.0], heart: [0.72, 0.50, 1.0], crown: false, plumes: 5
+  });
+}
+
+// Ice Empress (World 7): a tall crystalline figure: an icicle-point
+// skirt, a narrow torso, a shard crown, and a rotating halo of ice
+// motes (the halo is a flat ring of bright points; the boss mesh's
+// slow wobble makes it shimmer rather than spin).
+function sampleBossIceEmpress(i: number, count: number, r: number, ctx: EntityBuildContext, out: VertexOut) {
+  const p = Math.random();
+  const shade = () => 0.7 + Math.random() * 0.55;
+  if (p < 0.34) {
+    // Skirt: a cone of ice points, waist to hem, with icicle
+    // spikes hanging past the hem line.
+    const t = Math.random();
+    const a = Math.random() * Math.PI * 2;
+    const rad = (0.30 + t * 0.78) * r * Math.sqrt(Math.random());
+    out.x = Math.cos(a) * rad;
+    out.z = Math.sin(a) * rad * 0.7;
+    out.y = 0.22 * r - t * 1.75 * r - (Math.random() < 0.30 ? Math.random() * 0.30 * r : 0);
+    if (Math.random() < 0.10) { out.cr = 0.65; out.cg = 0.95; out.cb = 1.0; out.layer = 1; }
+    else { const s = shade(); out.cr = 0.34 * s; out.cg = 0.52 * s; out.cb = 0.66 * s; out.layer = 0; }
+  } else if (p < 0.56) {
+    // Torso and arms: a narrow tall ellipsoid with two thin arm
+    // lines angled down and out.
+    if (Math.random() < 0.72) {
+      sphereVertex(out, r * 0.30);
+      out.y = out.y * 1.7 + 0.78 * r;
+      out.z *= 0.7;
+      const s = shade(); out.cr = 0.40 * s; out.cg = 0.60 * s; out.cb = 0.74 * s; out.layer = 0;
+    } else {
+      const side = i % 2 === 0 ? 1 : -1;
+      const t = Math.random();
+      out.x = side * (0.24 + t * 0.42) * r;
+      out.y = (0.95 - t * 0.55) * r;
+      out.z = 0.05 * r;
+      const s = shade(); out.cr = 0.36 * s; out.cg = 0.56 * s; out.cb = 0.70 * s; out.layer = 0;
+    }
+  } else if (p < 0.68) {
+    // Head and shard crown: five ice spikes above a pale head.
+    if (Math.random() < 0.55) {
+      sphereVertex(out, r * 0.25);
+      out.y += 1.38 * r; out.z += 0.06 * r;
+      const eyeL = Math.hypot(out.x + 0.10 * r, out.y - 1.40 * r);
+      const eyeR = Math.hypot(out.x - 0.10 * r, out.y - 1.40 * r);
+      if (Math.min(eyeL, eyeR) < 0.055 * r) { out.cr = 0.65; out.cg = 0.95; out.cb = 1.0; out.layer = 1; }
+      else { const s = shade(); out.cr = 0.46 * s; out.cg = 0.64 * s; out.cb = 0.76 * s; out.layer = 0; }
+    } else {
+      const k = i % 5;
+      const t = Math.random();
+      out.x = (k - 2) * 0.10 * r * (0.5 + t * 0.6);
+      out.y = 1.58 * r + t * 0.42 * r * (1 - Math.abs(k - 2) * 0.15);
+      out.z = (Math.random() - 0.5) * 0.06 * r;
+      out.cr = 0.65; out.cg = 0.95; out.cb = 1.0; out.layer = 1;
+    }
+  } else if (p < 0.86) {
+    // Halo: a flat ring of ice motes circling the figure at waist
+    // height, bright enough to read as its own element.
+    const a = Math.random() * Math.PI * 2;
+    const rad = 1.45 * r + (Math.random() - 0.5) * 0.10 * r;
+    out.x = Math.cos(a) * rad;
+    out.z = Math.sin(a) * rad * 0.55;
+    out.y = 0.55 * r + (Math.random() - 0.5) * 0.08 * r;
+    if (Math.random() < 0.6) { out.cr = 0.65; out.cg = 0.95; out.cb = 1.0; out.layer = 1; }
+    else { const s = shade(); out.cr = 0.34 * s; out.cg = 0.52 * s; out.cb = 0.66 * s; out.layer = 0; }
+  } else {
+    // Satellite shards: six small crystal clusters orbiting low.
+    const c = i % 6;
+    const a = (c / 6) * Math.PI * 2;
+    out.x = Math.cos(a) * 1.08 * r + (Math.random() - 0.5) * 0.22 * r;
+    out.y = -0.35 * r + (Math.random() - 0.5) * 0.22 * r;
+    out.z = Math.sin(a) * 0.5 * r + (Math.random() - 0.5) * 0.22 * r;
+    const s = shade(); out.cr = 0.40 * s; out.cg = 0.60 * s; out.cb = 0.74 * s; out.layer = 0;
+  }
+}
+
+// Dragon Emperor (World 8): a ribbon body at boss scale with four
+// wings, a horned bearded head, and a spade-point tail. The most
+// mobile boss before the finale; its body is built for the passes
+// its movement hook flies.
+function sampleBossDragonEmperor(i: number, count: number, r: number, ctx: EntityBuildContext, out: VertexOut) {
+  const p = Math.random();
+  const shade = () => 0.7 + Math.random() * 0.55;
+  if (p < 0.40) {
+    // Spine: a heavy ribbon along x with a slow S-curve.
+    const t = Math.random();
+    out.x = (-2.05 + t * 3.7) * r;
+    out.y = Math.sin(t * 3.9) * 0.26 * r + (Math.random() - 0.5) * 0.44 * r;
+    out.z = (Math.random() - 0.5) * 0.36 * r;
+    const s = shade(); out.cr = 0.44 * s; out.cg = 0.29 * s; out.cb = 0.08 * s; out.layer = 0;
+  } else if (p < 0.78) {
+    // Four wings: a large front pair and a smaller rear pair,
+    // triangular fans off the spine, gold rims on the edges.
+    const pair = i % 2; // 0 front, 1 rear
+    const up = Math.floor(i / 2) % 2 === 0;
+    const t = Math.random();
+    const baseX = pair === 0 ? 0.55 : -0.55;
+    const reach = (pair === 0 ? 1.55 : 1.05) * (0.35 + t * 0.65);
+    out.x = (baseX - t * 1.05) * r + (Math.random() - 0.5) * 0.16 * r;
+    out.y = (up ? 1 : -1) * reach * r * (0.5 + Math.random() * 0.3);
+    out.z = (Math.random() - 0.5) * 0.2 * r;
+    if (Math.random() < 0.10) { out.cr = 1.0; out.cg = 0.85; out.cb = 0.3; out.layer = 1; }
+    else { const s = shade(); out.cr = 0.30 * s; out.cg = 0.18 * s; out.cb = 0.05 * s; out.layer = 0; }
+  } else if (p < 0.90) {
+    // Horned bearded head at the front of the spine.
+    if (Math.random() < 0.55) {
+      sphereVertex(out, r * 0.48);
+      out.x += 1.98 * r; out.y += 0.30 * r;
+      const eyeL = Math.hypot(out.x - 2.05 * r, out.y - 0.42 * r);
+      const eyeR = Math.hypot(out.x - 1.90 * r, out.y - 0.42 * r);
+      if (Math.min(eyeL, eyeR) < 0.08 * r) { out.cr = 1.0; out.cg = 0.9; out.cb = 0.4; out.layer = 1; }
+      else { const s = shade(); out.cr = 0.50 * s; out.cg = 0.34 * s; out.cb = 0.10 * s; out.layer = 0; }
+    } else if (Math.random() < 0.5) {
+      // Horns: two arcs sweeping up and back from the skull.
+      const side = i % 2 === 0 ? 1 : -1;
+      const t = Math.random();
+      out.x = (1.95 - t * 0.75) * r;
+      out.y = (0.55 + t * 0.75) * r;
+      out.z = side * (0.18 + t * 0.30) * r;
+      const s = shade(); out.cr = 0.66 * s; out.cg = 0.55 * s; out.cb = 0.30 * s; out.layer = 0;
+    } else {
+      // Beard: strands trailing down and back from the jaw.
+      const lane = (i % 5) - 2;
+      const t = Math.random();
+      out.x = (1.90 - t * 0.45) * r + lane * 0.05 * r;
+      out.y = (0.05 - t * 0.85) * r;
+      out.z = lane * 0.07 * r + (Math.random() - 0.5) * 0.06 * r;
+      const s = shade(); out.cr = 0.60 * s; out.cg = 0.52 * s; out.cb = 0.34 * s; out.layer = 0;
+    }
+  } else {
+    // Spade tail: a flattened diamond plate at the tail's end,
+    // the one crimson accent on the body.
+    const t = Math.random();
+    const a = Math.random() * Math.PI * 2;
+    const rad = Math.sqrt(Math.random());
+    out.x = -2.30 * r + Math.cos(a) * rad * 0.30 * r - t * 0.15 * r;
+    out.y = Math.sin(a) * rad * 0.55 * r;
+    out.z = (Math.random() - 0.5) * 0.08 * r;
+    const s = shade(); out.cr = 0.52 * s; out.cg = 0.13 * s; out.cb = 0.09 * s; out.layer = 0;
+  }
+}
+
+// Chaos Demon (World 9): one core of chaos points cycling between
+// three silhouettes (horned brute, many-winged thing, serpent);
+// the renderer builds all three and flows the points between
+// forms. Each form leans on one of the Roulette announcement
+// colors: red for the brute, violet for the winged, white accents
+// for the serpent.
+function sampleBossChaosDemon(i: number, count: number, r: number, ctx: EntityBuildContext, out: VertexOut) {
+  const form = ctx.form || 0;
+  const p = Math.random();
+  const shade = () => 0.7 + Math.random() * 0.55;
+  if (form === 1) {
+    // Many-winged thing: a bright violet core wrapped in six
+    // wing fans, three to a side, stacked like a seraph.
+    if (p < 0.30) {
+      sphereVertex(out, r * 0.55);
+      if (Math.random() < 0.4) { out.cr = 0.62; out.cg = 0.30; out.cb = 1.0; out.layer = 1; }
+      else { const s = shade(); out.cr = 0.20 * s; out.cg = 0.10 * s; out.cb = 0.34 * s; out.layer = 0; }
+    } else {
+      const wing = i % 6;
+      const side = wing < 3 ? 1 : -1;
+      const row = wing % 3;
+      const t = Math.random();
+      out.x = side * (0.30 + t * 1.45) * r;
+      out.y = (0.75 - row * 0.62 - t * 0.30) * r + (Math.random() - 0.5) * 0.08 * r;
+      out.z = (Math.random() - 0.5) * 0.16 * r - t * 0.15 * r;
+      if (t > 0.8 && Math.random() < 0.4) { out.cr = 0.85; out.cg = 0.65; out.cb = 1.0; out.layer = 1; }
+      else { const s = shade(); out.cr = 0.16 * s; out.cg = 0.08 * s; out.cb = 0.30 * s; out.layer = 0; }
+    }
+  } else if (form === 2) {
+    // Serpent: a long ribbon with a horned head, white scale
+    // accents over a near-black violet body.
+    if (p < 0.82) {
+      const t = Math.random();
+      out.x = (-1.95 + t * 3.6) * r;
+      out.y = Math.sin(t * 5.2) * 0.34 * r + (Math.random() - 0.5) * 0.3 * r;
+      out.z = (Math.random() - 0.5) * 0.26 * r;
+      if (Math.random() < 0.14) { out.cr = 0.95; out.cg = 0.95; out.cb = 1.0; out.layer = 1; }
+      else { const s = shade(); out.cr = 0.10 * s; out.cg = 0.06 * s; out.cb = 0.17 * s; out.layer = 0; }
+    } else {
+      sphereVertex(out, r * 0.40);
+      out.x += 1.85 * r; out.y += 0.30 * r;
+      if (Math.random() < 0.2) { out.cr = 1.0; out.cg = 1.0; out.cb = 1.0; out.layer = 1; }
+      else { const s = shade(); out.cr = 0.14 * s; out.cg = 0.08 * s; out.cb = 0.22 * s; out.layer = 0; }
+    }
+  } else {
+    // Horned brute: a broad heavy mass, two horn arcs, thick arm
+    // columns, and a red core at the chest.
+    if (p < 0.52) {
+      sphereVertex(out, r * 0.85);
+      out.x *= 1.35; out.z *= 0.75;
+      const s = shade(); out.cr = 0.24 * s; out.cg = 0.06 * s; out.cb = 0.07 * s; out.layer = 0;
+    } else if (p < 0.66) {
+      sphereVertex(out, r * 0.22);
+      out.y += 0.05 * r; out.z += 0.55 * r;
+      out.cr = 1.0; out.cg = 0.25; out.cb = 0.28; out.layer = 1;
+    } else if (p < 0.82) {
+      // Horns: two heavy arcs above the shoulders.
+      const side = i % 2 === 0 ? 1 : -1;
+      const t = Math.random();
+      out.x = side * (0.55 + t * 0.65) * r;
+      out.y = (0.85 + Math.sin(t * Math.PI * 0.5) * 0.55) * r;
+      out.z = (Math.random() - 0.5) * 0.12 * r;
+      const s = shade(); out.cr = 0.40 * s; out.cg = 0.30 * s; out.cb = 0.22 * s; out.layer = 0;
+    } else {
+      // Arms: two thick columns hanging at the sides.
+      const side = i % 2 === 0 ? 1 : -1;
+      const t = Math.random();
+      out.x = side * (1.05 + (Math.random() - 0.5) * 0.22) * r;
+      out.y = (0.45 - t * 1.5) * r;
+      out.z = (Math.random() - 0.5) * 0.2 * r;
+      const s = shade(); out.cr = 0.20 * s; out.cg = 0.05 * s; out.cb = 0.06 * s; out.layer = 0;
+    }
   }
 }
 
@@ -1442,6 +1778,11 @@ const DEFS: Record<string, EntityVisualDef> = {
         case 2: sampleBossCrystalTitan(i, count, r, ctx, out); break;
         case 3: sampleBossStormWyvern(i, count, r, ctx, out); break;
         case 4: sampleBossVoidReaper(i, count, r, ctx, out); break;
+        case 5: sampleBossPhoenixKing(i, count, r, ctx, out); break;
+        case 6: sampleBossIceEmpress(i, count, r, ctx, out); break;
+        case 7: sampleBossDragonEmperor(i, count, r, ctx, out); break;
+        case 8: sampleBossChaosDemon(i, count, r, ctx, out); break;
+        case 9: sampleBossEternalPhoenix(i, count, r, ctx, out); break;
         default: sampleBossSkull(i, count, r, ctx, out); break;
       }
     },
@@ -1555,6 +1896,44 @@ const DEFS: Record<string, EntityVisualDef> = {
       out.z = (Math.random() - 0.5) * 0.05 * r;
       flatColor(out, ctx.hostile);
       out.layer = 1;
+    },
+  },
+
+  // The locked dash line (Stage 10): Royal Decree and the Eternal
+  // Drill publish it from the boss to the locked target for the
+  // whole wind-up, so the dash is never a surprise. A thin strip
+  // of hostile points along the local x axis; the renderer rotates
+  // it to the published facing.
+  boss_line: {
+    count: 220,
+    animated: false,
+    sample: (i, count, r, ctx, out) => {
+      out.x = -r + (i / Math.max(1, count - 1)) * 2 * r;
+      out.y = (Math.random() - 0.5) * 0.045 * r;
+      out.z = (Math.random() - 0.5) * 0.045 * r;
+      flatColor(out, ctx.hostile);
+      out.layer = 1;
+    },
+  },
+
+  // The Emperor's Breath cone (Stage 10): a wedge of hostile
+  // points from the maw, narrow at the source and widening with
+  // range, drawn for the full 0.8 s telegraph and burning while
+  // the cone is live. Points near the maw are the bright core
+  // layer, so the glow builds visibly during the telegraph.
+  boss_cone: {
+    count: 700,
+    animated: false,
+    sample: (i, count, r, ctx, out) => {
+      const t = Math.sqrt(Math.random()); // denser near the maw
+      const half = 0.61 * (0.30 + 0.70 * t);
+      const a = (Math.random() * 2 - 1) * half;
+      const rad = t * r;
+      out.x = Math.cos(a) * rad;
+      out.y = Math.sin(a) * rad;
+      out.z = (Math.random() - 0.5) * 0.05 * r;
+      flatColor(out, ctx.hostile);
+      out.layer = t < 0.25 ? 1 : 0;
     },
   },
 

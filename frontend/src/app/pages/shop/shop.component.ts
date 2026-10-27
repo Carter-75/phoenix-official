@@ -1,7 +1,7 @@
 import { Component, signal, computed, OnInit, inject } from '@angular/core';
 import { GameStateService } from '../../services/game-state.service';
 import { ABILITIES, GADGETS, WORLDS } from '../../constants/game.constants';
-import { PASSIVE_BY_STAT, AD_UPGRADE_MAX_COST, GEM_EXCHANGE_COINS_PER_GEM } from '../../data/balance.constants';
+import { PASSIVE_BY_STAT, AD_UPGRADE_MAX_COST, GEM_EXCHANGE_COINS_PER_GEM, ABILITY_UPGRADE_GROWTH } from '../../data/balance.constants';
 import { WorldStats } from '../../models/game.models';
 import { IapService } from '../../services/iap.service';
 import { AdsService } from '../../services/ads.service';
@@ -1290,7 +1290,11 @@ export class ShopComponent implements OnInit {
 
   getAbilityCost(id: string, baseCost: number): number {
      const level = this.gameState.currentStats().unlockedAbilities[id]?.level || 1;
-     return Math.floor(baseCost * Math.pow(1.5, level - 1));
+     // Ability upgrade growth flattened from x1.5 to x1.25 in S6
+     // (the seeded economy decision; see ABILITY_UPGRADE_GROWTH in
+     // balance.constants.ts). Passive step costs (getCost above)
+     // keep their capped x1.5 curve.
+     return Math.floor(baseCost * Math.pow(ABILITY_UPGRADE_GROWTH, level - 1));
   }
 
   buyCoinMultiplier() {

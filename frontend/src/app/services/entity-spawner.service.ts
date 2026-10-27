@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { GameStateService } from './game-state.service';
 import { AudioService } from './audio.service';
 import { EnemyData } from '../models/game.models';
-import { BOSS_BASE_HP, BOSS_HP_GROWTH } from '../data/balance.constants';
+import { BOSS_BASE_HP, BOSS_HP_GROWTH, WORLD10_ELITE_TYPES, ELITE_HP_MULTIPLIER } from '../data/balance.constants';
 import { createBossFightState, bossEvent } from '../data/boss-rig';
 import { WAVE_TABLES, WorldWaveTable } from '../data/wave-tables';
 import * as Matter from 'matter-js';
@@ -194,8 +194,13 @@ export class EntitySpawnerService {
         }
 
         health = Math.floor(health * Math.pow(1.5, worldIndex) * difficultyMultiplier);
+        // World 10 elite tint on this legacy path too (S6): the
+        // only tint-eligible type it can produce is the golem.
+        const legacyElite = worldIndex === 9 && WORLD10_ELITE_TYPES.has(type);
+        if (legacyElite) health = Math.floor(health * ELITE_HP_MULTIPLIER);
 
         const data = { id: Math.random().toString(), type, health, maxHealth: health, lastAttackTime: Date.now() } as EnemyData;
+        if (legacyElite) data.elite = true;
         const enemy = this.createEnemyBody(x, y, size, type, data);
 
         ctx.enemies.push(enemy);
@@ -293,8 +298,19 @@ export class EntitySpawnerService {
     public spawnEnemyOfType(ctx: SpawnerContext, type: string, x: number, y: number, worldIndex: number, burst: boolean = false): Matter.Body | null {
         const def = SPAWN_DEFS[type];
         if (!def) return null;
-        const health = Math.max(1, Math.floor(def.health * Math.pow(1.5, worldIndex)));
+        let health = Math.max(1, Math.floor(def.health * Math.pow(1.5, worldIndex)));
+        // World 10 elite tint (S6, deferred by Stage 8): Sturdy and
+        // Armored class types in the Abyssal Rift spawn at 1.5
+        // times HP with the elite flag the renderer tints from. A
+        // content multiplier on the type, applied once here; the
+        // generic legacy spawn path below only ever produces slime,
+        // bat, and golem at world scale and the golem there is a
+        // fallback gate remnant, so the tint lives on this factory
+        // path, which is what the wave composer and boss summons use.
+        const elite = worldIndex === 9 && WORLD10_ELITE_TYPES.has(type);
+        if (elite) health = Math.floor(health * ELITE_HP_MULTIPLIER);
         const data = { id: Math.random().toString(), type, health, maxHealth: health, lastAttackTime: Date.now() } as EnemyData;
+        if (elite) data.elite = true;
         if (type === 'imp') data.behaviorState = 'approach';
         if (type === 'wisp') {
             data.behaviorState = 'close';

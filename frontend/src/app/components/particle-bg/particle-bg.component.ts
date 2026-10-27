@@ -70,6 +70,11 @@ interface ParticleEntity {
   orbitAngle?: number;
   lastCharge?: number;
   bornMs?: number;
+  // Stage 10: the Chaos Demon's three form geometries (World 9
+  // boss only); the render loop flows the live positions between
+  // the previous and current form across each switch's first
+  // second.
+  formGeos?: Array<{ positions: Float32Array; colors: Float32Array }>;
   // Animation budget state (visual spec Section 1.4): true while this
   // enemy renders transform-only instead of full vertex animation.
   budgeted?: boolean;
@@ -4226,6 +4231,13 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
         if (data.facing !== undefined) entity.mesh.rotation.z = -data.facing;
         (entity.mesh.material as THREE.PointsMaterial).opacity = 0.25 + 0.7 * (data.attackCharge ?? 0);
       }
+      else if (data.type === 'boss_line' || data.type === 'boss_cone') {
+        // Stage 10 telegraphs: the locked dash line and the
+        // Emperor's breath cone, rotated to their published facing
+        // and brightening with their charge, like the arc.
+        if (data.facing !== undefined) entity.mesh.rotation.z = -data.facing;
+        (entity.mesh.material as THREE.PointsMaterial).opacity = 0.25 + 0.7 * (data.attackCharge ?? 0);
+      }
       else if (data.type === 'boss_shadow') {
         // Shadow Split copies (Stage 9): dimmer than the real boss
         // by build and by opacity; the difference is the tell.
@@ -4239,37 +4251,71 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
         const pPositions = entity.mesh.geometry.attributes['position'].array as Float32Array;
         const time = Date.now() * 0.005 + (entity.timeOffset || 0);
         const jawOpen = (Math.sin(time * 0.5) * 0.5 + 0.5) * 0.3 * (data.size/30);
-        
+        // Chaos Demon forms (Stage 10): while a form flows in, the
+        // points lerp from the previous form's geometry to the
+        // current one; the three forms were built at mesh creation.
+        const forms = entity.formGeos;
+        const formIdx = data.bossForm ?? 0;
+        const flow = data.bossFormFlow ?? 1;
+        const prevIdx = (formIdx + 2) % 3;
         for(let i=0; i<pPositions.length; i+=3) {
-            const baseY = entity.basePositions[i+1];
-            if (baseY < 0) { // Jaw drops
-                pPositions[i+1] = baseY - jawOpen;
-            } else {
-                pPositions[i+1] = baseY;
+            let bx = entity.basePositions[i];
+            let by = entity.basePositions[i+1];
+            let bz = entity.basePositions[i+2];
+            if (forms) {
+                const a = forms[prevIdx].positions, b = forms[formIdx].positions;
+                bx = a[i] + (b[i] - a[i]) * flow;
+                by = a[i+1] + (b[i+1] - a[i+1]) * flow;
+                bz = a[i+2] + (b[i+2] - a[i+2]) * flow;
             }
+            pPositions[i] = bx;
+            pPositions[i+1] = by < 0 ? by - jawOpen : by; // Jaw drops
+            pPositions[i+2] = bz;
         }
         entity.mesh.geometry.attributes['position'].needsUpdate = true;
-        // The slow ominous spin belongs to the skull (World 1, and
-        // the Worlds 6 to 10 placeholders); the Stage 9 bodies for
-        // Worlds 2 to 5 hold their facing and only wobble.
+        // The slow ominous spin belongs to the skull (World 1);
+        // every other boss body holds its facing and only wobbles
+        // (Stage 10 removed the spin from Worlds 6 to 10, whose
+        // placeholder skulls it used to turn).
         const wi = this.gameState.selectedWorldIndex();
-        if (wi === 0 || wi >= 5) entity.mesh.rotation.y -= 0.02;
+        if (wi === 0) entity.mesh.rotation.y -= 0.02;
         entity.mesh.rotation.z = Math.sin(time * 0.2) * 0.1; // Float wobble
         // Rig charge (Stage 9): telegraph progress, the enrage
         // warning build, and the enraged pulse all brighten the
         // core layer, per the enrage addendum's visuals (glow build
         // and a brighter enraged core, telegraphs untouched).
         const charge = data.attackCharge ?? 0;
+        // Singularity collapse (Stage 10): during its telegraph the
+        // Eternal Phoenix shrinks toward a point of light.
+        entity.mesh.scale.setScalar(data.state === 'singularity' ? 1 - 0.7 * charge : 1);
+        // The King's ash (Stage 10): the collapsed boss reads as a
+        // dim gray ghost of itself while the arena holds.
+        (entity.mesh.material as THREE.PointsMaterial).opacity = data.state === 'ashen' ? 0.38 : 0.9;
         if (entity.baseColors && entity.layerFlags) {
           const colAttr = entity.mesh.geometry.attributes['color'];
           const colArr = colAttr.array as Float32Array;
           const brighten = 1 + charge * 1.1;
+          const wash = data.wash;
+          const ashen = data.state === 'ashen';
           for (let i = 0; i < entity.layerFlags.length; i++) {
-            if (entity.layerFlags[i] !== 1) continue;
             const idx = i * 3;
-            colArr[idx] = Math.min(1.8, entity.baseColors[idx] * brighten);
-            colArr[idx + 1] = Math.min(1.8, entity.baseColors[idx + 1] * brighten);
-            colArr[idx + 2] = Math.min(1.8, entity.baseColors[idx + 2] * brighten);
+            let cr = entity.baseColors[idx], cg = entity.baseColors[idx + 1], cb = entity.baseColors[idx + 2];
+            // Chaos forms carry their own accent colors; flow the
+            // colors with the positions.
+            if (forms) {
+              const ca = forms[prevIdx].colors, cbk = forms[formIdx].colors;
+              cr = ca[idx] + (cbk[idx] - ca[idx]) * flow;
+              cg = ca[idx + 1] + (cbk[idx + 1] - ca[idx + 1]) * flow;
+              cb = ca[idx + 2] + (cbk[idx + 2] - ca[idx + 2]) * flow;
+            }
+            // Chaos Roulette wash (Stage 10): the whole body takes
+            // the announced pattern's color for the telegraph.
+            if (wash) { cr = cr * 0.55 + wash[0] * 0.45; cg = cg * 0.55 + wash[1] * 0.45; cb = cb * 0.55 + wash[2] * 0.45; }
+            if (ashen) { const g = (cr + cg + cb) / 3 * 0.7; cr = g; cg = g; cb = g * 1.05; }
+            if (entity.layerFlags[i] === 1) {
+              cr = Math.min(1.8, cr * brighten); cg = Math.min(1.8, cg * brighten); cb = Math.min(1.8, cb * brighten);
+            }
+            colArr[idx] = cr; colArr[idx + 1] = cg; colArr[idx + 2] = cb;
           }
           colAttr.needsUpdate = true;
         }
@@ -4416,7 +4462,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
   private createEntityMesh(data: PhysicsEntity): ParticleEntity {
     const world = WORLDS[this.gameState.selectedWorldIndex()];
     const hostile = world?.themeData?.palette?.hostile ?? HOSTILE_RGB;
-    const built = buildEntityGeometry(data.type, {
+    const buildCtx = {
       r: data.size / 30, // Scale factor, as shipped
       hostile,
       ownerId: data.ownerId,
@@ -4425,7 +4471,28 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       worldIndex: this.gameState.selectedWorldIndex(),
       shieldColor: bossDefFor(this.gameState.selectedWorldIndex()).shieldColor,
       bird: this.bird ? { basePositions: this.bird.basePositions, colorAt: (i: number) => this.birdColorAt(this.bird, i) } : null,
-    });
+    };
+    const built = buildEntityGeometry(data.type, buildCtx);
+    // World 10 elite tint (S6): Rift elites wash toward white-gold
+    // at build time, so a tinted Sturdy or Armored body reads at a
+    // glance next to its untinted kin.
+    if ((data as any).elite) {
+      const cols = built.colors;
+      for (let i = 0; i < cols.length; i += 3) {
+        cols[i] = cols[i] * 0.62 + 1.0 * 0.38;
+        cols[i + 1] = cols[i + 1] * 0.62 + 0.97 * 0.38;
+        cols[i + 2] = cols[i + 2] * 0.62 + 0.88 * 0.38;
+      }
+    }
+    // Chaos Demon forms (Stage 10): build the other two forms now
+    // so the render loop can flow between them without rebuilding.
+    let formGeos: ParticleEntity['formGeos'];
+    if (data.type === 'boss' && buildCtx.worldIndex === 8) {
+      formGeos = [0, 1, 2].map(f => {
+        const g = buildEntityGeometry('boss', { ...buildCtx, form: f });
+        return { positions: g.positions, colors: g.colors };
+      });
+    }
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(built.positions, 3));
@@ -4459,6 +4526,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       orbitAngle: Math.random() * Math.PI * 2,
       lastCharge: 0,
       bornMs: performance.now(),
+      formGeos,
     };
   }
 

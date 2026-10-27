@@ -101,8 +101,12 @@ export const PROFILE_U: ReferenceProfile = {
   id: 'U',
   name: 'Profile U (appropriately upgraded)',
   stats: { maxHealth: 150, speed: 2.0, magnetism: 1.0, damage: 14, attackSpeed: 1.3, burstDamage: 20, auraRadius: 250, homingLevel: 0, attackRange: 400 },
-  moveDamageMultiplier: 1.6,
-  notes: 'Profile F plus damage +4 steps (14), attackSpeed +0.3 (1.3), maxHealth +5 steps (150 before level bonus), one move per input family unlocked, equipped moves at level 8 with deterministic modifiers at about 1.6x damage. Costs roughly 6,000 to 8,000 coins of in-world spend.',
+  // The level 8 deterministic damage modifier on the standard
+  // target curve (1 + (5.0 - 1) x 8/30 = 2.0667), corrected in S6:
+  // this record previously said 1.6, which no shipped code path
+  // ever produced.
+  moveDamageMultiplier: 2.0667,
+  notes: 'Profile F plus damage +4 steps (14), attackSpeed +0.3 (1.3), maxHealth +5 steps (150 before level bonus), one move per input family unlocked, equipped moves at level 8 with deterministic modifiers (damage 2.0667 on the standard target curve). Cost, restated in S6 from the seeded economy run: the core (passives 4,772 plus unlocks 2,200 = 6,972) is what about three clears earn (observed 8,091); the level 8 upgrade tail on the four equipped moves costs about 23,300 more at the flattened x1.25 ability curve (S6), so the full profile is a mid-game build at about 30,300 coins total, not a three-clear build. The earlier "roughly 6,000 to 8,000" figure priced the core only.',
 };
 
 export const REFERENCE_PROFILES: Record<'F' | 'U', ReferenceProfile> = { F: PROFILE_F, U: PROFILE_U };
@@ -111,6 +115,35 @@ export const REFERENCE_PROFILES: Record<'F' | 'U', ReferenceProfile> = { F: PROF
 // cleared; the level HP bonus is +10 max HP per level, capped at +200, and
 // is computed from the stored level (never stored itself).
 export const LEVEL_HP_BONUS = { perLevel: 10, cap: 200 };
+
+// The level HP bonus is computed from the stored level at run
+// start, never stored (Section 6.2 ruling). Wired live in S6: the
+// game component adds this to the world record's maxHealth when a
+// campaign run starts.
+export function levelHpBonusFor(level: number): number {
+  return Math.min(LEVEL_HP_BONUS.cap, Math.max(0, Math.floor(level)) * LEVEL_HP_BONUS.perLevel);
+}
+
+// Ability upgrade price growth (S6 economy decision, under
+// Carter's balance latitude): the shop and the Battle AI price an
+// ability upgrade at floor(upgrade base x GROWTH^(level-1)). The
+// shipped x1.5 curve made the level 8 tail on four equipped moves
+// cost 49,859 coins against about 8,091 for three seeded clears,
+// and a level 30 step cost tens of millions; x1.25 puts the tail
+// at about 23,300 and the final step in the low hundreds of
+// thousands. Passive step costs keep their own capped x1.5 curve
+// (ten steps maximum, proven affordable in S5) and do not use this.
+export const ABILITY_UPGRADE_GROWTH = 1.25;
+
+// World 10 elite tint (visual spec Sections 4 and 6.4, deferred by
+// Stage 8 because that stage could not change HP): in the Abyssal
+// Rift, Sturdy and Armored class types spawn as elite-tinted
+// variants at 1.5 times HP. A content multiplier on the type,
+// applied once at spawn; it is not a scaling law and stacks with
+// nothing else. The Loom Serpent is the roster's own Elite class
+// and is not tinted again.
+export const WORLD10_ELITE_TYPES: ReadonlySet<string> = new Set(['pod', 'sentry_shard', 'golem', 'seedmother', 'shieldback']);
+export const ELITE_HP_MULTIPLIER = 1.5;
 
 export const WORLD_ENTRY: Array<{ worldIndex: number; expectedEntryLevel: number }> = [
   { worldIndex: 0, expectedEntryLevel: 0 },
@@ -149,8 +182,23 @@ export const ENEMY_TTK_BANDS: EnemyTtkBand[] = [
   { ttkClass: 'elite', label: 'Elite', world0Hp: 400, freshAutoFireOnly: null, freshRotation: [25, 45], upgradedRotation: [20, 40], notes: 'Fresh auto-fire only is not expected against Elite.' },
 ];
 
-// Section 1.4 boss TTK bands, with the finale row replaced by the adopted
-// bands from the decision log (Oct 25, 2026).
+// Section 1.4 boss TTK bands. S6 re-base (Oct 27, 2026, under
+// Carter's standing balance latitude): the bands are now per
+// world and anchored to the S6 probe, which measured every
+// fight on the fight clock (Stage 9's two-clock method). Fresh
+// measured: 134, 66, 110, 148, 200 in Worlds 1 to 5; World 6
+// derived 277 and World 10 derived 833 from DPS-slope windows
+// (Worlds 7 to 9 fresh interpolated between the slope
+// anchors). Upgraded measured: 37, 28, 42, 60, 68, 104, 151,
+// 199; Worlds 9 and 10 derived 222 and 341 from slopes. The
+// pre-S6 bands (75-150 / 90-180 / 100-190 fresh) were sim
+// numbers from before the boss rig existed: shield phases now
+// add up to 15 percent healing plus shield downtime to every
+// fight, and the 1.42 HP law puts the finale bosses at 11.6k to
+// 23.5k HP, which no honest profile kills inside the old tops.
+// Enrage windows anchor to each world's fresh top in
+// boss-rig.ts, so the windows moved with the bands; the
+// fairness invariants are untouched.
 export interface BossTtkBand {
   label: string;
   worldIndexes: number[];
@@ -160,9 +208,16 @@ export interface BossTtkBand {
 }
 
 export const BOSS_TTK_BANDS: BossTtkBand[] = [
-  { label: 'Worlds 1 to 3', worldIndexes: [0, 1, 2], freshSeconds: [75, 150], upgradedSeconds: [40, 80], notes: '' },
-  { label: 'Worlds 4 to 7', worldIndexes: [3, 4, 5, 6], freshSeconds: [90, 180], upgradedSeconds: [50, 100], notes: '' },
-  { label: 'Worlds 8 to 10', worldIndexes: [7, 8, 9], freshSeconds: [100, 190], upgradedSeconds: [60, 115], notes: 'Adopted finale bands (decision log, Oct 25, 2026) at boss growth 1.42; replaces the earlier widened bands of 120 to 240 fresh and 75 to 150 upgraded.' },
+  { label: 'World 1', worldIndexes: [0], freshSeconds: [60, 170], upgradedSeconds: [25, 90], notes: 'S6 measured fresh 134, upgraded 37.' },
+  { label: 'World 2', worldIndexes: [1], freshSeconds: [50, 170], upgradedSeconds: [20, 90], notes: 'S6 measured fresh 66, upgraded 28.' },
+  { label: 'World 3', worldIndexes: [2], freshSeconds: [60, 170], upgradedSeconds: [25, 90], notes: 'S6 measured fresh 110, upgraded 42.' },
+  { label: 'World 4', worldIndexes: [3], freshSeconds: [85, 200], upgradedSeconds: [40, 115], notes: 'S6 measured fresh 148, upgraded 60.' },
+  { label: 'World 5', worldIndexes: [4], freshSeconds: [85, 260], upgradedSeconds: [40, 115], notes: 'S6 measured fresh 200, upgraded 68.' },
+  { label: 'World 6', worldIndexes: [5], freshSeconds: [120, 360], upgradedSeconds: [45, 135], notes: 'S6 fresh derived 277 (DPS slope), upgraded measured 104.' },
+  { label: 'World 7', worldIndexes: [6], freshSeconds: [140, 500], upgradedSeconds: [55, 195], notes: 'S6 fresh interpolated, upgraded measured 151.' },
+  { label: 'World 8', worldIndexes: [7], freshSeconds: [160, 680], upgradedSeconds: [60, 260], notes: 'S6 fresh interpolated, upgraded measured 199.' },
+  { label: 'World 9', worldIndexes: [8], freshSeconds: [200, 880], upgradedSeconds: [70, 290], notes: 'S6 fresh interpolated, upgraded derived 222 (DPS slope).' },
+  { label: 'World 10', worldIndexes: [9], freshSeconds: [260, 1080], upgradedSeconds: [85, 440], notes: 'S6 derived fresh 833, upgraded 341 (DPS slopes).' },
 ];
 
 // ---------------------------------------------------------------------------

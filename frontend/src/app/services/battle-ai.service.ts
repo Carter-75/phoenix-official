@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { GameStateService } from './game-state.service';
 import { WorldStats } from '../models/game.models';
 import { ABILITIES } from '../constants/game.constants';
+import { ABILITY_UPGRADE_GROWTH } from '../data/balance.constants';
 
 export interface AiPersonality {
     aggression: number;    // [0.7, 1.3] — fire rate and damage weight bias
@@ -229,7 +230,11 @@ export class BattleAiService {
         state.abilities.forEach(ab => {
             const level = state.stats.unlockedAbilities[ab]?.level || 1;
             const baseAbilityCost = ABILITIES[ab].upgradeCost;
-            aiCosts[`ability_${ab}`] = Math.floor(baseAbilityCost * Math.pow(1.5, level - 1));
+            // The AI prices ability upgrades on the player's curve
+            // (ABILITY_UPGRADE_GROWTH, flattened in S6); its passive
+            // costs above keep the capped x1.5 passive curve, same
+            // as the shop.
+            aiCosts[`ability_${ab}`] = Math.floor(baseAbilityCost * Math.pow(ABILITY_UPGRADE_GROWTH, level - 1));
             upgradeOptions.push({ id: `ability_${ab}`, cost: baseAbilityCost });
         });
 

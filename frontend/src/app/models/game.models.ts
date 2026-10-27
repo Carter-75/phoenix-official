@@ -72,6 +72,14 @@ export interface PhysicsEntity {
   // renderer can read telegraphs off the body itself. Display only;
   // gameplay reads the same field on EnemyData.
   state?: string;
+  // S6 renderer data (display only): the World 10 elite tint flag;
+  // the Chaos Demon's current form index and 0 to 1 flow progress
+  // into it; and the Chaos Roulette announcement wash color, set on
+  // the boss while its telegraph shows the next pattern's color.
+  elite?: boolean;
+  bossForm?: number;
+  bossFormFlow?: number;
+  wash?: [number, number, number];
 }
 
 export type Rgb = [number, number, number];
@@ -205,4 +213,16 @@ export interface EnemyData {
   // Stage 9: marks a projectile as boss-pattern fire so the rig's
   // density cap counts only the boss's own output.
   bossPattern?: boolean;
+  // S6: World 10 elite tint flag, set by the spawner on Sturdy and
+  // Armored class spawns in the Abyssal Rift (1.5 times HP at
+  // spawn). Published to the renderer, which washes the build
+  // toward white-gold.
+  elite?: boolean;
+  // S6: World 10 boss summon alternation counter (Gloomwing
+  // variants on one summon, Mites on the next).
+  summonAlt?: boolean;
+  // S6 contact cadence: ms timestamp of this body's last landed
+  // contact hit on the player (one body, one contact hit per
+  // 500 ms of sustained touch).
+  lastContactAt?: number;
 }

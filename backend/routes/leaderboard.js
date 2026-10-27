@@ -21,7 +21,11 @@ router.get('/battle', async (req, res) => {
         const topPlayers = await User.find({ username: { $exists: true }, battleHighscore: { $gt: 0 } })
                                      .sort({ battleHighscore: -1 })
                                      .limit(100)
-                                     .select('username battleHighscore battleBestTime battleBestCoins trophies');
+                                     // S6 level audit: every leaderboard row
+                                     // carries the player's level (the
+                                     // survival board always did; the
+                                     // battle board did not return it).
+                                     .select('username level battleHighscore battleBestTime battleBestCoins trophies');
                                      
         res.json(topPlayers);
     } catch (err) {

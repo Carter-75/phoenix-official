@@ -4,7 +4,7 @@ import { GameStateService, STAMINA, createMovementState } from '../../services/g
 import { phoenixSkinForWorld } from '../../components/particle-bg/particle-bg.component';
 import { PhysicsEntity, WorldStats } from '../../models/game.models';
 import { ABILITIES, BASE_STATS, REALM_ABILITIES } from '../../constants/game.constants';
-import { PI_RULES, DROP_RULES } from '../../data/balance.constants';
+import { PI_RULES, DROP_RULES, levelHpBonusFor } from '../../data/balance.constants';
 import {
   bossDefFor, BossFightState, BOSS_ENRAGE_WARNING_SEC, BOSS_PROJECTILE_CAP,
   SHIELD_HEAL_PHASE_CAP_FRAC, SHIELD_HEAL_FIGHT_CAP_FRAC, SHIELD_MIN_HP_FRAC,
@@ -70,6 +70,11 @@ interface EnemyData {
   // Stage 9 boss rig fields (mirror models/game.models.ts).
   bossState?: BossFightState;
   bossPattern?: boolean;
+  // S6 fields (mirror models/game.models.ts): World 10 elite
+  // tint, World 10 summon alternation, contact cadence timestamp.
+  elite?: boolean;
+  summonAlt?: boolean;
+  lastContactAt?: number;
 }
 
 // Drop-table class membership (spec Sections 1.2 and 5.4, stage S5).
@@ -168,6 +173,13 @@ const ARMORED_UP_TYPES = new Set(['golem', 'seedmother', 'shieldback', 'serpent'
                 [style.width]="(currentHealth() / maxHealth()) * 100 + '%'"></div>
         </div>
         <span class="text-red-400 font-bold text-sm">{{ currentHealth() }} / {{ maxHealth() }}</span>
+        <!-- Account level in the HUD (S6 level audit: level showed
+             on the profile and the survival board but nowhere in a
+             run; it sits under the health readout, and the max HP
+             beside it already includes the level bonus in campaign). -->
+        @if (gameState.currentGameMode() === 'campaign') {
+          <span class="text-orange-300/90 font-bold text-xs tracking-widest -mt-1">LV {{ gameState.level() }}</span>
+        }
         <!-- Stamina arc (spec Section 2.5): a slim ring under the HP
              bar in the skin's mid color, emptying toward the hostile
              color as it drains. No numbers, no popups. It glows while
@@ -787,6 +799,9 @@ export class GameComponent implements OnInit, OnDestroy {
   private infiniteBurnInterval: any = null;
 
   public killScreenTimer = signal<number>(10);
+  // S6: the overtime kill screen is deferred while a campaign
+  // boss's rolled enrage is still pending (see triggerRageMode).
+  private rageDeferred = false;
 
 
   constructor(private ngZone: NgZone) {
@@ -826,6 +841,16 @@ export class GameComponent implements OnInit, OnDestroy {
     this.gameState.isDeadMenuOpen.set(false);
     
     let hp = this.gameState.currentStats().maxHealth;
+    // Level HP bonus (systems spec Section 6.2 ruling, adopted in
+    // the design stage and confirmed NOT live by S4; wired here in
+    // S6): +10 max HP per account level, capped at +200, computed
+    // from the stored level at run start and never stored itself.
+    // Campaign runs only: Battle and AI vs AI replace the player's
+    // stat block with their generated sheets below, which already
+    // bake their own health budgets.
+    if (this.gameState.currentGameMode() === 'campaign') {
+        hp += levelHpBonusFor(this.gameState.level());
+    }
     if (this.gameState.currentGameMode() === 'ai_vs_ai') hp *= 10;
     this.maxHealth.set(hp);
     this.currentHealth.set(hp);
@@ -837,6 +862,7 @@ export class GameComponent implements OnInit, OnDestroy {
     this.gameState.isPaused.set(false);
     this.killScreenTimer.set(10);
     this.rageModeActive.set(false);
+    this.rageDeferred = false;
     this.annihilationModeActive.set(false);
     this.infiniteBurnActive.set(false);
     this.entranceActive.set(false);
@@ -1082,7 +1108,12 @@ export class GameComponent implements OnInit, OnDestroy {
       if (this.gameState.sessionPlayTime() >= 60) this.gameState.awardTrophy("Survivor");
       
       if (this.gameState.hasCosmicTrail()) {
-          this.gameState.xp.update(x => x + 5 * this.gameState.xpMultiplier());
+          // S6 audit fix: the trail's trickle used to write the xp
+          // signal directly, bypassing addXp, so its XP accumulated
+          // without ever running the level-up check (levels only
+          // moved when some other grant landed). Route it through
+          // the one XP path like every other grant.
+          this.gameState.addXp(5);
       }
     }, 1000);
 
@@ -1299,6 +1330,16 @@ export class GameComponent implements OnInit, OnDestroy {
     Matter.Events.on(this.engine, 'collisionStart', (event) => {
       if (this.isDead() || this.gameEnded() || this.gameState.isPaused() || this.entranceActive()) return;
 
+      // S6 contact granularity fix: one event can carry several
+      // pairs for the same pair of bodies (the player body is a
+      // compound of core plus two wings, and a large enemy can
+      // touch more than one part at once). Everything in the
+      // player branch below keys off the OTHER body's identity, so
+      // each other body is processed at most once per event; the
+      // old code ran the whole branch per pair, which is how a
+      // single boss touch could call takeDamage several times
+      // inside one millisecond (Stage 9 dodge-bot logs).
+      const seenOtherIds = new Set<string>();
       const pairs = event.pairs;
       for (let i = 0; i < pairs.length; i++) {
         const bodyA = pairs[i].bodyA.parent;
@@ -1309,6 +1350,10 @@ export class GameComponent implements OnInit, OnDestroy {
           const otherBody = bodyA.label === 'player' ? bodyB : bodyA;
           const data = otherBody.plugin['data'] as EnemyData;
           if (!data) continue;
+          if (data.id) {
+              if (seenOtherIds.has(data.id)) continue;
+              seenOtherIds.add(data.id);
+          }
           if (otherBody.label === 'projectile' && data.burstDamage !== undefined && data.burstDamage <= 0) continue;
 
           if (otherBody.label === 'enemy' || otherBody.label === 'boss') {
@@ -1353,6 +1398,21 @@ export class GameComponent implements OnInit, OnDestroy {
                 this.damageEnemy(otherBody, this.meteorRushDamageValue, this.playerBody.position);
                 this.triggerImpactEffect(otherBody.position.x, otherBody.position.y, false);
             }
+            // S6 contact cadence: one body deals contact damage at
+            // most once per 500 ms of sustained touch, matching the
+            // post-hit i-frame window takeDamage already grants.
+            // Before this, a body resting against the player could
+            // re-trigger collisionStart on every separation jitter
+            // (compound parts, knockback decay, steering blend), and
+            // each re-trigger was a fresh full hit the moment the
+            // i-frames lapsed mid-overlap: contact, not the boss's
+            // patterns, was what killed the Stage 9 dodge-bot in
+            // Worlds 1 and 4. The cadence makes one touch one hit,
+            // then the player must separate and re-touch (or half a
+            // second of honest contact pass) for the next.
+            const nowContact = Date.now();
+            if (data.lastContactAt && nowContact - data.lastContactAt < 500) continue;
+            data.lastContactAt = nowContact;
             // A rushing rival deals its rush damage to the player once
             // per cast, in place of the standard phoenix contact hit
             // for this contact event.
@@ -2011,7 +2071,7 @@ export class GameComponent implements OnInit, OnDestroy {
             // Threshold varies if rage mode is active
             const attackThreshold = (this.rageModeActive() || rigEnraged) ? 0.25 : 0.35;
             
-            if (!this.annihilationModeActive()) {
+            if (!this.annihilationModeActive() && !(st && this.bossAshen(st))) {
                 if (intensity > attackThreshold && now - (data.lastAttackTime || 0) > ((this.rageModeActive() || rigEnraged) ? 3000 : 6000)) {
                     data.lastAttackTime = now;
                     this.fireBossWaveAttack(enemy.position);
@@ -2315,6 +2375,45 @@ export class GameComponent implements OnInit, OnDestroy {
           desiredX = (dx / d) * patrolSpeed;
           desiredY = (dy / d) * patrolSpeed;
           blendK = 1.5;
+        }
+        if (data.type === 'boss' && data.bossState) {
+          // Stage 10 boss movement hooks, inside the same steering
+          // model as every other hook.
+          const bst = data.bossState;
+          const LU = this.logicalUnit;
+          if (this.bossAshen(bst)) {
+            // The King's ash does not move.
+            desiredX = 0; desiredY = 0; blendK = 6;
+          } else if (bst.sig?.data?.dashState === 'dash') {
+            // Royal Decree and the Eternal Drill: a locked-line
+            // dash across the field at 2.2 LU per second, fast
+            // enough to cross in about a second, slow enough that
+            // the telegraphed line is a real dodge read at cruise.
+            const d = bst.sig.data;
+            const dx = d.dashTx - enemy.position.x;
+            const dy = d.dashTy - enemy.position.y;
+            const dist = Math.hypot(dx, dy) || 1;
+            desiredX = (dx / dist) * 2.2 * LU;
+            desiredY = (dy / dist) * 2.2 * LU;
+            blendK = 10;
+          } else if (bst.sig && bst.sig.id === 'emperors_breath' && bst.sig.phase === 'active') {
+            // The Emperor holds and breathes; the cone does the
+            // moving (its sweep is capped in the signature tick).
+            desiredX = 0; desiredY = 0; blendK = 4;
+          } else if (bossDefFor(bst.worldIndex).movement === 'passes') {
+            // Dragon Emperor sheet: slow heavy passes across the
+            // whole field, the most mobile boss before the finale.
+            const t = bst.fightSec;
+            const ax = window.innerWidth / 2 + Math.sin(t * 0.16) * window.innerWidth * 0.36;
+            const ay = window.innerHeight * (0.32 + 0.13 * Math.sin(t * 0.09 + 1.3));
+            const dx = ax - enemy.position.x;
+            const dy = ay - enemy.position.y;
+            const dist = Math.hypot(dx, dy) || 1;
+            const passSpeed = Math.min(0.5 * LU, dist * 1.2);
+            desiredX = (dx / dist) * passSpeed;
+            desiredY = (dy / dist) * passSpeed;
+            blendK = 1.2;
+          }
         }
         if (data.type === 'imp') {
           // Cinder Imp (Charger): approach at Cruise to mid range,
@@ -2974,7 +3073,14 @@ export class GameComponent implements OnInit, OnDestroy {
                      state: data.type === 'boss' ? this.bossPublishState(data) : (data.type === 'imp' || data.type === 'wisp' || data.type === 'sentry_shard' || data.type === 'seedmother' || data.type === 'rift_mine' || data.type === 'shieldback' || data.type === 'pyre_moth' || data.type === 'phantom' || data.type === 'wraith' || data.type === 'chanter' || data.type === 'serpent' || data.type === 'darter') ? data.behaviorState : undefined,
                      facing: (data.type === 'shieldback' || data.type === 'sentry_shard' || data.type === 'wraith' || data.type === 'darter' || data.type === 'serpent') && data.aimDirX !== undefined ? Math.atan2(data.aimDirY || 0, data.aimDirX || 0) : undefined,
                      sparkUntil: data.type === 'shieldback' ? data.sparkUntil : undefined,
-                     buffed: data.buffUntil !== undefined && now < data.buffUntil ? true : undefined
+                     buffed: data.buffUntil !== undefined && now < data.buffUntil ? true : undefined,
+                     // Stage 10 / S6 renderer data (display only):
+                     // the World 10 elite tint flag, the Chaos
+                     // Demon's form fields, and the Roulette wash.
+                     elite: data.elite || undefined,
+                     bossForm: data.type === 'boss' ? data.bossState?.formIdx : undefined,
+                     bossFormFlow: data.type === 'boss' && data.bossState ? this.bossFormFlow(data.bossState) : undefined,
+                     wash: data.type === 'boss' ? this.bossWash(data) : undefined
                  });
              }
          }
@@ -3092,6 +3198,82 @@ export class GameComponent implements OnInit, OnDestroy {
                               facing: arc.ang
                           });
                       });
+                  } else if (sig.id === 'royal_decree') {
+                      // Stage 10: the crown flare ring during the
+                      // telegraph, and the locked dash line for the
+                      // whole wind-up between the fan and the dash.
+                      if (sig.phase === 'telegraph') {
+                          entities.push({
+                              id: data.id + ':crown', x: body.position.x, y: body.position.y,
+                              type: 'boss_ring', size: 0.12 * this.logicalUnit, attackCharge: charge
+                          });
+                      }
+                      if (sig.data.dashState === 'windup') {
+                          const dx = sig.data.dashTx - body.position.x, dy = sig.data.dashTy - body.position.y;
+                          entities.push({
+                              id: data.id + ':dashline', x: body.position.x + dx / 2, y: body.position.y + dy / 2,
+                              type: 'boss_line', size: Math.max(1, Math.hypot(dx, dy) / 2), attackCharge: 0.9,
+                              facing: Math.atan2(dy, dx)
+                          });
+                      }
+                  } else if (sig.id === 'frozen_court') {
+                      // Each ring publishes while it draws (charge =
+                      // draw progress) and while it stands solid
+                      // (charge 1), on the locked court center.
+                      sig.data.rings.forEach((r: any, i: number) => {
+                          let c = -1;
+                          if (sig.phase === 'telegraph') {
+                              if (i === 0) c = charge;
+                          } else if (st.fightSec >= r.drawAtSec && st.fightSec <= r.untilSec) {
+                              c = st.fightSec >= r.solidAtSec ? 1 : Math.min(1, Math.max(0, (st.fightSec - r.drawAtSec) / sig.data.drawSec));
+                          }
+                          if (c >= 0) {
+                              entities.push({
+                                  id: data.id + ':frostring' + i, x: sig.data.cx, y: sig.data.cy,
+                                  type: 'boss_ring', size: r.r, attackCharge: c
+                              });
+                          }
+                      });
+                  } else if (sig.id === 'emperors_breath') {
+                      entities.push({
+                          id: data.id + ':cone', x: body.position.x, y: body.position.y,
+                          type: 'boss_cone', size: sig.data.coneLen, attackCharge: charge,
+                          facing: sig.data.coneAng
+                      });
+                  } else if (sig.id === 'chaos_roulette') {
+                      // The announcement halo; the pattern's color
+                      // itself rides the boss entity's wash field.
+                      if (sig.phase === 'telegraph') {
+                          entities.push({
+                              id: data.id + ':halo', x: body.position.x, y: body.position.y,
+                              type: 'boss_ring', size: bossR * 1.18, attackCharge: charge
+                          });
+                      }
+                  } else if (sig.id === 'singularity') {
+                      const d = sig.data;
+                      if (d.kind === 'burst' && sig.phase === 'telegraph') {
+                          entities.push({
+                              id: data.id + ':bursttele', x: body.position.x, y: body.position.y,
+                              type: 'boss_ring', size: 0.30 * this.logicalUnit, attackCharge: charge
+                          });
+                      } else if (d.kind === 'drill' && sig.phase === 'telegraph') {
+                          const dx = d.dashTx - body.position.x, dy = d.dashTy - body.position.y;
+                          entities.push({
+                              id: data.id + ':drillline', x: body.position.x + dx / 2, y: body.position.y + dy / 2,
+                              type: 'boss_line', size: Math.max(1, Math.hypot(dx, dy) / 2), attackCharge: charge,
+                              facing: Math.atan2(dy, dx)
+                          });
+                      } else if (d.kind === 'aura' && sig.phase === 'active') {
+                          entities.push({
+                              id: data.id + ':aura', x: body.position.x, y: body.position.y,
+                              type: 'boss_ring', size: 0.34 * this.logicalUnit, attackCharge: 0.7
+                          });
+                      } else if (d.kind === 'singularity' && sig.phase === 'telegraph') {
+                          entities.push({
+                              id: data.id + ':sing', x: body.position.x, y: body.position.y,
+                              type: 'boss_ring', size: Math.max(8, 0.40 * this.logicalUnit * (1 - 0.85 * charge)), attackCharge: charge
+                          });
+                      }
                   }
               }
           }
@@ -3580,9 +3762,9 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   // The density cap is a fairness invariant (addendum rule 3): when
   // the cap is reached the shot simply does not spawn, so a dodge
   // line always exists.
-  private fireBossProjectile(x: number, y: number, angle: number, speedPerStep: number, damage: number = 10): boolean {
+  private fireBossProjectile(x: number, y: number, angle: number, speedPerStep: number, damage: number = 10, radius: number = 8): boolean {
       if (this.bossProjectileCount() >= BOSS_PROJECTILE_CAP) return false;
-      const proj = Matter.Bodies.circle(x, y, 8, {
+      const proj = Matter.Bodies.circle(x, y, radius, {
           label: 'projectile', isSensor: true,
           plugin: { data: { id: Math.random().toString(), type: 'projectile_enemy', health: 1, maxHealth: 1, owner: 'enemy', burstDamage: damage, bossPattern: true } as EnemyData }
       });
@@ -3592,12 +3774,12 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       return true;
   }
 
-  private fireBossFan(x: number, y: number, bolts: number, speedPerStep: number) {
+  private fireBossFan(x: number, y: number, bolts: number, speedPerStep: number, radius: number = 8) {
       const base = Math.atan2(this.playerBody.position.y - y, this.playerBody.position.x - x);
       const spread = 0.32;
       for (let i = 0; i < bolts; i++) {
           const a = bolts === 1 ? base : base + (i / (bolts - 1) - 0.5) * spread * (bolts - 1);
-          this.fireBossProjectile(x, y, a, speedPerStep);
+          this.fireBossProjectile(x, y, a, speedPerStep, 10, radius);
       }
   }
 
@@ -3686,12 +3868,96 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
           }
       }
 
+      // World 6 False Rebirth (visual spec Section 4 sheet, Stage
+      // 10): once per fight, crossing 50 percent HP collapses the
+      // King into ash for 1.5 s. The arena holds (no attacks, no
+      // summons, no signature, and the ash cannot be hit; the
+      // damage gate is in damageEnemy), then it reignites at the
+      // health it fell at (never above the 50 percent mark: this
+      // is spectacle, not a second health bar) with faster decree
+      // fans for the rest of the fight.
+      if (st.worldIndex === 5 && !st.rebirthUsed && data.health / Math.max(1, data.maxHealth) <= 0.50) {
+          st.rebirthUsed = true;
+          st.ashUntilSec = t + 1.5;
+          st.sig = null;
+          st.nextSignatureAtSec = t + 3.5;
+          bossEvent(st, 'false_rebirth', `ash until ${st.ashUntilSec.toFixed(1)}s fight time`);
+          this.audioService.playSFX('boss');
+      }
+      if (st.rebirthUsed && !st.rebirthDone && st.ashUntilSec !== undefined && t >= st.ashUntilSec) {
+          st.rebirthDone = true;
+          bossEvent(st, 'rebirth_reignite', 'decree fans faster from here');
+      }
+
+      // World 9 form cycle (Stage 10): the Chaos Demon flows
+      // between its three silhouettes every 6 s of fight time; the
+      // renderer morphs the point cloud across the first second of
+      // each form from the published form fields.
+      if (st.worldIndex === 8) {
+          if (st.formStartSec === undefined) { st.formIdx = 0; st.formStartSec = t; }
+          else if (t - st.formStartSec >= 6) { // 6 s per form (sheet value)
+              st.formIdx = ((st.formIdx || 0) + 1) % 3;
+              st.formStartSec = t;
+              bossEvent(st, 'chaos_form', `form ${st.formIdx}`);
+          }
+      }
+
+      // World 10 (Stage 10): the finale rage below 25 percent HP
+      // (summons stop, the kit rotation collapses to drill chained
+      // into burst), and the Singularity casts at 66 and 33 percent
+      // HP, which take the signature slot the moment they trigger.
+      if (st.worldIndex === 9) {
+          const hpFrac = data.health / Math.max(1, data.maxHealth);
+          if (!st.finaleRage && hpFrac <= 0.25) {
+              st.finaleRage = true;
+              bossEvent(st, 'finale_rage', 'summons stop; drill chains into burst');
+          }
+          const singThresholds = [0.66, 0.33];
+          const sIdx = st.singIdx || 0;
+          if (sIdx < singThresholds.length && hpFrac <= singThresholds[sIdx] && !st.sig && !this.bossAshen(st)) {
+              st.singIdx = sIdx + 1;
+              this.startSingularity(boss, data, st);
+          }
+      }
+
+      // Enrage and overtime (S6 item 4): if the kill screen's
+      // countdown finished while this fight's enrage is still
+      // pending, the rage was deferred (see triggerRageMode); it
+      // starts 20 s after the enrage lands, so the player always
+      // gets a real enraged fight before the overtime ends it.
+      if (this.rageDeferred && st.enraged && t >= st.enrageAtSec + 20) {
+          this.rageDeferred = false;
+          this.triggerRageMode();
+      }
+
       // Signature schedule.
-      if (!st.sig && !this.annihilationModeActive() && t >= st.nextSignatureAtSec) {
+      if (!st.sig && !this.annihilationModeActive() && t >= st.nextSignatureAtSec && !this.bossAshen(st)) {
           this.startSignature(boss, data, st);
       }
       if (st.sig) this.tickSignature(boss, data, st);
       void def;
+  }
+
+  // The Phoenix King's ash window (Stage 10): while it runs, the
+  // boss cannot act and cannot be hit.
+  private bossAshen(st: BossFightState): boolean {
+      return st.ashUntilSec !== undefined && st.fightSec < st.ashUntilSec;
+  }
+
+  // World 10 Singularity cast (Stage 10): the Eternal Phoenix
+  // collapses into a point of light over a 1 s telegraph, then
+  // detonates into three rings whose gaps rotate ring to ring.
+  // Triggered by the HP thresholds in tickBossRig, not by the
+  // rotation schedule.
+  private startSingularity(boss: Matter.Body, data: EnemyData, st: BossFightState) {
+      void boss; void data;
+      st.sig = {
+          id: 'singularity', phase: 'telegraph', startSec: st.fightSec, telegraphSec: 1.0,
+          fireSec: st.fightSec + 1.0,
+          data: { kind: 'singularity', gapBase: Math.random() * Math.PI * 2, ringsFired: 0, nextRingSec: 0, lastRingSec: 0 }
+      };
+      bossEvent(st, 'signature_telegraph', 'singularity');
+      this.audioService.playSFX('boss');
   }
 
   // The Crystal Titan's signature ring blocks player fire while it
@@ -3759,9 +4025,99 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
               sigData = { cx: bp.x, cy: bp.y, radius: 0.52 * LU, span: 1.9, arcs, endAtSec: st.enraged ? 1.0 : 0.5 };
               break;
           }
+          case 'royal_decree': {
+              // World 6, Phoenix King (Stage 10): a fan of slow
+              // golden feathers, then the King's own Drill-dash
+              // across the field. The dash target locks when the fan
+              // fires and is telegraphed by the published line for
+              // the whole wind-up; the rear-back and crown flare are
+              // the telegraph phase itself (charge plus state).
+              telegraphSec = 0.7;
+              const feathers = (st.enraged ? 9 : 7) + (st.rebirthDone ? 2 : 0);
+              sigData = { feathers, dashState: 'pending', dashAtSec: 0, dashTx: 0, dashTy: 0, dashUntilSec: 0, secondDash: false };
+              break;
+          }
+          case 'frozen_court': {
+              // World 7, Ice Empress (Stage 10): three expanding
+              // freeze rings in sequence around the locked court
+              // center. Each ring draws for its telegraph, then
+              // solidifies into a damaging wall for 1 s; the safe
+              // ground is between the rings. Enraged, the court
+              // runs tighter (draw 0.55 s, still above the 0.5 s
+              // telegraph floor).
+              telegraphSec = 0.6;
+              const interval = st.enraged ? 1.3 : 1.6;
+              const drawSec = st.enraged ? 0.55 : 0.6;
+              sigData = {
+                  cx: bp.x, cy: bp.y, interval, drawSec,
+                  rings: [0.22, 0.40, 0.58].map(frac => ({ r: frac * LU, drawAtSec: 0, solidAtSec: 0, untilSec: 0, hit: false })),
+                  fan1Done: false, fan2Done: false
+              };
+              break;
+          }
+          case 'emperors_breath': {
+              // World 8, Dragon Emperor (Stage 10): the maw glows
+              // for 0.8 s with the cone outline drawn on the field,
+              // then a sustained flame cone sweeps slowly toward
+              // the player's side for 1.5 s. The cone direction
+              // locks at the player's side when the telegraph
+              // starts; the sweep rate is capped in the tick.
+              telegraphSec = 0.8;
+              sigData = {
+                  coneAng: Math.atan2(pp.y - bp.y, pp.x - bp.x),
+                  coneHalf: 0.61, coneLen: 0.62 * LU,
+                  burnUntilSec: 0, sparks2: false, lastHitSec: -9, lastTickSec: 0
+              };
+              break;
+          }
+          case 'chaos_roulette': {
+              // World 9, Chaos Demon (Stage 10): the accent color
+              // announces the pattern a full second ahead (red
+              // rings, violet spirals, white fans), with a full-body
+              // color wash the renderer reads off the published boss
+              // entity. It never fires an unannounced pattern, and
+              // never repeats the previous cast's pattern. Enraged,
+              // a second pattern overlaps the first.
+              telegraphSec = 1.0;
+              const patterns = ['rings', 'spiral', 'fans'];
+              let pattern = patterns[Math.floor(Math.random() * patterns.length)];
+              if (pattern === st.lastChaosPattern) {
+                  pattern = patterns[(patterns.indexOf(pattern) + 1) % patterns.length];
+              }
+              st.lastChaosPattern = pattern;
+              const pattern2 = st.enraged
+                  ? patterns[(patterns.indexOf(pattern) + 1 + Math.floor(Math.random() * 2)) % patterns.length]
+                  : null;
+              sigData = { pattern, pattern2, casts: [] as any[], endAtSec: 0 };
+              break;
+          }
+          case 'singularity': {
+              // World 10, Eternal Phoenix (Stage 10): the regular
+              // signature slot rotates the player's own kit at boss
+              // scale (feather fan, Burst ring, Drill dash, Aura
+              // burn zone), each telegraphed in the player's visual
+              // language rendered hostile. The Singularity proper
+              // is threshold-triggered (startSingularity), not part
+              // of this rotation. Below 25 percent HP the rotation
+              // collapses to the drill chained into the burst.
+              const kinds = ['fan', 'burst', 'drill', 'aura'];
+              const kind = st.finaleRage
+                  ? (((st.kitIdx || 0) % 2 === 0) ? 'drill' : 'burst')
+                  : kinds[(st.kitIdx || 0) % kinds.length];
+              st.kitIdx = (st.kitIdx || 0) + 1;
+              telegraphSec = kind === 'drill' ? 0.7 : 0.6;
+              sigData = { kind, shotsLeft: 0, nextShotSec: 0, auraUntilSec: 0, lastHitSec: -9, chained: false, dashState: 'pending', dashTx: 0, dashTy: 0, dashUntilSec: 0 };
+              if (kind === 'drill') {
+                  // The drill line locks at telegraph start, on the
+                  // player's position then, with overshoot.
+                  const dx = pp.x - bp.x, dy = pp.y - bp.y;
+                  const dl = Math.hypot(dx, dy) || 1;
+                  sigData.dashTx = pp.x + (dx / dl) * 0.15 * LU;
+                  sigData.dashTy = pp.y + (dy / dl) * 0.15 * LU;
+              }
+              break;
+          }
           default:
-              // Stage 10 signatures: the rig runs (enrage, shield),
-              // but the executor is not built yet. Reschedule quietly.
               st.nextSignatureAtSec = st.fightSec + SIGNATURE_INTERVAL_SEC;
               return;
       }
@@ -3805,13 +4161,80 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
               sig.data.endAtSec = t + sig.data.endAtSec;
               break;
           }
+          case 'royal_decree': {
+              // The feather fan: slow, large, individually
+              // dodgeable golden bolts aimed at the player's side.
+              this.fireBossFan(boss.position.x, boss.position.y, sig.data.feathers, 4.5, 13);
+              // Then the dash: the target locks now (the player's
+              // position plus overshoot) and the published line
+              // telegraphs it for the full 0.9 s wind-up.
+              const pp = this.playerBody.position;
+              const dx = pp.x - boss.position.x, dy = pp.y - boss.position.y;
+              const dl = Math.hypot(dx, dy) || 1;
+              sig.data.dashTx = pp.x + (dx / dl) * 0.15 * this.logicalUnit;
+              sig.data.dashTy = pp.y + (dy / dl) * 0.15 * this.logicalUnit;
+              sig.data.dashState = 'windup';
+              sig.data.dashAtSec = t + 0.9;
+              break;
+          }
+          case 'frozen_court': {
+              const d = sig.data;
+              d.rings.forEach((r: any, k: number) => {
+                  r.drawAtSec = t + k * d.interval;
+                  r.solidAtSec = r.drawAtSec + d.drawSec;
+                  r.untilSec = r.solidAtSec + 1.0;
+              });
+              break;
+          }
+          case 'emperors_breath': {
+              // Scale sparks wave one rides the breath's start:
+              // two waves of aimed shots bracket the burn.
+              this.fireBossFan(boss.position.x, boss.position.y, 3, 6);
+              sig.data.burnUntilSec = t + (st.enraged ? 1.8 : 1.5);
+              sig.data.lastTickSec = t;
+              break;
+          }
+          case 'chaos_roulette': {
+              const d = sig.data;
+              d.casts = [{ pattern: d.pattern, startSec: t, w1: false, w2: false, nextAt: t, ang0: Math.random() * Math.PI * 2, shots: 0 }];
+              if (d.pattern2) {
+                  d.casts.push({ pattern: d.pattern2, startSec: t + 0.3, w1: false, w2: false, nextAt: t + 0.3, ang0: Math.random() * Math.PI * 2, shots: 0 });
+              }
+              d.endAtSec = t + 2.9;
+              break;
+          }
+          case 'singularity': {
+              const d = sig.data;
+              if (d.kind === 'fan') {
+                  d.shotsLeft = 2;
+                  d.nextShotSec = t;
+              } else if (d.kind === 'burst') {
+                  for (let k = 0; k < 12; k++) {
+                      this.fireBossProjectile(boss.position.x, boss.position.y, (k / 12) * Math.PI * 2, 5.5);
+                  }
+              } else if (d.kind === 'drill') {
+                  d.dashState = 'dash';
+                  d.dashUntilSec = t + 1.0;
+                  bossEvent(st, 'signature_dash', 'eternal drill');
+              } else if (d.kind === 'aura') {
+                  d.auraUntilSec = t + 4;
+              } else if (d.kind === 'singularity') {
+                  d.ringsFired = 0;
+                  d.nextRingSec = t;
+              }
+              break;
+          }
       }
   }
 
   private endSignature(st: BossFightState) {
       bossEvent(st, 'signature_end', st.sig?.id);
       st.sig = null;
-      st.nextSignatureAtSec = st.fightSec + (st.enraged ? SIGNATURE_INTERVAL_ENRAGED_SEC : SIGNATURE_INTERVAL_SEC) + Math.random() * 2;
+      let interval = (st.enraged ? SIGNATURE_INTERVAL_ENRAGED_SEC : SIGNATURE_INTERVAL_SEC) + Math.random() * 2;
+      // After the False Rebirth reignition the King's decree
+      // cycle runs faster for the rest of the fight (Stage 10).
+      if (st.rebirthDone) interval *= 0.75;
+      st.nextSignatureAtSec = st.fightSec + interval;
   }
 
   private tickSignature(boss: Matter.Body, data: EnemyData, st: BossFightState) {
@@ -3899,6 +4322,188 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
               if (t >= sig.data.endAtSec) this.endSignature(st);
               break;
           }
+          case 'royal_decree': {
+              const d = sig.data;
+              if (d.dashState === 'windup' && t >= d.dashAtSec) {
+                  d.dashState = 'dash';
+                  d.dashUntilSec = t + 1.0;
+                  bossEvent(st, 'signature_dash', 'royal decree');
+              } else if (d.dashState === 'dash') {
+                  const dist = Math.hypot(boss.position.x - d.dashTx, boss.position.y - d.dashTy);
+                  if (dist < 0.08 * LU || t >= d.dashUntilSec) {
+                      if (st.enraged && !d.secondDash) {
+                          // Enraged, the decree chains: a second
+                          // wind-up and dash back across the field,
+                          // locked on the player's position now.
+                          d.secondDash = true;
+                          const dx = pp.x - boss.position.x, dy = pp.y - boss.position.y;
+                          const dl = Math.hypot(dx, dy) || 1;
+                          d.dashTx = pp.x + (dx / dl) * 0.15 * LU;
+                          d.dashTy = pp.y + (dy / dl) * 0.15 * LU;
+                          d.dashState = 'windup';
+                          d.dashAtSec = t + 0.7;
+                      } else {
+                          this.endSignature(st);
+                      }
+                  }
+              }
+              break;
+          }
+          case 'frozen_court': {
+              const d = sig.data;
+              // Icicle lance fans between the rings: Sentry-style
+              // aimed shots in threes, fired from the Empress.
+              if (!d.fan1Done && t >= sig.fireSec + 0.8) {
+                  d.fan1Done = true;
+                  this.fireBossFan(boss.position.x, boss.position.y, 3, 7.5);
+              }
+              if (!d.fan2Done && t >= sig.fireSec + 0.8 + d.interval) {
+                  d.fan2Done = true;
+                  this.fireBossFan(boss.position.x, boss.position.y, 3, 7.5);
+              }
+              // Solid rings hurt once each while they stand; the
+              // player must be between rings (the bands are 0.045
+              // LU half-width on 0.18 LU spacing, so the lanes
+              // between them are real ground).
+              for (const r of d.rings) {
+                  if (!r.hit && t >= r.solidAtSec && t <= r.untilSec) {
+                      const dist = Math.hypot(pp.x - d.cx, pp.y - d.cy);
+                      if (Math.abs(dist - r.r) <= 0.045 * LU) {
+                          r.hit = true;
+                          bossEvent(st, 'hazard_hit', 'freeze ring');
+                          this.takeDamage(10);
+                      }
+                  }
+              }
+              if (t >= d.rings[d.rings.length - 1].untilSec) this.endSignature(st);
+              break;
+          }
+          case 'emperors_breath': {
+              const d = sig.data;
+              const dt = Math.max(0, t - (d.lastTickSec || t));
+              d.lastTickSec = t;
+              if (t <= d.burnUntilSec) {
+                  // The cone sweeps slowly toward the player's side
+                  // at a capped rate (escape is crossing behind the
+                  // head or out-ranging the cone, and both stay
+                  // open at this rate against cruise speed).
+                  const want = Math.atan2(pp.y - boss.position.y, pp.x - boss.position.x);
+                  let da = want - d.coneAng;
+                  while (da > Math.PI) da -= Math.PI * 2;
+                  while (da < -Math.PI) da += Math.PI * 2;
+                  const maxStep = (st.enraged ? 0.8 : 0.5) * dt;
+                  d.coneAng += Math.max(-maxStep, Math.min(maxStep, da));
+                  // Standing in the cone hurts on the same 500 ms
+                  // cadence takeDamage's i-frames enforce; the
+                  // calls are paced to it so a hazard log reads as
+                  // landed hits, not per-step noise.
+                  const distP = Math.hypot(pp.x - boss.position.x, pp.y - boss.position.y);
+                  let pa = Math.atan2(pp.y - boss.position.y, pp.x - boss.position.x) - d.coneAng;
+                  while (pa > Math.PI) pa -= Math.PI * 2;
+                  while (pa < -Math.PI) pa += Math.PI * 2;
+                  if (distP <= d.coneLen && Math.abs(pa) <= d.coneHalf && t - d.lastHitSec >= 0.5) {
+                      d.lastHitSec = t;
+                      bossEvent(st, 'hazard_hit', 'emperors breath');
+                      this.takeDamage(10);
+                  }
+              } else {
+                  if (!d.sparks2 && t >= d.burnUntilSec + 0.4) {
+                      d.sparks2 = true;
+                      this.fireBossFan(boss.position.x, boss.position.y, 3, 6);
+                  }
+                  if (d.sparks2) this.endSignature(st);
+              }
+              break;
+          }
+          case 'chaos_roulette': {
+              const d = sig.data;
+              for (const cast of d.casts) {
+                  const ct = t - cast.startSec;
+                  if (ct < 0) continue;
+                  if (cast.pattern === 'rings') {
+                      if (!cast.w1) { cast.w1 = true; this.fireBossWaveAttack(boss.position, 14); }
+                      if (!cast.w2 && ct >= 0.5) { cast.w2 = true; this.fireBossWaveAttack(boss.position, 14, Math.PI / 14); }
+                  } else if (cast.pattern === 'spiral') {
+                      // Two rotating spiral arms over 2.2 s.
+                      if (ct <= 2.2 && t >= cast.nextAt) {
+                          cast.nextAt = t + 0.11;
+                          const a = cast.ang0 + ct * 2.4;
+                          this.fireBossProjectile(boss.position.x, boss.position.y, a, 5);
+                          this.fireBossProjectile(boss.position.x, boss.position.y, a + Math.PI, 5);
+                      }
+                  } else { // fans
+                      if (cast.shots < 3 && ct >= cast.shots * 0.45) {
+                          cast.shots++;
+                          this.fireBossFan(boss.position.x, boss.position.y, 5, 6.5);
+                      }
+                  }
+              }
+              if (t >= d.endAtSec) this.endSignature(st);
+              break;
+          }
+          case 'singularity': {
+              const d = sig.data;
+              if (d.kind === 'fan') {
+                  if (d.shotsLeft > 0 && t >= d.nextShotSec) {
+                      d.shotsLeft--;
+                      d.nextShotSec = t + 0.5;
+                      this.fireBossFan(boss.position.x, boss.position.y, 5, 7);
+                  }
+                  if (d.shotsLeft <= 0) this.endSignature(st);
+              } else if (d.kind === 'burst') {
+                  this.endSignature(st);
+              } else if (d.kind === 'drill') {
+                  const dist = Math.hypot(boss.position.x - d.dashTx, boss.position.y - d.dashTy);
+                  if (dist < 0.08 * LU || t >= d.dashUntilSec) {
+                      if (st.finaleRage && !d.chained) {
+                          // Finale rage: the drill chains straight
+                          // into the burst at the dash's end.
+                          d.chained = true;
+                          bossEvent(st, 'signature_chain', 'drill into burst');
+                          for (let k = 0; k < 12; k++) {
+                              this.fireBossProjectile(boss.position.x, boss.position.y, (k / 12) * Math.PI * 2, 5.5);
+                          }
+                      }
+                      this.endSignature(st);
+                  }
+              } else if (d.kind === 'aura') {
+                  // The burn zone it carries: standing inside the
+                  // aura radius hurts on the 500 ms cadence. The
+                  // zone is published as a ring at the boss's live
+                  // position, so its edge is always readable.
+                  if (t <= d.auraUntilSec) {
+                      const distP = Math.hypot(pp.x - boss.position.x, pp.y - boss.position.y);
+                      if (distP <= 0.34 * LU && t - d.lastHitSec >= 0.5) {
+                          d.lastHitSec = t;
+                          bossEvent(st, 'hazard_hit', 'eternal aura');
+                          this.takeDamage(10);
+                      }
+                  } else this.endSignature(st);
+              } else if (d.kind === 'singularity') {
+                  // Three rings with rotating gaps: each ring
+                  // leaves a 0.9 rad gap, and the gap center steps
+                  // 0.7 rad ring to ring, so the dodge line moves
+                  // and always exists.
+                  if (d.ringsFired < 3 && t >= d.nextRingSec) {
+                      const gapCenter = d.gapBase + d.ringsFired * 0.7;
+                      for (let k = 0; k < 14; k++) {
+                          const a = (k / 14) * Math.PI * 2;
+                          let ga = a - gapCenter;
+                          while (ga > Math.PI) ga -= Math.PI * 2;
+                          while (ga < -Math.PI) ga += Math.PI * 2;
+                          if (Math.abs(ga) < 0.45) continue;
+                          this.fireBossProjectile(boss.position.x, boss.position.y, a, 5.5);
+                      }
+                      d.ringsFired++;
+                      d.lastRingSec = t;
+                      d.nextRingSec = t + 0.45;
+                  }
+                  if (d.ringsFired >= 3 && t >= d.lastRingSec + 0.3) this.endSignature(st);
+              } else {
+                  this.endSignature(st);
+              }
+              break;
+          }
           default:
               this.endSignature(st);
       }
@@ -3912,6 +4517,27 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       const worldIndex = this.gameState.selectedWorldIndex();
       const def = bossDefFor(worldIndex);
       const ctx = this.getSpawnerContext();
+      const bossData = boss.plugin['data'] as EnemyData;
+      // The King's ash window holds the arena: no summons (Stage 10).
+      if (bossData?.bossState && this.bossAshen(bossData.bossState)) return;
+      // World 10 finale rage (Stage 10): below 25 percent HP the
+      // Eternal Phoenix stops summoning entirely.
+      if (bossData?.bossState?.finaleRage) return;
+      // World 10 (Stage 10 sheet): summons alternate between
+      // Gloomwing variants and a Mite pack.
+      if (worldIndex === 9 && bossData) {
+          if (bossData.summonAlt) {
+              bossData.summonAlt = false;
+              for (let i = 0; i < 3; i++) {
+                  const a = Math.random() * Math.PI * 2;
+                  this.spawner.spawnEnemyOfType(ctx, 'mite',
+                      boss.position.x + Math.cos(a) * 120 * this.speedScale,
+                      boss.position.y + Math.sin(a) * 120 * this.speedScale, worldIndex);
+              }
+              return;
+          }
+          bossData.summonAlt = true;
+      }
       if (def.minionType === 'bat') {
           for (let i = 0; i < def.minionsPerSummon; i++) {
               this.spawner.spawnMinion(boss.position.x, boss.position.y, ctx);
@@ -3952,10 +4578,33 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   private bossPublishState(data: EnemyData): string | undefined {
       const st = data.bossState;
       if (!st) return undefined;
+      if (this.bossAshen(st)) return 'ashen';
+      if (st.sig && st.sig.data?.kind === 'singularity' && st.sig.phase === 'telegraph') return 'singularity';
       if (st.enraged) return 'enraged';
       if (st.shieldUp) return 'shielded';
       if (st.sig && st.sig.phase === 'telegraph') return 'telegraph';
       return undefined;
+  }
+
+  // Stage 10: how far the Chaos Demon's current form has flowed
+  // in (0 at the switch, 1 a second later). A form that began
+  // before the fight clock started reads as fully settled.
+  private bossFormFlow(st: BossFightState): number {
+      if (st.formStartSec === undefined || st.formStartSec < 0) return 1;
+      return Math.min(1, Math.max(0, st.fightSec - st.formStartSec));
+  }
+
+  // Stage 10: the Chaos Roulette announcement wash. The pattern is
+  // announced by color a full second ahead (red rings, violet
+  // spirals, white fans); the renderer washes the Demon's body in
+  // this color for the whole telegraph, and it never fires an
+  // unannounced pattern.
+  private bossWash(data: EnemyData): [number, number, number] | undefined {
+      const st = data.bossState;
+      if (!st?.sig || st.sig.id !== 'chaos_roulette' || st.sig.phase !== 'telegraph') return undefined;
+      if (st.sig.data.pattern === 'rings') return [1.0, 0.22, 0.28];
+      if (st.sig.data.pattern === 'spiral') return [0.62, 0.3, 1.0];
+      return [1.0, 1.0, 1.0];
   }
 
   private fireBossWaveAttack(pos: Matter.Vector, count: number = 12, angleOffset: number = 0) {
@@ -4158,6 +4807,14 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
   private damageEnemy(enemy: Matter.Body, damage: number, sourcePos?: { x: number, y: number }, ultCastId?: string) {
     const data = enemy.plugin['data'] as EnemyData;
+    // S6 corpse guard: a body whose health already ran out is
+    // dead, even if its removal lands a frame later. Without
+    // this, two lethal packets in the same frame (an auto-fire
+    // shot and an ability hit, say) each ran the whole death
+    // branch: XP, coins, and drops granted twice for one kill
+    // (proven in the S6 level audit: one slime paid 4 XP against
+    // its table value of 2).
+    if (data.health <= 0) return;
     if (data.immortalUntil && Date.now() < data.immortalUntil) return;
     // Shroud Phantom phase rule (design sheet 13): while phased or
     // gathering at its reappear point it cannot be hit. Shots that
@@ -4168,6 +4825,10 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
     if (ultCastId && damage > 0 && (data.type === 'boss' || data.type === 'enemy_phoenix')) {
       damage = this.clampUltDamage(ultCastId, data.id, data.health, damage);
     }
+    // Stage 10: the Phoenix King's ash cannot be hit (the False
+    // Rebirth window is a held arena, mirrored from the player's
+    // own rebirth ash, which also cannot act or be acted on).
+    if (data.type === 'boss' && data.bossState && this.bossAshen(data.bossState)) return;
     // Stage 9 boss shield gate (shield and regen addendum): while
     // a shield phase is up, player damage strikes the shield, not
     // the boss; breaking the shield ends the regen immediately.
@@ -6293,6 +6954,25 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
   private triggerRageMode() {
       if (this.rageModeActive()) return; // Fix race condition
+      // Enrage and overtime (S6 item 4): the run clock (300 s) and
+      // the intense track both end before the top of every enrage
+      // window in a natural run (the boss arrives at about 128 s,
+      // so the old kill screen started at about 172 s of fight
+      // time, while enrage rolls reach 195, 234, and 247 s). The
+      // top of each window could therefore never be seen outside
+      // the harness. Resolution: while a campaign boss is alive
+      // and its rolled enrage is still pending, the kill screen
+      // defers; tickBossRig starts it 20 s after the enrage lands.
+      // The overtime system's purpose is intact (an over-long
+      // fight still ends, and pre-boss overtime is unchanged);
+      // only the pre-emption of a mechanic Carter mandated for
+      // every boss is removed.
+      const bossBody = this.enemies.find(e => e.plugin['data']?.type === 'boss');
+      const bst = (bossBody?.plugin['data'] as EnemyData | undefined)?.bossState;
+      if (bst && !bst.enraged && !this.inBossDefeatSequence() && !this.isDead()) {
+          this.rageDeferred = true;
+          return;
+      }
       this.rageModeActive.set(true);
       const kInt = setInterval(() => {
           if (this.gameEnded() || this.isDead() || this.inBossDefeatSequence()) {

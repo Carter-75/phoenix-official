@@ -60,7 +60,7 @@ import { environment } from '../../../environments/environment';
                                 <div class="text-white/40 text-sm">{{ player.xp }} XP</div>
                             } @else {
                                 <div class="text-fuchsia-400 font-bold text-2xl">{{ player.battleHighscore }}</div>
-                                <div class="text-white/40 text-sm">{{ formatTime(player.battleBestTime) }} | {{ player.battleBestCoins }} Coins</div>
+                                <div class="text-white/40 text-sm">Lvl {{ player.level }} | {{ formatTime(player.battleBestTime) }} | {{ player.battleBestCoins }} Coins</div>
                             }
                         </div>
                     </div>
