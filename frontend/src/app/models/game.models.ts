@@ -197,4 +197,12 @@ export interface EnemyData {
   // S4 ultimates: id of the ultimate cast a projectile belongs to,
   // so damageEnemy can enforce the per-cast boss HP cap.
   ultCastId?: string;
+  // Stage 9 boss rig: the campaign boss's fight state (enrage
+  // roll, shield phase, signature schedule, event log), created by
+  // the spawner at boss spawn. Only type 'boss' bodies carry it;
+  // the Battle rival never does (no enrage, no shield, by rule).
+  bossState?: import('../data/boss-rig').BossFightState;
+  // Stage 9: marks a projectile as boss-pattern fire so the rig's
+  // density cap counts only the boss's own output.
+  bossPattern?: boolean;
 }

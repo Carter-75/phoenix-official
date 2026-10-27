@@ -42,6 +42,9 @@ export interface EntityBuildContext {
   // skins (visual spec Section 4) are keyed by it; absent (codex
   // previews) means the type's default construction.
   worldIndex?: number;
+  // Stage 9: the boss's shield palette from the rig data, read by
+  // the boss_shield sampler only.
+  shieldColor?: Rgb;
 }
 
 // ---------------------------------------------------------------------------
@@ -293,6 +296,199 @@ function sphereVertex(out: VertexOut, r: number) {
 const PLAYER_FIRE: Rgb = [0.984, 0.749, 0.141]; // 0xfbbf24
 const AI_VS_AI_BOTTOM_FIRE: Rgb = [0.851, 0.275, 0.937]; // 0xd946ef
 const AI_ABILITY_RED: Rgb = [1.0, 0.2, 0.2]; // 0xff3333, rival ability tint as shipped
+
+// ---------------------------------------------------------------------------
+// Stage 9 boss constructions. The boss def dispatches on the build
+// context's world index: each world gets its Section 4 sheet body.
+// World 1 keeps the shipped fiery skull (it was always the Inferno
+// Guardian); Worlds 2 to 5 are new here; Worlds 6 to 10 keep the
+// skull until Stage 10 builds their bodies.
+// ---------------------------------------------------------------------------
+
+function sampleBossSkull(i: number, count: number, r: number, ctx: EntityBuildContext, out: VertexOut) {
+  const p = Math.random();
+  if (p < 0.6) {
+    // Skull dome (upper half sphere)
+    const u = Math.random() * Math.PI * 2;
+    const v = Math.acos(Math.random()); // Top half
+    const rad = r * 1.5 + (Math.random() - 0.5) * 0.3 * r;
+    out.x = rad * Math.sin(v) * Math.cos(u);
+    out.z = rad * Math.sin(v) * Math.sin(u);
+    out.y = rad * Math.cos(v) + r * 0.5; // Shift up
+    if (out.y > r * 0.8 && out.y < r * 1.5 && out.z > r * 0.5 && Math.abs(Math.abs(out.x) - r * 0.6) < r * 0.4) {
+      // Eye socket: pushed in, hollow and glowing
+      out.z -= r * 0.8;
+      out.cr = 1.0; out.cg = 1.0; out.cb = 1.0; // White hot eyes
+      out.layer = 1;
+    } else {
+      const heat = 1.0 - (out.y / (r * 2));
+      out.cr = 1.0; out.cg = heat * 0.5; out.cb = 0.0; // Orange to red gradient
+      out.layer = 0;
+    }
+  } else if (p < 0.85) {
+    // Jaw (lower half, detached slightly)
+    out.x = (Math.random() - 0.5) * r * 2.2;
+    out.y = -r * 0.5 + (Math.random() - 0.5) * 0.4 * r;
+    out.z = (Math.random() - 0.5) * r * 1.8 + (Math.abs(out.x) * 0.5); // Curved jaw
+    out.cr = 0.8; out.cg = 0.2; out.cb = 0.0; // Darker red jaw
+    out.layer = 0;
+  } else {
+    // Floating horns/crown
+    const isLeft = Math.random() > 0.5;
+    const t = Math.random();
+    const spread = t * r * 1.5;
+    out.x = isLeft ? -(r + spread) : (r + spread);
+    out.y = r * 1.5 + t * r * 2 + (Math.random() - 0.5) * 0.3 * r;
+    out.z = -t * r + (Math.random() - 0.5) * 0.3 * r; // Horns curve back
+    out.cr = 1.0; out.cg = 0.6 - t * 0.6; out.cb = 0.0; // Orange to red horns
+    out.layer = 0;
+  }
+}
+
+// Shadow Lord (World 2): a tall hooded silhouette of dark points
+// with a bright mask face: the anti-phoenix, a moving hole in the
+// light with cold accents (Section 4 sheet).
+function sampleBossShadowWraith(i: number, count: number, r: number, ctx: EntityBuildContext, out: VertexOut) {
+  const p = Math.random();
+  if (p < 0.70) {
+    // Cloak: a tapered cone, wide hem to narrow hood.
+    const t = Math.random(); // 0 hem, 1 hood top
+    const a = Math.random() * Math.PI * 2;
+    const rad = (1.25 - t * 0.8) * r * Math.sqrt(Math.random());
+    out.x = Math.cos(a) * rad;
+    out.z = Math.sin(a) * rad * 0.7;
+    out.y = -1.25 * r + t * 2.8 * r;
+    // Faint cold rim on the silhouette edge; the mass stays near black.
+    if (rad > (1.25 - t * 0.8) * r * 0.82) { out.cr = 0.05; out.cg = 0.16; out.cb = 0.38; }
+    else { out.cr = 0.015; out.cg = 0.025; out.cb = 0.07; }
+    out.layer = 0;
+  } else if (p < 0.86) {
+    // Cloak ribbons streaming below the hem.
+    const t = Math.random();
+    const lane = (i % 5) - 2;
+    out.x = lane * 0.28 * r + Math.sin(t * 5 + i) * 0.12 * r;
+    out.y = -1.25 * r - t * 1.1 * r;
+    out.z = (Math.random() - 0.5) * 0.3 * r;
+    out.cr = 0.03; out.cg = 0.06; out.cb = 0.16;
+    out.layer = 0;
+  } else {
+    // Mask: a pale disc high on the front, two bright eyes (core).
+    const a = Math.random() * Math.PI * 2;
+    const rad = Math.sqrt(Math.random()) * 0.42 * r;
+    out.x = Math.cos(a) * rad;
+    out.y = 0.95 * r + Math.sin(a) * rad * 0.8;
+    out.z = 0.78 * r;
+    const eyeL = Math.hypot(out.x + 0.18 * r, out.y - 1.0 * r);
+    const eyeR = Math.hypot(out.x - 0.18 * r, out.y - 1.0 * r);
+    if (Math.min(eyeL, eyeR) < 0.085 * r) { out.cr = 1.0; out.cg = 1.0; out.cb = 1.0; out.layer = 1; }
+    else { out.cr = 0.32; out.cg = 0.42; out.cb = 0.58; out.layer = 0; }
+  }
+}
+
+// Crystal Titan (World 3): interlocking crystal plates around a
+// bright geode core (Section 4 sheet).
+function sampleBossCrystalTitan(i: number, count: number, r: number, ctx: EntityBuildContext, out: VertexOut) {
+  const p = Math.random();
+  if (p < 0.82) {
+    // One of five plate clusters on a rough shell; the point lands
+    // in a small faceted volume around the cluster center.
+    const centers: Array<[number, number, number]> = [
+      [0, 1.05, 0.2], [-1.05, 0.35, -0.2], [1.05, 0.35, -0.2], [-0.6, -0.75, 0.3], [0.6, -0.75, 0.3]
+    ];
+    const c = centers[i % centers.length];
+    out.x = c[0] * r + (Math.random() - 0.5) * 0.85 * r;
+    out.y = c[1] * r + (Math.random() - 0.5) * 0.85 * r;
+    out.z = c[2] * r + (Math.random() - 0.5) * 0.7 * r;
+    if (Math.random() < 0.12) { out.cr = 0.3; out.cg = 0.8; out.cb = 1.0; } // cyan facet accents
+    else { const s = 0.7 + Math.random() * 0.6; out.cr = 0.38 * s; out.cg = 0.12 * s; out.cb = 0.75 * s; }
+    out.layer = 0;
+  } else {
+    // Geode core: bright, the chest that opens to fire.
+    sphereVertex(out, r * 0.55);
+    out.cr = 0.95; out.cg = 0.75; out.cb = 1.0;
+    out.layer = 1;
+  }
+}
+
+// Storm Wyvern (World 4): a long ribbon body with two huge wings
+// and a horned head (Section 4 sheet).
+function sampleBossStormWyvern(i: number, count: number, r: number, ctx: EntityBuildContext, out: VertexOut) {
+  const p = Math.random();
+  if (p < 0.42) {
+    // Spine: a long body along x with a gentle S-curve.
+    const t = Math.random(); // 0 tail, 1 head
+    out.x = (-1.9 + t * 3.5) * r;
+    out.y = Math.sin(t * 4.2) * 0.28 * r + (Math.random() - 0.5) * (0.5 - Math.abs(t - 0.45) * 0.5) * r;
+    out.z = (Math.random() - 0.5) * 0.35 * r;
+    const s = 0.7 + Math.random() * 0.5;
+    out.cr = 0.10 * s; out.cg = 0.48 * s; out.cb = 0.16 * s;
+    out.layer = 0;
+  } else if (p < 0.88) {
+    // Wings: two triangular fans off the spine's midsection, one
+    // sweeping up-back, one down-back (in the sampler plane).
+    const up = i % 2 === 0;
+    const t = Math.random();
+    const reach = (0.4 + t * 1.6) * r;
+    out.x = (0.1 - t * 1.5) * r + (Math.random() - 0.5) * 0.2 * r;
+    out.y = (up ? 1 : -1) * reach * (0.55 + Math.random() * 0.3);
+    out.z = (Math.random() - 0.5) * 0.25 * r;
+    if (Math.random() < 0.10) { out.cr = 0.95; out.cg = 0.8; out.cb = 0.25; out.layer = 1; } // gold rim sparks
+    else { const s = 0.6 + Math.random() * 0.5; out.cr = 0.05 * s; out.cg = 0.34 * s; out.cb = 0.10 * s; out.layer = 0; }
+  } else {
+    // Horned head at the front of the spine.
+    sphereVertex(out, r * 0.42);
+    out.x += 1.85 * r; out.y += 0.35 * r;
+    if (Math.random() < 0.10) { out.cr = 0.9; out.cg = 1.0; out.cb = 0.85; out.layer = 1; } // electric eye glints
+    else { const s = 0.8 + Math.random() * 0.4; out.cr = 0.12 * s; out.cg = 0.55 * s; out.cb = 0.2 * s; out.layer = 0; }
+  }
+}
+
+// Void Reaper (World 5): a tall hooded phantom in ash grays with a
+// long scythe arm; the one desaturated boss (Section 4 sheet).
+function sampleBossVoidReaper(i: number, count: number, r: number, ctx: EntityBuildContext, out: VertexOut) {
+  const p = Math.random();
+  if (p < 0.62) {
+    // Cloak cone, tattered hem (bottom points trail to random lengths).
+    const t = Math.random();
+    const a = Math.random() * Math.PI * 2;
+    const rad = (1.15 - t * 0.72) * r * Math.sqrt(Math.random());
+    out.x = Math.cos(a) * rad;
+    out.z = Math.sin(a) * rad * 0.7;
+    out.y = -1.2 * r + t * 2.7 * r - (t < 0.12 ? Math.random() * 0.5 * r : 0);
+    const g = 0.13 + Math.random() * 0.10;
+    out.cr = g; out.cg = g; out.cb = g * 1.1;
+    out.layer = 0;
+  } else if (p < 0.80) {
+    // Scythe: a pale arc of points swept to one side.
+    const t = Math.random();
+    const a = -0.5 + t * 1.7;
+    const rad = 1.85 * r;
+    out.x = 0.55 * r + Math.cos(a) * rad * 0.62;
+    out.y = 0.55 * r + Math.sin(a) * rad * 0.62;
+    out.z = (Math.random() - 0.5) * 0.12 * r;
+    const g = 0.62 + Math.random() * 0.25;
+    out.cr = g; out.cg = g; out.cb = g * 1.05;
+    out.layer = 0;
+  } else if (p < 0.90) {
+    // Hood interior: near-black, with two dull ember eyes (core).
+    sphereVertex(out, r * 0.5);
+    out.y += 1.15 * r; out.z += 0.3 * r;
+    const eyeL = Math.hypot(out.x + 0.16 * r, out.y - 1.2 * r);
+    const eyeR = Math.hypot(out.x - 0.16 * r, out.y - 1.2 * r);
+    if (Math.min(eyeL, eyeR) < 0.08 * r) { out.cr = 0.95; out.cg = 0.45; out.cb = 0.15; out.layer = 1; }
+    else { out.cr = 0.04; out.cg = 0.04; out.cb = 0.05; out.layer = 0; }
+  } else {
+    // Tattered cloak ribbons below the hem.
+    const t = Math.random();
+    const lane = (i % 4) - 1.5;
+    out.x = lane * 0.3 * r + Math.sin(t * 4 + i) * 0.1 * r;
+    out.y = -1.2 * r - t * 0.9 * r;
+    out.z = (Math.random() - 0.5) * 0.25 * r;
+    const g = 0.09 + Math.random() * 0.06;
+    out.cr = g; out.cg = g; out.cb = g;
+    out.layer = 0;
+  }
+}
 
 const DEFS: Record<string, EntityVisualDef> = {
   // 1. Ember Glob (was slime). Chaser. Two layers kept from the shipped
@@ -1233,50 +1429,132 @@ const DEFS: Record<string, EntityVisualDef> = {
     },
   },
 
-  // Boss construction (fiery skull) kept as shipped; its full redesign
-  // is the boss stages (9 and 10). White-hot eye sockets are the core
-  // layer, which is what the boss phase flashes pulse (Section 3.1).
+  // Boss construction (Stage 9): dispatches on the build context's
+  // world index to the per-world samplers above. White-hot cores are
+  // layer 1, which is what the boss phase flashes and the rig's
+  // telegraph and enrage charges brighten (Section 3.1).
   boss: {
     count: 4000,
     animated: true,
     sample: (i, count, r, ctx, out) => {
-      const p = Math.random();
-      if (p < 0.6) {
-        // Skull dome (upper half sphere)
-        const u = Math.random() * Math.PI * 2;
-        const v = Math.acos(Math.random()); // Top half
-        const rad = r * 1.5 + (Math.random() - 0.5) * 0.3 * r;
-        out.x = rad * Math.sin(v) * Math.cos(u);
-        out.z = rad * Math.sin(v) * Math.sin(u);
-        out.y = rad * Math.cos(v) + r * 0.5; // Shift up
-        if (out.y > r * 0.8 && out.y < r * 1.5 && out.z > r * 0.5 && Math.abs(Math.abs(out.x) - r * 0.6) < r * 0.4) {
-          // Eye socket: pushed in, hollow and glowing
-          out.z -= r * 0.8;
-          out.cr = 1.0; out.cg = 1.0; out.cb = 1.0; // White hot eyes
-          out.layer = 1;
-        } else {
-          const heat = 1.0 - (out.y / (r * 2));
-          out.cr = 1.0; out.cg = heat * 0.5; out.cb = 0.0; // Orange to red gradient
-          out.layer = 0;
-        }
-      } else if (p < 0.85) {
-        // Jaw (lower half, detached slightly)
-        out.x = (Math.random() - 0.5) * r * 2.2;
-        out.y = -r * 0.5 + (Math.random() - 0.5) * 0.4 * r;
-        out.z = (Math.random() - 0.5) * r * 1.8 + (Math.abs(out.x) * 0.5); // Curved jaw
-        out.cr = 0.8; out.cg = 0.2; out.cb = 0.0; // Darker red jaw
-        out.layer = 0;
-      } else {
-        // Floating horns/crown
-        const isLeft = Math.random() > 0.5;
-        const t = Math.random();
-        const spread = t * r * 1.5;
-        out.x = isLeft ? -(r + spread) : (r + spread);
-        out.y = r * 1.5 + t * r * 2 + (Math.random() - 0.5) * 0.3 * r;
-        out.z = -t * r + (Math.random() - 0.5) * 0.3 * r; // Horns curve back
-        out.cr = 1.0; out.cg = 0.6 - t * 0.6; out.cb = 0.0; // Orange to red horns
-        out.layer = 0;
+      switch (ctx.worldIndex) {
+        case 1: sampleBossShadowWraith(i, count, r, ctx, out); break;
+        case 2: sampleBossCrystalTitan(i, count, r, ctx, out); break;
+        case 3: sampleBossStormWyvern(i, count, r, ctx, out); break;
+        case 4: sampleBossVoidReaper(i, count, r, ctx, out); break;
+        default: sampleBossSkull(i, count, r, ctx, out); break;
       }
+    },
+  },
+
+  // The Shadow Lord's split copies (Stage 9): the wraith sampler at
+  // a dimmer read; copies are display only and never hittable. The
+  // real boss keeps the full-bright build, which is the subtle tell
+  // the sheet asks for alongside the brighter eye.
+  boss_shadow: {
+    count: 1600,
+    animated: false,
+    sample: (i, count, r, ctx, out) => {
+      sampleBossShadowWraith(i, count, r, ctx, out);
+      out.cr *= 0.55; out.cg *= 0.55; out.cb *= 0.55;
+    },
+  },
+
+  // The boss shield shell (Stage 9, shield and regen addendum): a
+  // translucent sphere shell in the boss's own palette, published
+  // while a shield phase gathers or holds. Its color arrives on the
+  // build context from the rig data; never the hostile color.
+  boss_shield: {
+    count: 700,
+    animated: false,
+    sample: (i, count, r, ctx, out) => {
+      const u = Math.random() * Math.PI * 2;
+      const v = Math.acos(2 * Math.random() - 1);
+      const rad = r * 1.55;
+      out.x = rad * Math.sin(v) * Math.cos(u);
+      out.y = rad * Math.sin(v) * Math.sin(u);
+      out.z = rad * Math.cos(v);
+      flatColor(out, ctx.shieldColor ?? [0.6, 0.85, 1.0]);
+      out.layer = 0;
+    },
+  },
+
+  // One shard of the Crystal Titan's signature ring (Stage 9): a
+  // small faceted octahedron in crystal violet-white.
+  boss_shard: {
+    count: 120,
+    animated: false,
+    sample: (i, count, r, ctx, out) => {
+      octahedronVertex(out, r);
+      if (Math.random() < 0.25) { out.cr = 0.85; out.cg = 0.9; out.cb = 1.0; out.layer = 1; }
+      else { const s = 0.7 + Math.random() * 0.5; out.cr = 0.45 * s; out.cg = 0.2 * s; out.cb = 0.85 * s; out.layer = 0; }
+    },
+  },
+
+  // The Inferno Guardian's flame ring telegraph (Stage 9): a flat
+  // ring of hostile points at the wave's radius; the ground flare
+  // that announces the Flame Ring Wave.
+  boss_ring: {
+    count: 260,
+    animated: false,
+    sample: (i, count, r, ctx, out) => {
+      const a = (i / count) * Math.PI * 2;
+      const rr = r * (0.96 + Math.random() * 0.08);
+      out.x = Math.cos(a) * rr;
+      out.y = Math.sin(a) * rr;
+      out.z = (Math.random() - 0.5) * 0.06 * r;
+      flatColor(out, ctx.hostile);
+      out.layer = 1;
+    },
+  },
+
+  // One flame pillar of the ring wave (Stage 9): a vertical column
+  // of hostile points, dim at the top, white-hot at the base.
+  boss_pillar: {
+    count: 240,
+    animated: false,
+    sample: (i, count, r, ctx, out) => {
+      const a = Math.random() * Math.PI * 2;
+      const rr = r * 0.8 * Math.sqrt(Math.random());
+      out.x = Math.cos(a) * rr;
+      out.z = Math.sin(a) * rr * 0.5;
+      out.y = (Math.random() * 2.6 - 1.3) * r;
+      if (out.y < -0.5 * r) { flatColor(out, [1.0, 0.85, 0.6]); out.layer = 1; }
+      else flatColor(out, ctx.hostile);
+    },
+  },
+
+  // The Storm Wyvern's lightning column telegraph (Stage 9): a thin
+  // full-height column of hostile points at the strike line. The
+  // game publishes size as half the viewport height, so the sampler
+  // spans the field vertically.
+  boss_column: {
+    count: 420,
+    animated: false,
+    sample: (i, count, r, ctx, out) => {
+      out.x = (Math.random() - 0.5) * 0.7;
+      out.y = (Math.random() * 2 - 1) * r;
+      out.z = (Math.random() - 0.5) * 0.7;
+      if (Math.abs(out.x) < 0.10) { flatColor(out, [1.0, 0.95, 0.9]); out.layer = 1; }
+      else flatColor(out, ctx.hostile);
+    },
+  },
+
+  // The Void Reaper's Harvest Arc telegraph (Stage 9): a crescent
+  // line of hostile points along the sweep's path. The span matches
+  // the rig's arc data (1.9 rad); the game publishes the radius as
+  // size and the locked angle as facing.
+  boss_arc: {
+    count: 320,
+    animated: false,
+    sample: (i, count, r, ctx, out) => {
+      const a = ((i / count) - 0.5) * 1.9;
+      const rr = r * (0.97 + Math.random() * 0.06);
+      out.x = Math.cos(a) * rr;
+      out.y = Math.sin(a) * rr;
+      out.z = (Math.random() - 0.5) * 0.05 * r;
+      flatColor(out, ctx.hostile);
+      out.layer = 1;
     },
   },
 

@@ -4,6 +4,7 @@ import { AudioService } from '../../services/audio.service';
 import { WORLDS, HOSTILE_RGB } from '../../constants/game.constants';
 import { PhysicsEntity, WorldTheme } from '../../models/game.models';
 import { buildEntityGeometry } from './entity-builder';
+import { bossDefFor } from '../../data/boss-rig';
 import * as THREE from 'three';
 
 interface PhoenixState {
@@ -4205,6 +4206,35 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
           colAttr.needsUpdate = true;
         }
       }
+      else if (data.type === 'boss_shield') {
+        // The shield shell (Stage 9): a slow rotation and an opacity
+        // that follows the published charge (gather progress while
+        // the telegraph runs, shield strength while it holds). The
+        // shell stays translucent: the boss and its telegraphs read
+        // through it.
+        entity.mesh.rotation.y += 0.6 * dtSec;
+        (entity.mesh.material as THREE.PointsMaterial).opacity = 0.16 + 0.30 * (data.attackCharge ?? 0);
+      }
+      else if (data.type === 'boss_ring' || data.type === 'boss_pillar' || data.type === 'boss_column') {
+        // Signature telegraphs (Stage 9): hostile geometry that
+        // brightens as its telegraph completes and burns at full
+        // strength while the hazard is live. These branches own
+        // their opacity every frame.
+        (entity.mesh.material as THREE.PointsMaterial).opacity = 0.25 + 0.7 * (data.attackCharge ?? 0);
+      }
+      else if (data.type === 'boss_arc') {
+        if (data.facing !== undefined) entity.mesh.rotation.z = -data.facing;
+        (entity.mesh.material as THREE.PointsMaterial).opacity = 0.25 + 0.7 * (data.attackCharge ?? 0);
+      }
+      else if (data.type === 'boss_shadow') {
+        // Shadow Split copies (Stage 9): dimmer than the real boss
+        // by build and by opacity; the difference is the tell.
+        (entity.mesh.material as THREE.PointsMaterial).opacity = 0.55;
+      }
+      else if (data.type === 'boss_shard') {
+        entity.mesh.rotation.y += 2.2 * dtSec;
+        entity.mesh.rotation.x += 0.9 * dtSec;
+      }
       else if (data.type === 'boss' && entity.basePositions) {
         const pPositions = entity.mesh.geometry.attributes['position'].array as Float32Array;
         const time = Date.now() * 0.005 + (entity.timeOffset || 0);
@@ -4219,8 +4249,30 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
             }
         }
         entity.mesh.geometry.attributes['position'].needsUpdate = true;
-        entity.mesh.rotation.y -= 0.02; // Slow ominous spin
+        // The slow ominous spin belongs to the skull (World 1, and
+        // the Worlds 6 to 10 placeholders); the Stage 9 bodies for
+        // Worlds 2 to 5 hold their facing and only wobble.
+        const wi = this.gameState.selectedWorldIndex();
+        if (wi === 0 || wi >= 5) entity.mesh.rotation.y -= 0.02;
         entity.mesh.rotation.z = Math.sin(time * 0.2) * 0.1; // Float wobble
+        // Rig charge (Stage 9): telegraph progress, the enrage
+        // warning build, and the enraged pulse all brighten the
+        // core layer, per the enrage addendum's visuals (glow build
+        // and a brighter enraged core, telegraphs untouched).
+        const charge = data.attackCharge ?? 0;
+        if (entity.baseColors && entity.layerFlags) {
+          const colAttr = entity.mesh.geometry.attributes['color'];
+          const colArr = colAttr.array as Float32Array;
+          const brighten = 1 + charge * 1.1;
+          for (let i = 0; i < entity.layerFlags.length; i++) {
+            if (entity.layerFlags[i] !== 1) continue;
+            const idx = i * 3;
+            colArr[idx] = Math.min(1.8, entity.baseColors[idx] * brighten);
+            colArr[idx + 1] = Math.min(1.8, entity.baseColors[idx + 1] * brighten);
+            colArr[idx + 2] = Math.min(1.8, entity.baseColors[idx + 2] * brighten);
+          }
+          colAttr.needsUpdate = true;
+        }
       }
       else if (data.type === 'fire') {
         entity.mesh.scale.multiplyScalar(0.96); // Shrink over time
@@ -4371,6 +4423,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       owner: (data as any).owner,
       gameMode: this.gameState.currentGameMode(),
       worldIndex: this.gameState.selectedWorldIndex(),
+      shieldColor: bossDefFor(this.gameState.selectedWorldIndex()).shieldColor,
       bird: this.bird ? { basePositions: this.bird.basePositions, colorAt: (i: number) => this.birdColorAt(this.bird, i) } : null,
     });
 

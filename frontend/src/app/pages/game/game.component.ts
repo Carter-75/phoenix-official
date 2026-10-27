@@ -5,6 +5,13 @@ import { phoenixSkinForWorld } from '../../components/particle-bg/particle-bg.co
 import { PhysicsEntity, WorldStats } from '../../models/game.models';
 import { ABILITIES, BASE_STATS, REALM_ABILITIES } from '../../constants/game.constants';
 import { PI_RULES, DROP_RULES } from '../../data/balance.constants';
+import {
+  bossDefFor, BossFightState, BOSS_ENRAGE_WARNING_SEC, BOSS_PROJECTILE_CAP,
+  SHIELD_HEAL_PHASE_CAP_FRAC, SHIELD_HEAL_FIGHT_CAP_FRAC, SHIELD_MIN_HP_FRAC,
+  SHIELD_MIN_SPACING_SEC, SHIELD_PHASE_MAX_SEC, SHIELD_REGEN_FRAC_PER_SEC,
+  SHIELD_TELEGRAPH_SEC, SHIELD_HP_FRACTIONS,
+  SIGNATURE_INTERVAL_SEC, SIGNATURE_INTERVAL_ENRAGED_SEC, bossEvent
+} from '../../data/boss-rig';
 import { AudioService } from '../../services/audio.service';
 import { SettingsComponent } from '../settings/settings.component';
 import * as Matter from 'matter-js';
@@ -60,6 +67,9 @@ interface EnemyData {
   segmentPositions?: Array<{ x: number, y: number }>;
   // S4: ultimate cast id on projectiles (boss HP cap enforcement).
   ultCastId?: string;
+  // Stage 9 boss rig fields (mirror models/game.models.ts).
+  bossState?: BossFightState;
+  bossPattern?: boolean;
 }
 
 // Drop-table class membership (spec Sections 1.2 and 5.4, stage S5).
@@ -105,12 +115,19 @@ const ARMORED_UP_TYPES = new Set(['golem', 'seedmother', 'shieldback', 'serpent'
            
            @if (bossSpawned()) {
                <span class="text-white font-bold tracking-widest uppercase drop-shadow-md mt-4">
-                  BOSS HEALTH
+                  BOSS HEALTH @if (bossEnraged()) { <span class="text-red-400">- ENRAGED</span> }
                </span>
                <div class="w-full h-3 bg-black/50 border border-white/20 rounded-full overflow-hidden shadow-[0_0_15px_rgba(255,0,0,0.1)]">
                   <div class="h-full bg-gradient-to-r from-red-600 to-red-400 transition-all duration-1000"
                        [style.width]="bossHealthPercent() + '%'"></div>
                </div>
+               @if (bossShieldHealth() > 0) {
+               <div class="w-full h-1.5 bg-black/40 border border-white/10 rounded-full overflow-hidden">
+                  <div class="h-full transition-all duration-200"
+                       [style.background]="bossShieldBarColor()"
+                       [style.width]="bossShieldPercent() + '%'"></div>
+               </div>
+               }
            }
         }
       </div>
@@ -566,6 +583,16 @@ export class GameComponent implements OnInit, OnDestroy {
 
   
   public bossMaxHealth = signal<number>(1000);
+  // Stage 9 boss rig HUD state: the shield segment on the boss bar
+  // (the shield and regen addendum's readability rule: the shield
+  // shows as its own segment so the player can see both the shield
+  // strength and the boss bar refilling behind it), and the enrage
+  // flag for the bar's label.
+  public bossShieldHealth = signal<number>(0);
+  public bossShieldMaxHealth = signal<number>(0);
+  public bossEnraged = signal<boolean>(false);
+  public bossShieldPercent = computed(() => this.bossShieldMaxHealth() > 0 ? (this.bossShieldHealth() / this.bossShieldMaxHealth()) * 100 : 0);
+  public bossShieldBarColor = computed(() => bossDefFor(this.gameState.selectedWorldIndex()).shieldColorHex);
 
   public bossHealthPercent = computed(() => (this.bossHealth() / this.bossMaxHealth()) * 100);
 
@@ -793,6 +820,8 @@ export class GameComponent implements OnInit, OnDestroy {
     this.adRevivesUsed = 0;
     this.runCountedForAds = false;
     this.bossSpawned.set(false);
+    this.bossEnraged.set(false);
+    this.bossShieldHealth.set(0);
     this.inBossDefeatSequence.set(false);
     this.gameState.isDeadMenuOpen.set(false);
     
@@ -901,6 +930,41 @@ export class GameComponent implements OnInit, OnDestroy {
                 // never the fight itself.
                 spawnBossNow: () => {
                     this.spawner.spawnBoss(this.getSpawnerContext());
+                },
+                // Stage 9: the boss rig's evidence surface. Returns
+                // a plain snapshot of the live campaign boss's fight
+                // state (fight clock, enrage roll and state, shield
+                // numbers, signature state, hazard geometry, and the
+                // fight's event log) so the harness verifies enrage
+                // windows, shield caps, and telegraph timing from
+                // the game's own records, not from screenshots.
+                bossFight: () => {
+                    const boss = this.enemies.find(e => e.plugin['data']?.type === 'boss');
+                    const d = boss?.plugin['data'] as EnemyData | undefined;
+                    const st = d?.bossState;
+                    if (!boss || !d || !st) return null;
+                    const sig = st.sig ? {
+                        id: st.sig.id, phase: st.sig.phase,
+                        startSec: +st.sig.startSec.toFixed(2), fireSec: +st.sig.fireSec.toFixed(2),
+                        telegraphSec: st.sig.telegraphSec,
+                        data: JSON.parse(JSON.stringify(st.sig.data))
+                    } : null;
+                    return {
+                        worldIndex: st.worldIndex,
+                        bossHp: Math.ceil(d.health), bossMaxHp: d.maxHealth,
+                        bossPos: { x: Math.round(boss.position.x), y: Math.round(boss.position.y) },
+                        fightSec: +st.fightSec.toFixed(2),
+                        enrageAtSec: +st.enrageAtSec.toFixed(2),
+                        enrageWarned: st.enrageWarned, enraged: st.enraged,
+                        shieldUp: st.shieldUp, shieldHp: Math.ceil(st.shieldHp), shieldMaxHp: st.shieldMaxHp,
+                        shieldTelegraph: st.shieldTelegraphStartSec >= 0,
+                        healedThisFight: +st.healedThisFight.toFixed(1),
+                        healedThisPhase: +st.healedThisPhase.toFixed(1),
+                        phasesUsed: st.phasesUsed,
+                        bossProjectiles: this.bossProjectileCount(),
+                        sig,
+                        events: st.events.slice()
+                    };
                 }
             };
             // S5 economy probes: drop a pickup of any kind at an
@@ -951,6 +1015,8 @@ export class GameComponent implements OnInit, OnDestroy {
           bossSpawned: this.bossSpawned,
           bossMaxHealth: this.bossMaxHealth,
           bossHealth: this.bossHealth,
+          bossShieldHealth: this.bossShieldHealth,
+          bossShieldMaxHealth: this.bossShieldMaxHealth,
           clearEnemies: () => this.clearEnemies(),
           battleDropReady: this.battleDropReady,
           battleDropGrace: this.battleDropGrace,
@@ -1070,6 +1136,10 @@ export class GameComponent implements OnInit, OnDestroy {
   // Feather Brake is held.
   public triggerShake(trigger: string) {
     if (!GameComponent.SHAKE_ALLOWED_TRIGGERS.includes(trigger)) return;
+    // Boss telegraph suppression (deferred to the boss stages by
+    // S1): while a boss telegraph is showing, no shake fires, so
+    // the dodge read stays exact.
+    if (this.bossTelegraphShowing()) return;
     const setting = this.gameState.screenShakeSetting();
     if (setting === 'off') return;
     let amp = 6 * this.speedScale;
@@ -1927,25 +1997,29 @@ export class GameComponent implements OnInit, OnDestroy {
             }
         }
         if (data.type === 'boss') {
-            chaseSpeed = this.rageModeActive() ? 0.0085 : 0.0035; // Much faster in rage
+            // Stage 9 boss rig: advance the fight state machine
+            // (enrage, shield phases, signature schedule, hazards)
+            // on the fight clock before the shipped attack logic.
+            const st = data.bossState;
+            if (st) this.tickBossRig(enemy, data, st, delta);
+            const rigEnraged = !!st?.enraged;
+            chaseSpeed = this.rageModeActive() ? 0.0085 : (rigEnraged ? 0.0056 : 0.0035); // Much faster in rage; enrage scales aggression too
             
             const intensity = this.audioService.getAudioIntensity();
             
             // Audio reactive boss attacks
             // Threshold varies if rage mode is active
-            const attackThreshold = this.rageModeActive() ? 0.25 : 0.35;
+            const attackThreshold = (this.rageModeActive() || rigEnraged) ? 0.25 : 0.35;
             
             if (!this.annihilationModeActive()) {
-                if (intensity > attackThreshold && now - (data.lastAttackTime || 0) > (this.rageModeActive() ? 3000 : 6000)) {
+                if (intensity > attackThreshold && now - (data.lastAttackTime || 0) > ((this.rageModeActive() || rigEnraged) ? 3000 : 6000)) {
                     data.lastAttackTime = now;
                     this.fireBossWaveAttack(enemy.position);
                 }
                 
-                if (intensity > attackThreshold - 0.1 && now - (data.lastMinionTime || 0) > (this.rageModeActive() ? 2000 : 4000)) {
+                if (intensity > attackThreshold - 0.1 && now - (data.lastMinionTime || 0) > ((this.rageModeActive() || rigEnraged) ? 2000 : 4000)) {
                     data.lastMinionTime = now;
-                    for(let i=0; i<3; i++) {
-                       this.spawner.spawnMinion(enemy.position.x, enemy.position.y, this.getSpawnerContext());
-                    }
+                    this.summonBossMinions(enemy);
                 }
             }
             
@@ -2225,6 +2299,23 @@ export class GameComponent implements OnInit, OnDestroy {
         let desiredX = dirX * maxSpeedPx;
         let desiredY = dirY * maxSpeedPx;
         let blendK = 2.5;
+        if (data.type === 'boss' && data.bossState && bossDefFor(data.bossState.worldIndex).movement === 'patrolTop') {
+          // Storm Wyvern sheet: the boss flies wide arcs across the
+          // top of the field rather than hovering at the player. The
+          // anchor sweeps on the fight clock; the steering blend
+          // below carries the body to it at a capped patrol speed.
+          const LU = this.logicalUnit;
+          const t = data.bossState.fightSec;
+          const ax = window.innerWidth / 2 + Math.sin(t * 0.25) * window.innerWidth * 0.32;
+          const ay = window.innerHeight * 0.24 + Math.sin(t * 0.7) * window.innerHeight * 0.04;
+          const dx = ax - enemy.position.x;
+          const dy = ay - enemy.position.y;
+          const d = Math.hypot(dx, dy) || 1;
+          const patrolSpeed = Math.min(0.55 * LU, d * 1.2);
+          desiredX = (dx / d) * patrolSpeed;
+          desiredY = (dy / d) * patrolSpeed;
+          blendK = 1.5;
+        }
         if (data.type === 'imp') {
           // Cinder Imp (Charger): approach at Cruise to mid range,
           // flare telegraph 0.5 s, dash in a locked straight line at
@@ -2878,9 +2969,9 @@ export class GameComponent implements OnInit, OnDestroy {
                      // code reads these back.
                      health: data.health,
                      maxHealth: data.maxHealth,
-                     attackCharge: data.type === 'golem' ? Math.min(1, Math.max(0, (now - (data.lastAttackTime || 0)) / 3000)) : data.type === 'imp' ? this.impTelegraphCharge(data, now) : data.type === 'sentry_shard' ? this.shardCharge(data, now) : data.type === 'rift_mine' ? this.mineArmedCharge(body) : data.type === 'pyre_moth' ? this.mothFuseCharge(data, now) : data.type === 'phantom' ? this.phantomReappearCharge(data, now) : data.type === 'wraith' ? this.wraithLockCharge(data, now) : data.type === 'serpent' ? this.serpentCoilCharge(data, now) : data.type === 'darter' ? this.darterLineupCharge(data, now) : undefined,
+                     attackCharge: data.type === 'boss' ? this.bossPublishCharge(data) : data.type === 'golem' ? Math.min(1, Math.max(0, (now - (data.lastAttackTime || 0)) / 3000)) : data.type === 'imp' ? this.impTelegraphCharge(data, now) : data.type === 'sentry_shard' ? this.shardCharge(data, now) : data.type === 'rift_mine' ? this.mineArmedCharge(body) : data.type === 'pyre_moth' ? this.mothFuseCharge(data, now) : data.type === 'phantom' ? this.phantomReappearCharge(data, now) : data.type === 'wraith' ? this.wraithLockCharge(data, now) : data.type === 'serpent' ? this.serpentCoilCharge(data, now) : data.type === 'darter' ? this.darterLineupCharge(data, now) : undefined,
                      weave: data.type === 'bat' || data.type === 'serpent' ? data.weaveValue : undefined,
-                     state: (data.type === 'imp' || data.type === 'wisp' || data.type === 'sentry_shard' || data.type === 'seedmother' || data.type === 'rift_mine' || data.type === 'shieldback' || data.type === 'pyre_moth' || data.type === 'phantom' || data.type === 'wraith' || data.type === 'chanter' || data.type === 'serpent' || data.type === 'darter') ? data.behaviorState : undefined,
+                     state: data.type === 'boss' ? this.bossPublishState(data) : (data.type === 'imp' || data.type === 'wisp' || data.type === 'sentry_shard' || data.type === 'seedmother' || data.type === 'rift_mine' || data.type === 'shieldback' || data.type === 'pyre_moth' || data.type === 'phantom' || data.type === 'wraith' || data.type === 'chanter' || data.type === 'serpent' || data.type === 'darter') ? data.behaviorState : undefined,
                      facing: (data.type === 'shieldback' || data.type === 'sentry_shard' || data.type === 'wraith' || data.type === 'darter' || data.type === 'serpent') && data.aimDirX !== undefined ? Math.atan2(data.aimDirY || 0, data.aimDirX || 0) : undefined,
                      sparkUntil: data.type === 'shieldback' ? data.sparkUntil : undefined,
                      buffed: data.buffUntil !== undefined && now < data.buffUntil ? true : undefined
@@ -2931,6 +3022,78 @@ export class GameComponent implements OnInit, OnDestroy {
                       size: headSize * (0.92 - i * 0.07)
                   });
               });
+          }
+          // Stage 9 boss rig virtual entities (no physics bodies):
+          // the shield shell, the Crystal Titan's shard ring, and
+          // every signature's telegraph and hazard visuals. Display
+          // only; every value derives from the boss's fight state,
+          // which is also what the harness reads as evidence.
+          if (data.type === 'boss' && data.bossState) {
+              const st = data.bossState;
+              const bossR = body.circleRadius || 150;
+              if (st.shieldUp || st.shieldTelegraphStartSec >= 0) {
+                  const frac = st.shieldUp
+                      ? st.shieldHp / Math.max(1, st.shieldMaxHp)
+                      : Math.min(1, (st.fightSec - st.shieldTelegraphStartSec) / SHIELD_TELEGRAPH_SEC);
+                  entities.push({
+                      id: data.id + ':shield',
+                      x: body.position.x,
+                      y: body.position.y,
+                      type: 'boss_shield',
+                      size: bossR * 1.04,
+                      attackCharge: Math.max(0, Math.min(1, frac))
+                  });
+              }
+              const sig = st.sig;
+              if (sig) {
+                  const charge = sig.phase === 'telegraph'
+                      ? Math.min(1, Math.max(0, (st.fightSec - sig.startSec) / sig.telegraphSec)) : 1;
+                  if (sig.id === 'flame_ring') {
+                      entities.push({
+                          id: data.id + ':ring', x: sig.data.cx, y: sig.data.cy,
+                          type: 'boss_ring', size: sig.data.ringR, attackCharge: charge
+                      });
+                      sig.data.pillars.forEach((p: any, i: number) => {
+                          entities.push({
+                              id: data.id + ':pillar' + i, x: p.x, y: p.y,
+                              type: 'boss_pillar', size: 36, attackCharge: charge
+                          });
+                      });
+                  } else if (sig.id === 'shadow_split' && sig.phase === 'active') {
+                      sig.data.copies.forEach((c: any, i: number) => {
+                          entities.push({
+                              id: data.id + ':copy' + i, x: c.x, y: c.y,
+                              type: 'boss_shadow', size: bossR, attackCharge: 0.5
+                          });
+                      });
+                  } else if (sig.id === 'shard_fan' && sig.phase === 'active' && sig.data.ringUp) {
+                      for (let i = 0; i < 6; i++) {
+                          const a = st.fightSec * 0.9 + (i / 6) * Math.PI * 2;
+                          const rr = bossR + 48 * this.speedScale;
+                          entities.push({
+                              id: data.id + ':shard' + i,
+                              x: body.position.x + Math.cos(a) * rr,
+                              y: body.position.y + Math.sin(a) * rr,
+                              type: 'boss_shard', size: 36, attackCharge: 0.8
+                          });
+                      }
+                  } else if (sig.id === 'storm_call') {
+                      sig.data.columns.forEach((c: any, i: number) => {
+                          entities.push({
+                              id: data.id + ':col' + i, x: c.x, y: window.innerHeight / 2,
+                              type: 'boss_column', size: window.innerHeight / 2, attackCharge: charge
+                          });
+                      });
+                  } else if (sig.id === 'harvest_arc') {
+                      sig.data.arcs.forEach((arc: any, i: number) => {
+                          entities.push({
+                              id: data.id + ':arc' + i, x: sig.data.cx, y: sig.data.cy,
+                              type: 'boss_arc', size: sig.data.radius, attackCharge: charge,
+                              facing: arc.ang
+                          });
+                      });
+                  }
+              }
           }
       }
       // Deduplicate by ID
@@ -3395,14 +3558,415 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
 
 
-  private fireBossWaveAttack(pos: Matter.Vector) {
+  // -----------------------------------------------------------------
+  // Stage 9 boss rig (data in data/boss-rig.ts): one state machine
+  // for every campaign boss. Enrage (rolled per fight inside the
+  // world's window, with a 5 s charge-up warning), shield and regen
+  // phases (hard caps from Carter's addendum), the signature attack
+  // schedule, and the hazard ticks. All timing runs on the fight
+  // clock (accumulated physics steps), never on wall time, so
+  // pauses and frame rate cannot move a telegraph or an enrage.
+  // -----------------------------------------------------------------
+
+  private bossProjectileCount(): number {
+      let n = 0;
+      for (const b of Matter.Composite.allBodies(this.engine.world)) {
+          if (b.label === 'projectile' && (b.plugin['data'] as EnemyData)?.bossPattern) n++;
+      }
+      return n;
+  }
+
+  // One boss-pattern projectile, aimed from (x, y) along angle.
+  // The density cap is a fairness invariant (addendum rule 3): when
+  // the cap is reached the shot simply does not spawn, so a dodge
+  // line always exists.
+  private fireBossProjectile(x: number, y: number, angle: number, speedPerStep: number, damage: number = 10): boolean {
+      if (this.bossProjectileCount() >= BOSS_PROJECTILE_CAP) return false;
+      const proj = Matter.Bodies.circle(x, y, 8, {
+          label: 'projectile', isSensor: true,
+          plugin: { data: { id: Math.random().toString(), type: 'projectile_enemy', health: 1, maxHealth: 1, owner: 'enemy', burstDamage: damage, bossPattern: true } as EnemyData }
+      });
+      Matter.Body.setVelocity(proj, { x: Math.cos(angle) * this.scaledSpeed(speedPerStep), y: Math.sin(angle) * this.scaledSpeed(speedPerStep) });
+      Matter.Composite.add(this.engine.world, proj);
+      setTimeout(() => { if (proj.parent) Matter.Composite.remove(this.engine.world, proj); }, 2600);
+      return true;
+  }
+
+  private fireBossFan(x: number, y: number, bolts: number, speedPerStep: number) {
+      const base = Math.atan2(this.playerBody.position.y - y, this.playerBody.position.x - x);
+      const spread = 0.32;
+      for (let i = 0; i < bolts; i++) {
+          const a = bolts === 1 ? base : base + (i / (bolts - 1) - 0.5) * spread * (bolts - 1);
+          this.fireBossProjectile(x, y, a, speedPerStep);
+      }
+  }
+
+  // Is a boss telegraph showing right now? Drives the screen shake
+  // suppression (systems spec Section 4.3, deferred to the boss
+  // stages by S1): while a telegraph is up, the field stays still
+  // so the dodge read is never blurred.
+  private bossTelegraphShowing(): boolean {
+      const boss = this.enemies.find(e => e.plugin['data']?.type === 'boss');
+      const st = (boss?.plugin['data'] as EnemyData)?.bossState;
+      if (!st) return false;
+      if (st.shieldTelegraphStartSec >= 0) return true;
+      return !!st.sig && st.sig.phase === 'telegraph';
+  }
+
+  private tickBossRig(boss: Matter.Body, data: EnemyData, st: BossFightState, deltaSec: number) {
+      if (this.gameEnded() || this.isDead() || this.inBossDefeatSequence()) return;
+      const def = bossDefFor(st.worldIndex);
+      st.fightSec += deltaSec;
+      const t = st.fightSec;
+
+      // Enrage: warning first (glow and cracks build over the final
+      // seconds, with a rising audio cue), then the trigger.
+      if (!st.enraged && !st.enrageWarned && t >= st.enrageAtSec - BOSS_ENRAGE_WARNING_SEC) {
+          st.enrageWarned = true;
+          bossEvent(st, 'enrage_warning', `enrage at ${st.enrageAtSec.toFixed(1)}s`);
+          this.audioService.playSFX('boss');
+      }
+      if (!st.enraged && t >= st.enrageAtSec) {
+          st.enraged = true;
+          this.bossEnraged.set(true);
+          bossEvent(st, 'enraged');
+          this.audioService.playSFX('boss');
+      }
+
+      // Shield telegraph completing: the shield snaps on.
+      if (st.shieldTelegraphStartSec >= 0 && t >= st.shieldTelegraphStartSec + SHIELD_TELEGRAPH_SEC) {
+          st.shieldTelegraphStartSec = -1;
+          st.shieldUp = true;
+          st.shieldHp = st.shieldMaxHp;
+          st.shieldUpAtSec = t;
+          st.healedThisPhase = 0;
+          st.phasesUsed++;
+          this.bossShieldHealth.set(st.shieldHp);
+          this.bossShieldMaxHealth.set(st.shieldMaxHp);
+          bossEvent(st, 'shield_up', `shield hp ${st.shieldMaxHp}`);
+      }
+
+      // Shield offers at the scripted HP thresholds. The offer is
+      // consumed even when a guard refuses it (final-sliver
+      // lockout, spacing, heal cap), so thresholds never queue.
+      if (!st.shieldUp && st.shieldTelegraphStartSec < 0 && st.nextThresholdIdx < SHIELD_HP_FRACTIONS.length) {
+          const hpFrac = data.health / Math.max(1, data.maxHealth);
+          if (hpFrac <= SHIELD_HP_FRACTIONS[st.nextThresholdIdx]) {
+              st.nextThresholdIdx++;
+              const fightCap = SHIELD_HEAL_FIGHT_CAP_FRAC * data.maxHealth;
+              if (hpFrac > SHIELD_MIN_HP_FRAC
+                  && st.healedThisFight < fightCap - 0.001
+                  && t - st.lastShieldStartSec >= SHIELD_MIN_SPACING_SEC) {
+                  st.shieldTelegraphStartSec = t;
+                  st.lastShieldStartSec = t;
+                  bossEvent(st, 'shield_telegraph', `at ${(hpFrac * 100).toFixed(1)} percent hp`);
+              } else {
+                  bossEvent(st, 'shield_refused', `hp ${(hpFrac * 100).toFixed(1)} percent, healed ${st.healedThisFight.toFixed(0)}, spacing ${(t - st.lastShieldStartSec).toFixed(1)}s`);
+              }
+          }
+      }
+
+      // Regen behind the shield, clamped by both heal caps.
+      if (st.shieldUp) {
+          const phaseCap = SHIELD_HEAL_PHASE_CAP_FRAC * data.maxHealth;
+          const fightCap = SHIELD_HEAL_FIGHT_CAP_FRAC * data.maxHealth;
+          const room = Math.min(phaseCap - st.healedThisPhase, fightCap - st.healedThisFight, data.maxHealth - data.health);
+          if (room > 0) {
+              const heal = Math.min(room, SHIELD_REGEN_FRAC_PER_SEC * data.maxHealth * deltaSec);
+              data.health += heal;
+              st.healedThisPhase += heal;
+              st.healedThisFight += heal;
+              this.bossHealth.set(Math.max(0, Math.ceil(data.health)));
+          }
+          if (t - st.shieldUpAtSec >= SHIELD_PHASE_MAX_SEC) {
+              st.shieldUp = false;
+              st.shieldHp = 0;
+              this.bossShieldHealth.set(0);
+              bossEvent(st, 'shield_down', 'phase timeout');
+          }
+      }
+
+      // Signature schedule.
+      if (!st.sig && !this.annihilationModeActive() && t >= st.nextSignatureAtSec) {
+          this.startSignature(boss, data, st);
+      }
+      if (st.sig) this.tickSignature(boss, data, st);
+      void def;
+  }
+
+  // The Crystal Titan's signature ring blocks player fire while it
+  // is up (its damage windows are the drops after each fan).
+  private bossShardRingUp(st: BossFightState): boolean {
+      return !!st.sig && st.sig.id === 'shard_fan' && st.sig.phase === 'active' && !!st.sig.data.ringUp;
+  }
+
+  private startSignature(boss: Matter.Body, data: EnemyData, st: BossFightState) {
+      const def = bossDefFor(st.worldIndex);
+      const LU = this.logicalUnit;
+      const bp = boss.position;
+      const pp = this.playerBody.position;
+      let telegraphSec = 0.6;
+      let sigData: any = {};
+      switch (def.signature) {
+          case 'flame_ring': {
+              telegraphSec = 0.6;
+              const count = st.enraged ? 10 : 8;
+              const ringR = 0.30 * LU;
+              const offset = Math.random() * Math.PI * 2;
+              const pillars = [];
+              for (let i = 0; i < count; i++) {
+                  const a = offset + (i / count) * Math.PI * 2;
+                  pillars.push({ x: bp.x + Math.cos(a) * ringR, y: bp.y + Math.sin(a) * ringR, hit: false });
+              }
+              sigData = { cx: bp.x, cy: bp.y, ringR, pillars, litUntilSec: 0 };
+              break;
+          }
+          case 'shadow_split': {
+              telegraphSec = 0.6;
+              const offs = [
+                  { x: -0.34 * LU, y: 0.10 * LU },
+                  { x: 0.34 * LU, y: 0.10 * LU }
+              ];
+              sigData = {
+                  copies: offs.map(o => ({
+                      x: Math.max(40, Math.min(window.innerWidth - 40, bp.x + o.x)),
+                      y: Math.max(40, Math.min(window.innerHeight - 40, bp.y + o.y))
+                  })),
+                  volley2AtSec: 0
+              };
+              break;
+          }
+          case 'shard_fan': {
+              telegraphSec = 0.6;
+              sigData = { ringUp: false, fanIdx: 0, fanTimes: st.enraged ? [1.0, 4.2, 7.4] : [1.0, 4.6], dropUntilSec: 0, endAtSec: 0 };
+              break;
+          }
+          case 'storm_call': {
+              telegraphSec = 0.7;
+              const cols = [pp.x, pp.x - 0.30 * LU, pp.x + 0.30 * LU];
+              if (st.enraged) cols.push(pp.x - 0.15 * LU, pp.x + 0.15 * LU);
+              sigData = {
+                  columns: cols.map(x => ({ x: Math.max(20, Math.min(window.innerWidth - 20, x)), hit: false })),
+                  strikeUntilSec: 0
+              };
+              break;
+          }
+          case 'harvest_arc': {
+              telegraphSec = 0.7;
+              const ang = Math.atan2(pp.y - bp.y, pp.x - bp.x);
+              const arcs = [{ ang, startSec: 0, hit: false }];
+              if (st.enraged) arcs.push({ ang: ang + Math.PI / 2, startSec: 0.5, hit: false });
+              sigData = { cx: bp.x, cy: bp.y, radius: 0.52 * LU, span: 1.9, arcs, endAtSec: st.enraged ? 1.0 : 0.5 };
+              break;
+          }
+          default:
+              // Stage 10 signatures: the rig runs (enrage, shield),
+              // but the executor is not built yet. Reschedule quietly.
+              st.nextSignatureAtSec = st.fightSec + SIGNATURE_INTERVAL_SEC;
+              return;
+      }
+      st.sig = { id: def.signature, phase: 'telegraph', startSec: st.fightSec, telegraphSec, fireSec: st.fightSec + telegraphSec, data: sigData };
+      bossEvent(st, 'signature_telegraph', def.signature);
+  }
+
+  private fireSignature(boss: Matter.Body, data: EnemyData, st: BossFightState) {
+      const sig = st.sig!;
+      const t = st.fightSec;
+      sig.phase = 'active';
+      bossEvent(st, 'signature_fire', sig.id);
+      switch (sig.id) {
+          case 'flame_ring': {
+              this.fireBossWaveAttack(boss.position);
+              if (st.enraged) this.fireBossWaveAttack(boss.position, 12, Math.PI / 12);
+              sig.data.litUntilSec = t + 1.0;
+              break;
+          }
+          case 'shadow_split': {
+              const bolts = st.enraged ? 5 : 3;
+              this.fireBossFan(boss.position.x, boss.position.y, bolts, 6);
+              for (const c of sig.data.copies) this.fireBossFan(c.x, c.y, bolts, 6);
+              sig.data.volley2AtSec = t + 1.5;
+              break;
+          }
+          case 'shard_fan': {
+              sig.data.ringUp = true;
+              sig.data.t0 = t;
+              const lastFan = sig.data.fanTimes[sig.data.fanTimes.length - 1];
+              sig.data.endAtSec = t + lastFan + 2.6;
+              break;
+          }
+          case 'storm_call': {
+              sig.data.strikeUntilSec = t + 0.25;
+              this.audioService.playSFX('boss');
+              break;
+          }
+          case 'harvest_arc': {
+              for (const arc of sig.data.arcs) arc.startSec = t + arc.startSec;
+              sig.data.endAtSec = t + sig.data.endAtSec;
+              break;
+          }
+      }
+  }
+
+  private endSignature(st: BossFightState) {
+      bossEvent(st, 'signature_end', st.sig?.id);
+      st.sig = null;
+      st.nextSignatureAtSec = st.fightSec + (st.enraged ? SIGNATURE_INTERVAL_ENRAGED_SEC : SIGNATURE_INTERVAL_SEC) + Math.random() * 2;
+  }
+
+  private tickSignature(boss: Matter.Body, data: EnemyData, st: BossFightState) {
+      const sig = st.sig!;
+      const t = st.fightSec;
+      if (sig.phase === 'telegraph') {
+          if (t >= sig.fireSec) this.fireSignature(boss, data, st);
+          return;
+      }
+      const pp = this.playerBody.position;
+      const LU = this.logicalUnit;
+      switch (sig.id) {
+          case 'flame_ring': {
+              // Lit pillars hurt once each while they burn (1.0 s);
+              // the ring positions were telegraphed for 0.6 s and
+              // the wave itself passes the ring about 0.5 s after
+              // firing, which is what the sheet's timing describes.
+              if (t <= sig.data.litUntilSec) {
+                  for (const p of sig.data.pillars) {
+                      if (!p.hit && Math.hypot(pp.x - p.x, pp.y - p.y) < 0.085 * LU) {
+                          p.hit = true;
+                          bossEvent(st, 'hazard_hit', 'flame pillar');
+                          this.takeDamage(10);
+                      }
+                  }
+              } else this.endSignature(st);
+              break;
+          }
+          case 'shadow_split': {
+              if (sig.data.volley2AtSec && t >= sig.data.volley2AtSec) {
+                  sig.data.volley2AtSec = 0;
+                  const bolts = st.enraged ? 5 : 3;
+                  this.fireBossFan(boss.position.x, boss.position.y, bolts, 6);
+                  for (const c of sig.data.copies) this.fireBossFan(c.x, c.y, bolts, 6);
+              }
+              if (t >= sig.fireSec + 4) this.endSignature(st);
+              break;
+          }
+          case 'shard_fan': {
+              const d = sig.data;
+              const rel = t - d.t0;
+              if (d.fanIdx < d.fanTimes.length && rel >= d.fanTimes[d.fanIdx]) {
+                  this.fireBossFan(boss.position.x, boss.position.y, st.enraged ? 4 : 3, 7.5);
+                  d.fanIdx++;
+                  d.ringUp = false;
+                  d.dropUntilSec = t + 2.0; // the damage window after each fan
+                  bossEvent(st, 'signature_fan', `fan ${d.fanIdx}`);
+              }
+              if (!d.ringUp && d.dropUntilSec && t >= d.dropUntilSec && rel < d.fanTimes[d.fanTimes.length - 1]) {
+                  d.ringUp = true;
+                  d.dropUntilSec = 0;
+              }
+              if (t >= d.endAtSec) this.endSignature(st);
+              break;
+          }
+          case 'storm_call': {
+              if (t <= sig.data.strikeUntilSec) {
+                  for (const c of sig.data.columns) {
+                      if (!c.hit && Math.abs(pp.x - c.x) <= 0.05 * LU + 10) {
+                          c.hit = true;
+                          bossEvent(st, 'hazard_hit', 'lightning column');
+                          this.takeDamage(10);
+                      }
+                  }
+              } else this.endSignature(st);
+              break;
+          }
+          case 'harvest_arc': {
+              for (const arc of sig.data.arcs) {
+                  // Damaging for the sweep's first 0.35 s; the final
+                  // 0.15 s is the fade the sheet lets the player
+                  // pass through.
+                  if (!arc.hit && t >= arc.startSec && t <= arc.startSec + 0.35) {
+                      const dist = Math.hypot(pp.x - sig.data.cx, pp.y - sig.data.cy);
+                      let da = Math.atan2(pp.y - sig.data.cy, pp.x - sig.data.cx) - arc.ang;
+                      while (da > Math.PI) da -= Math.PI * 2;
+                      while (da < -Math.PI) da += Math.PI * 2;
+                      if (Math.abs(dist - sig.data.radius) <= 0.06 * LU && Math.abs(da) <= sig.data.span / 2) {
+                          arc.hit = true;
+                          bossEvent(st, 'hazard_hit', 'harvest arc');
+                          this.takeDamage(10);
+                      }
+                  }
+              }
+              if (t >= sig.data.endAtSec) this.endSignature(st);
+              break;
+          }
+          default:
+              this.endSignature(st);
+      }
+  }
+
+  // Boss minion summons (visual spec Section 4 sheets): each world
+  // calls its own variant type. Bats use the legacy boss-minion law;
+  // roster types spawn through the production factory at world HP,
+  // with the sheet's alive caps for the heavy types.
+  private summonBossMinions(boss: Matter.Body) {
+      const worldIndex = this.gameState.selectedWorldIndex();
+      const def = bossDefFor(worldIndex);
+      const ctx = this.getSpawnerContext();
+      if (def.minionType === 'bat') {
+          for (let i = 0; i < def.minionsPerSummon; i++) {
+              this.spawner.spawnMinion(boss.position.x, boss.position.y, ctx);
+          }
+          return;
+      }
+      const alive = this.enemies.filter(e => e.plugin['data']?.type === def.minionType).length;
+      if (def.minionCap > 0 && alive >= def.minionCap) return;
+      for (let i = 0; i < def.minionsPerSummon; i++) {
+          if (def.minionCap > 0 && alive + i >= def.minionCap) break;
+          const a = Math.random() * Math.PI * 2;
+          this.spawner.spawnEnemyOfType(ctx, def.minionType,
+              boss.position.x + Math.cos(a) * 120 * this.speedScale,
+              boss.position.y + Math.sin(a) * 120 * this.speedScale, worldIndex);
+      }
+  }
+
+  // Renderer charge for the boss (visual spec addendum: enrage
+  // visuals): one 0 to 1 value the particle background reads as
+  // telegraph progress, enrage warning build, shield gather, or
+  // the enraged core pulse, whichever is live.
+  private bossPublishCharge(data: EnemyData): number {
+      const st = data.bossState;
+      if (!st) return 0;
+      if (st.sig && st.sig.phase === 'telegraph') {
+          return Math.min(1, Math.max(0, (st.fightSec - st.sig.startSec) / st.sig.telegraphSec));
+      }
+      if (st.shieldTelegraphStartSec >= 0) {
+          return Math.min(1, Math.max(0, (st.fightSec - st.shieldTelegraphStartSec) / SHIELD_TELEGRAPH_SEC));
+      }
+      if (st.enrageWarned && !st.enraged) {
+          return Math.min(1, Math.max(0, (st.fightSec - (st.enrageAtSec - BOSS_ENRAGE_WARNING_SEC)) / BOSS_ENRAGE_WARNING_SEC));
+      }
+      if (st.enraged) return 0.65 + 0.25 * Math.sin(st.fightSec * 6);
+      return 0;
+  }
+
+  private bossPublishState(data: EnemyData): string | undefined {
+      const st = data.bossState;
+      if (!st) return undefined;
+      if (st.enraged) return 'enraged';
+      if (st.shieldUp) return 'shielded';
+      if (st.sig && st.sig.phase === 'telegraph') return 'telegraph';
+      return undefined;
+  }
+
+  private fireBossWaveAttack(pos: Matter.Vector, count: number = 12, angleOffset: number = 0) {
       this.audioService.playSFX('shoot');
-      for (let i = 0; i < 12; i++) {
-          const angle = (i / 12) * Math.PI * 2;
+      for (let i = 0; i < count; i++) {
+          if (this.bossProjectileCount() >= BOSS_PROJECTILE_CAP) break;
+          const angle = angleOffset + (i / count) * Math.PI * 2;
           const dir = { x: Math.cos(angle), y: Math.sin(angle) };
           const proj = Matter.Bodies.circle(pos.x, pos.y, 15, {
               label: 'projectile', isSensor: true,
-              plugin: { data: { id: Math.random().toString(), type: 'projectile_enemy', health: 1, maxHealth: 1, owner: 'enemy', burstDamage: 10 } as EnemyData }
+              plugin: { data: { id: Math.random().toString(), type: 'projectile_enemy', health: 1, maxHealth: 1, owner: 'enemy', burstDamage: 10, bossPattern: true } as EnemyData }
           });
           Matter.Body.setVelocity(proj, Matter.Vector.mult(dir, this.scaledSpeed(4)));
           Matter.Composite.add(this.engine.world, proj);
@@ -3603,6 +4167,32 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
     // reduction, so the recorded damage number is the real hit.
     if (ultCastId && damage > 0 && (data.type === 'boss' || data.type === 'enemy_phoenix')) {
       damage = this.clampUltDamage(ultCastId, data.id, data.health, damage);
+    }
+    // Stage 9 boss shield gate (shield and regen addendum): while
+    // a shield phase is up, player damage strikes the shield, not
+    // the boss; breaking the shield ends the regen immediately.
+    // The Crystal Titan's signature shard ring blocks the same way
+    // during its up windows. Boss HP, the kill path, and the
+    // damage number all behave as if the shield were the target.
+    if (data.type === 'boss' && data.bossState && damage > 0) {
+      const st = data.bossState;
+      if (st.shieldUp) {
+        st.shieldHp -= damage;
+        this.recordDamageNumber(data.id, enemy.position.x, enemy.position.y, damage, true);
+        if (st.shieldHp <= 0) {
+          st.shieldUp = false;
+          st.shieldHp = 0;
+          this.bossShieldHealth.set(0);
+          bossEvent(st, 'shield_break', `healed this phase ${st.healedThisPhase.toFixed(0)}`);
+        } else {
+          this.bossShieldHealth.set(Math.ceil(st.shieldHp));
+        }
+        return;
+      }
+      if (this.bossShardRingUp(st)) {
+        this.recordDamageNumber(data.id, enemy.position.x, enemy.position.y, 0, true);
+        return;
+      }
     }
     // Shieldback frontal reduction (design sheet 11, the one new
     // combat rule in the overhaul): the shield face always turns
@@ -4292,6 +4882,8 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       this.inBossDefeatSequence.set(false);
       this.animatingAscension.set(false);
       this.bossSpawned.set(false);
+      this.bossEnraged.set(false);
+      this.bossShieldHealth.set(0);
       // A new realm is a new run: fresh stamina pool (Section 2.5).
       this.gameState.playerMovement = createMovementState();
       this.rawBrakeHeld = false;

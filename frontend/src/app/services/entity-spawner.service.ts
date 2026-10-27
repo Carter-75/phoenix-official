@@ -3,6 +3,7 @@ import { GameStateService } from './game-state.service';
 import { AudioService } from './audio.service';
 import { EnemyData } from '../models/game.models';
 import { BOSS_BASE_HP, BOSS_HP_GROWTH } from '../data/balance.constants';
+import { createBossFightState, bossEvent } from '../data/boss-rig';
 import { WAVE_TABLES, WorldWaveTable } from '../data/wave-tables';
 import * as Matter from 'matter-js';
 import { WritableSignal } from '@angular/core';
@@ -47,6 +48,8 @@ export interface SpawnerContext {
     bossSpawned: WritableSignal<boolean>;
     bossMaxHealth?: WritableSignal<number>;
     bossHealth?: WritableSignal<number>;
+    bossShieldHealth?: WritableSignal<number>;
+    bossShieldMaxHealth?: WritableSignal<number>;
     clearEnemies: () => void;
     battleDropReady?: WritableSignal<boolean>;
     battleDropGrace?: WritableSignal<boolean>;
@@ -105,6 +108,13 @@ export class EntitySpawnerService {
         if (ctx.bossMaxHealth) ctx.bossMaxHealth.set(hp);
         if (ctx.bossHealth) ctx.bossHealth.set(hp);
         const data = { id: Math.random().toString(), type: 'boss', health: hp, maxHealth: hp } as EnemyData;
+        // Stage 9 boss rig: every campaign boss spawns with its
+        // fight state (the enrage moment is rolled here, once per
+        // fight, inside the world's window from the rig data).
+        data.bossState = createBossFightState(worldIndex);
+        bossEvent(data.bossState, 'spawn', `enrageAt ${data.bossState.enrageAtSec.toFixed(1)}s`);
+        if (ctx.bossShieldHealth) ctx.bossShieldHealth.set(0);
+        if (ctx.bossShieldMaxHealth) ctx.bossShieldMaxHealth.set(data.bossState.shieldMaxHp);
         const scale = ctx.screenScale;
         const boss = this.createEnemyBody(window.innerWidth / 2, -100 * this.speedScale, 100 * scale, 'boss', data);
 
