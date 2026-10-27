@@ -11,6 +11,7 @@ import { BattleAiService, BattleContext } from '../../services/battle-ai.service
 import { EntitySpawnerService } from '../../services/entity-spawner.service';
 import { PhysicsEntity, WorldStats } from '../../models/game.models';
 import { ABILITIES, BASE_STATS, REALM_ABILITIES } from '../../constants/game.constants';
+import { rivalScalingFor, RivalWorldScaling } from '../../data/balance.constants';
 import { EnemyData } from './game.types';
 
 export interface BattleSetupHost {
@@ -170,8 +171,21 @@ setupAiPhoenix(isRespawn: boolean) {
       const playerStats = this.host.gameState.currentStats();
       this.host.battleAi.ai1.stats = JSON.parse(JSON.stringify(playerStats));
       this.host.battleAi.ai1.stats.maxHealth *= 10; // Scale base health x10 for Battle Mode boss pool
-      
+
       const worldId = this.host.gameState.selectedWorldIndex();
+      // Mode trio: the per-world rival tier (RIVAL_WORLD_SCALING in
+      // balance.constants). Health and hit weight rise with the
+      // world on top of the x10 duel pool; speed and attack speed
+      // stay at the player's own values so dodge timing is never
+      // re-learned per world. The applied record is published on
+      // the AI state so the HUD, the harness, and any later audit
+      // read the same numbers the duel used.
+      const scaling = rivalScalingFor(worldId);
+      this.host.battleAi.ai1.stats.maxHealth = Math.floor(this.host.battleAi.ai1.stats.maxHealth * scaling.hp);
+      this.host.battleAi.ai1.stats.damage *= scaling.damage;
+      this.host.battleAi.ai1.stats.burstDamage *= scaling.damage;
+      (this.host.battleAi.ai1 as any).worldScaling = { worldIndex: worldId, ...scaling } as RivalWorldScaling & { worldIndex: number };
+
       const realmAbilities = REALM_ABILITIES[worldId] || ['burst', 'aura'];
       
       const tapAbilities = realmAbilities.filter(k => ABILITIES[k]?.type === 'tap' && k !== 'rebirth');
@@ -198,8 +212,12 @@ setupAiPhoenix(isRespawn: boolean) {
       // S4: the triple slot joins the average the same way.
       const playerTripleLevel = playerStats.activeTripleAbility ? (playerStats.unlockedAbilities[playerStats.activeTripleAbility]?.level || 1) : null;
       const equippedLevels = [playerTapLevel, playerHoldLevel, ...(playerDoubleLevel !== null ? [playerDoubleLevel] : []), ...(playerTripleLevel !== null ? [playerTripleLevel] : [])];
-      const avgPlayerLevel = Math.max(1, Math.floor(equippedLevels.reduce((a, b) => a + b, 0) / equippedLevels.length));
-      
+      // Mode trio: the loadout tier rises with the world (the
+      // scaling table's levelBonus on top of the shipped parity
+      // average). ai2 below keeps the pure mirror: it stands in for
+      // the player, so it takes no world tier.
+      const avgPlayerLevel = Math.max(1, Math.floor(equippedLevels.reduce((a, b) => a + b, 0) / equippedLevels.length) + scaling.levelBonus);
+
       this.host.battleAi.ai1.abilities.forEach(id => {
           this.host.battleAi.ai1.stats.unlockedAbilities[id] = { level: avgPlayerLevel, modifiers: {} };
           this.host.battleAi.ai1.stats.unlockedAbilities[id].modifiers = this.host.gameState.generateAbilityUpgrade(id, avgPlayerLevel, {});

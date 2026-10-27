@@ -148,15 +148,32 @@ import { AdsService } from '../../services/ads.service';
             <button (click)="nextWorld()" class="text-white/50 hover:text-white transition text-2xl hover:translate-x-1">&rarr;</button>
           </div>
           
+          <!-- Mode Toggle (mode trio): the campaign screen plays the
+               selected realm in Normal (the campaign run) or Endless
+               (per-world escalating survival). Battle lives on its
+               own screen below, as before. -->
+          <div class="flex items-center gap-2 mt-3 bg-black/40 backdrop-blur-md px-2 py-1.5 rounded-full border border-white/10">
+            <button (click)="campaignPlayMode.set('campaign')"
+                    class="px-4 py-1 rounded-full text-xs font-black tracking-widest uppercase transition"
+                    [ngClass]="campaignPlayMode() === 'campaign' ? 'bg-orange-500/80 text-white' : 'text-white/50 hover:text-white'">
+              Normal
+            </button>
+            <button (click)="campaignPlayMode.set('endless')"
+                    class="px-4 py-1 rounded-full text-xs font-black tracking-widest uppercase transition"
+                    [ngClass]="campaignPlayMode() === 'endless' ? 'bg-cyan-500/80 text-white' : 'text-white/50 hover:text-white'">
+              Endless
+            </button>
+          </div>
+
           <!-- Play Button -->
-          <button (click)="startGame('campaign')"
+          <button (click)="startGame(campaignPlayMode())"
                   class="menu-play relative group mt-8 transition-transform hover:scale-105 active:scale-95"
                   [class.opacity-50]="!isWorldUnlocked()"
                   [class.grayscale]="!isWorldUnlocked()">
             <div class="absolute inset-0 bg-white/20 rounded-full blur-2xl opacity-50 group-hover:opacity-80 transition-opacity"></div>
             <img src="assets/play_button.png" alt="Play" class="relative w-32 h-32 md:w-40 md:h-40 drop-shadow-2xl" />
             <p class="absolute -bottom-8 left-1/2 -translate-x-1/2 text-white/80 font-bold tracking-widest uppercase text-sm w-max">
-              {{ isWorldUnlocked() ? 'Click to Ascend' : 'Coming Soon' }}
+              {{ !isWorldUnlocked() ? 'Coming Soon' : (campaignPlayMode() === 'endless' ? 'Click to Survive' : 'Click to Ascend') }}
             </p>
           </button>
         </div>
@@ -239,6 +256,9 @@ export class MainMenuComponent {
   }
 
   campaignWorldIndex = signal(0);
+  // Mode trio: which campaign-family mode the campaign screen's
+  // Play button starts for the selected realm.
+  campaignPlayMode = signal<'campaign' | 'endless'>('campaign');
   currentWorld = computed(() => WORLDS[this.campaignWorldIndex()]);
   // Audit bug 1: this was hard-coded to world 0, locking every other world
   // forever. A world is playable when it is in the player's unlockedWorlds.
@@ -249,7 +269,12 @@ export class MainMenuComponent {
   isBattleWorldUnlocked = computed(() => this.gameState.unlockedWorlds().includes(this.selectedBattleWorldIndex()));
   
   showSettings = false;
-  activeMenuMode: 'campaign' | 'battle' | 'ai_vs_ai' = this.gameState.currentGameMode();
+  // Endless lives on the campaign screen (mode trio), so a return
+  // from an Endless run lands on the campaign screen, not Battle.
+  activeMenuMode: 'campaign' | 'battle' | 'ai_vs_ai' = (() => {
+    const m = this.gameState.currentGameMode();
+    return m === 'endless' ? 'campaign' : m;
+  })();
   
   private touchStartY = 0;
   private battleHoldTimer: any;
@@ -350,14 +375,14 @@ export class MainMenuComponent {
     }
   }
 
-  startGame(mode: 'campaign' | 'battle' | 'ai_vs_ai') {
-    if (mode === 'campaign' && !this.isWorldUnlocked()) return;
+  startGame(mode: 'campaign' | 'endless' | 'battle' | 'ai_vs_ai') {
+    if ((mode === 'campaign' || mode === 'endless') && !this.isWorldUnlocked()) return;
     if ((mode === 'battle' || mode === 'ai_vs_ai') && !this.isBattleWorldUnlocked()) return;
     if (this.holdFired && mode === 'battle') return; // Prevent click firing after hold
 
     this.audio.playSFX('click');
     this.gameState.currentGameMode.set(mode);
-    if (mode === 'campaign') {
+    if (mode === 'campaign' || mode === 'endless') {
         this.gameState.selectedWorldIndex.set(this.currentWorld().id);
         this.audio.playWorldBgm(this.currentWorld().id);
     } else {

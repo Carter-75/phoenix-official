@@ -9,6 +9,7 @@ import { StorageService } from './storage.service';
 import { WorldStats, PhysicsEntity, World, AbilityData } from '../models/game.models';
 import { WORLDS, ABILITIES, REALM_ABILITIES, BASE_STATS, WORLD_0_STATS, deterministicAbilityModifiers } from '../constants/game.constants';
 import { MULTIPLIER_CAPS, PASSIVE_BY_STAT } from '../data/balance.constants';
+import { ModeRecords, sanitizeModeRecords, mergeModeRecords } from '../data/mode-records';
 
 // Systems S1 (spec Sections 2.5 and 3.5): save version for the
 // deterministic ability-modifier migration. Stored modifiers are
@@ -131,7 +132,55 @@ export class GameStateService {
       }
   }
   public selectedWorldIndex = signal<number>(0);
-  public currentGameMode = signal<'campaign' | 'battle' | 'ai_vs_ai'>('campaign');
+  public currentGameMode = signal<'campaign' | 'endless' | 'battle' | 'ai_vs_ai'>('campaign');
+  // Mode trio (Oct 27, 2026): personal bests per world per mode.
+  // The shape, sanitizer, and best-merge live in data/mode-records;
+  // this signal is the live copy the guest save, the sync payload,
+  // and the leaderboard page all read. Records are scores only:
+  // recording one never touches currency, unlocks, or entitlements.
+  public modeRecords = signal<ModeRecords>({});
+
+  public recordNormalClear(worldIndex: number, clearSec: number, kills: number) {
+      if (!Number.isInteger(worldIndex) || worldIndex < 0 || worldIndex > 9) return;
+      const incoming: ModeRecords = { [worldIndex]: { normal: { cleared: true, bestClearSec: Math.max(0, Math.floor(clearSec)), clearKills: Math.max(0, Math.floor(kills)) } } };
+      this.modeRecords.set(mergeModeRecords(this.modeRecords(), incoming));
+  }
+
+  // countRun is true exactly once per run (the game component
+  // records bests at death and again at quit; only the first of
+  // those counts the run, so a death-then-quit pair is one run).
+  public recordEndlessRun(worldIndex: number, timeSec: number, kills: number, countRun: boolean = true) {
+      if (!Number.isInteger(worldIndex) || worldIndex < 0 || worldIndex > 9) return;
+      const prevRuns = this.modeRecords()[worldIndex]?.endless?.runs || 0;
+      const incoming: ModeRecords = { [worldIndex]: { endless: { bestTimeSec: Math.max(0, Math.floor(timeSec)), bestKills: Math.max(0, Math.floor(kills)), runs: prevRuns + (countRun ? 1 : 0) } } };
+      this.modeRecords.set(mergeModeRecords(this.modeRecords(), incoming));
+  }
+
+  public recordBattleResult(worldIndex: number, score: number, timeSec: number, coins: number) {
+      if (!Number.isInteger(worldIndex) || worldIndex < 0 || worldIndex > 9) return;
+      const prev = this.modeRecords()[worldIndex]?.battle;
+      const incoming: ModeRecords = { [worldIndex]: { battle: {
+          bestScore: Math.max(0, Math.floor(score)), bestTimeSec: Math.max(0, Math.floor(timeSec)), bestCoins: Math.max(0, Math.floor(coins)),
+          ai1Wins: prev?.ai1Wins || 0, ai2Wins: prev?.ai2Wins || 0
+      } } };
+      this.modeRecords.set(mergeModeRecords(this.modeRecords(), incoming));
+  }
+
+  public recordAiVsAiResult(worldIndex: number, ai1Wins: number, ai2Wins: number) {
+      if (!Number.isInteger(worldIndex) || worldIndex < 0 || worldIndex > 9) return;
+      const prev = this.modeRecords()[worldIndex]?.battle;
+      const incoming: ModeRecords = { [worldIndex]: { battle: {
+          bestScore: prev?.bestScore || 0, bestTimeSec: prev?.bestTimeSec || 0, bestCoins: prev?.bestCoins || 0,
+          ai1Wins: (prev?.ai1Wins || 0) + Math.max(0, Math.floor(ai1Wins)),
+          ai2Wins: (prev?.ai2Wins || 0) + Math.max(0, Math.floor(ai2Wins))
+      } } };
+      // AI vs AI wins accumulate across sessions, so this merge is a
+      // direct set of the accumulated totals, not the best-merge
+      // (which would keep only the larger session count).
+      const next = { ...this.modeRecords() };
+      next[worldIndex] = { ...(next[worldIndex] || {}), battle: incoming[worldIndex].battle };
+      this.modeRecords.set(sanitizeModeRecords(next));
+  }
   public coinMultiplier = signal<number>(1);
   public xpMultiplier = signal<number>(1);
   public hasCosmicTrail = signal<boolean>(false);
@@ -262,6 +311,7 @@ export class GameStateService {
                   // (world w is beaten when world w + 1 is unlocked).
                   this.beatenWorlds.set(data.unlockedWorlds.filter((w: number) => w > 0).map((w: number) => w - 1));
               }
+              if (data.modeRecords) this.modeRecords.set(sanitizeModeRecords(data.modeRecords));
               if (data.selectedWorldIndex) this.selectedWorldIndex.set(data.selectedWorldIndex);
               if (data.coinMultiplier) this.coinMultiplier.set(data.coinMultiplier);
               if (data.xpMultiplier) this.xpMultiplier.set(data.xpMultiplier);
@@ -328,6 +378,7 @@ export class GameStateService {
               reviveTokens: this.reviveTokens(),
               unlockedWorlds: this.unlockedWorlds(),
               beatenWorlds: this.beatenWorlds(),
+              modeRecords: this.modeRecords(),
               worldUpgrades: this.worldUpgrades(),
               coinMultiplier: this.coinMultiplier(),
               xpMultiplier: this.xpMultiplier(),
@@ -564,6 +615,13 @@ export class GameStateService {
           this.tempXpMultiplierExpiresAt.set(user.boostExpiresAt);
       }
       this.unlockedWorlds.set(user.unlockedWorlds && user.unlockedWorlds.length > 0 ? user.unlockedWorlds : [0]);
+      // Mode trio records: best-merge the server copy with whatever
+      // this device already holds, so records earned as a guest (or
+      // on another device before its last sync) are never lowered
+      // by signing in; the next sync pushes the merged set back up.
+      if ((user as any).modeRecords) {
+          this.modeRecords.set(mergeModeRecords(this.modeRecords(), sanitizeModeRecords((user as any).modeRecords)));
+      }
       const serverBeaten = (user as any).beatenWorlds;
       if (Array.isArray(serverBeaten)) {
           this.beatenWorlds.set(serverBeaten.filter((w: any) => Number.isInteger(w) && w >= 0 && w <= 9));
@@ -733,6 +791,7 @@ export class GameStateService {
           gems: this.gems(),
           unlockedWorlds: this.unlockedWorlds(),
           beatenWorlds: this.beatenWorlds(),
+          modeRecords: this.modeRecords(),
           worldUpgrades: this.worldUpgrades(),
           modifiersVersion: MODIFIERS_VERSION,
           hasPurchasedGems: this.hasPurchasedGems(),
@@ -809,7 +868,7 @@ export class GameStateService {
     return false;
   }
 
-  public startGame(mode: 'campaign' | 'battle' = 'campaign') {
+  public startGame(mode: 'campaign' | 'endless' | 'battle' = 'campaign') {
     this.currentGameMode.set(mode);
     this.activeScreen.set('game');
   }

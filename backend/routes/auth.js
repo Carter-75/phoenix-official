@@ -19,6 +19,78 @@ const DEFAULT_GOOGLE_AUDIENCES = [
   '108585498879-o171u9a80ssqfkojpd8hohgq6dumk0iu.apps.googleusercontent.com'
 ];
 
+// Mode trio record helpers: a plain-JS mirror of the client module
+// frontend/src/app/data/mode-records.ts. Keep the semantics in step:
+// sanitize drops unknown worlds/modes and clamps numbers; merge
+// keeps the better score under the board sort orders and never sums.
+const RECORD_MAX_SEC = 7 * 24 * 3600;
+const RECORD_MAX_COUNT = 1e9;
+function recordNum(v, max) {
+  const n = typeof v === 'number' && isFinite(v) ? Math.floor(v) : 0;
+  return Math.min(max, Math.max(0, n));
+}
+function sanitizeModeRecords(input) {
+  const out = {};
+  if (!input || typeof input !== 'object') return out;
+  for (let w = 0; w < 10; w++) {
+    const src = input[w] !== undefined ? input[w] : input[String(w)];
+    if (!src || typeof src !== 'object') continue;
+    const rec = {};
+    if (src.normal && typeof src.normal === 'object' && src.normal.cleared) {
+      rec.normal = { cleared: true, bestClearSec: recordNum(src.normal.bestClearSec, RECORD_MAX_SEC), clearKills: recordNum(src.normal.clearKills, RECORD_MAX_COUNT) };
+    }
+    if (src.endless && typeof src.endless === 'object') {
+      const e = { bestTimeSec: recordNum(src.endless.bestTimeSec, RECORD_MAX_SEC), bestKills: recordNum(src.endless.bestKills, RECORD_MAX_COUNT), runs: recordNum(src.endless.runs, RECORD_MAX_COUNT) };
+      if (e.bestTimeSec > 0 || e.bestKills > 0 || e.runs > 0) rec.endless = e;
+    }
+    if (src.battle && typeof src.battle === 'object') {
+      const bt = { bestScore: recordNum(src.battle.bestScore, RECORD_MAX_COUNT), bestTimeSec: recordNum(src.battle.bestTimeSec, RECORD_MAX_SEC), bestCoins: recordNum(src.battle.bestCoins, RECORD_MAX_COUNT), ai1Wins: recordNum(src.battle.ai1Wins, RECORD_MAX_COUNT), ai2Wins: recordNum(src.battle.ai2Wins, RECORD_MAX_COUNT) };
+      if (bt.bestScore > 0 || bt.bestTimeSec > 0 || bt.bestCoins > 0 || bt.ai1Wins > 0 || bt.ai2Wins > 0) rec.battle = bt;
+    }
+    if (rec.normal || rec.endless || rec.battle) out[w] = rec;
+  }
+  return out;
+}
+function mergeModeRecords(a, b) {
+  const out = sanitizeModeRecords(a);
+  const other = sanitizeModeRecords(b);
+  for (let w = 0; w < 10; w++) {
+    const x = out[w];
+    const y = other[w];
+    if (!y) continue;
+    if (!x) { out[w] = y; continue; }
+    if (y.normal) {
+      if (!x.normal || y.normal.bestClearSec < x.normal.bestClearSec
+        || (y.normal.bestClearSec === x.normal.bestClearSec && y.normal.clearKills > x.normal.clearKills)) {
+        x.normal = y.normal;
+      }
+    }
+    if (y.endless) {
+      if (!x.endless) x.endless = y.endless;
+      else {
+        x.endless = {
+          bestTimeSec: Math.max(x.endless.bestTimeSec, y.endless.bestTimeSec),
+          bestKills: Math.max(x.endless.bestKills, y.endless.bestKills),
+          runs: Math.max(x.endless.runs, y.endless.runs)
+        };
+      }
+    }
+    if (y.battle) {
+      if (!x.battle) x.battle = y.battle;
+      else {
+        x.battle = {
+          bestScore: Math.max(x.battle.bestScore, y.battle.bestScore),
+          bestTimeSec: Math.max(x.battle.bestTimeSec, y.battle.bestTimeSec),
+          bestCoins: Math.max(x.battle.bestCoins, y.battle.bestCoins),
+          ai1Wins: Math.max(x.battle.ai1Wins, y.battle.ai1Wins),
+          ai2Wins: Math.max(x.battle.ai2Wins, y.battle.ai2Wins)
+        };
+      }
+    }
+  }
+  return out;
+}
+
 function generateToken(user) {
   return jwt.sign({ id: user._id ? user._id : user.id }, getJwtSecret(), { expiresIn: '30d' });
 }
@@ -259,6 +331,22 @@ router.post('/sync', passport.authenticate('jwt', { session: false }), async (re
     // Battle stats are personal bests: keep the better value.
     for (const f of ['battleHighscore', 'battleBestTime', 'battleBestCoins']) {
       if (b[f] !== undefined) user[f] = Math.max(user[f] || 0, clamp(Math.floor(num(b[f], 0)), 0, 1e10));
+    }
+
+    if (Array.isArray(b.beatenWorlds)) {
+      const merged = new Set([...(user.beatenWorlds || []), ...b.beatenWorlds.filter(n => Number.isInteger(n) && n >= 0 && n <= 9)]);
+      user.beatenWorlds = [...merged].sort((a, c) => a - c);
+    }
+
+    // Mode trio records: scores only, merged best-by-best with the
+    // same rules as the client module (data/mode-records.ts). The
+    // sanitizer drops unknown worlds and modes and clamps every
+    // number; the merge never lowers a stored best and never sums,
+    // so a replayed or doubled sync cannot inflate a record. This
+    // block touches nothing but user.modeRecords.
+    if (b.modeRecords && typeof b.modeRecords === 'object') {
+      user.modeRecords = mergeModeRecords(user.modeRecords || {}, sanitizeModeRecords(b.modeRecords));
+      user.markModified('modeRecords');
     }
 
     user.lastActiveAt = new Date();

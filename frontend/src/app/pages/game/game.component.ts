@@ -4,7 +4,7 @@ import { GameStateService, STAMINA, createMovementState } from '../../services/g
 import { phoenixSkinForWorld } from '../../components/particle-bg/particle-bg.component';
 import { PhysicsEntity, WorldStats } from '../../models/game.models';
 import { ABILITIES, BASE_STATS, REALM_ABILITIES } from '../../constants/game.constants';
-import { PI_RULES, DROP_RULES, levelHpBonusFor } from '../../data/balance.constants';
+import { PI_RULES, DROP_RULES, levelHpBonusFor, ENDLESS_ESCALATION, endlessHpScale, endlessStepAt, endlessPhaseAt } from '../../data/balance.constants';
 import {
   bossDefFor, BossFightState, BOSS_ENRAGE_WARNING_SEC, BOSS_PROJECTILE_CAP,
   SHIELD_HEAL_PHASE_CAP_FRAC, SHIELD_HEAL_FIGHT_CAP_FRAC, SHIELD_MIN_HP_FRAC,
@@ -46,6 +46,12 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
               <div class="h-full bg-gradient-to-r from-cyan-600 to-blue-600 transition-all duration-300"
                    [style.width]="bossHealthPercent() + '%'"></div>
            </div>
+        } @else if (gameState.currentGameMode() === 'endless') {
+           <span class="text-white font-bold tracking-widest uppercase drop-shadow-md">
+              ENDLESS
+           </span>
+           <span class="text-white/90 font-mono text-2xl font-bold">{{ formatTime(gameState.sessionPlayTime()) }}</span>
+           <span class="text-white/60 font-mono text-xs tracking-widest uppercase">Escalation {{ endlessStep() + 1 }} · Kills {{ totalSessionKills() }}</span>
         } @else {
            <span class="text-white font-bold tracking-widest uppercase drop-shadow-md">
               SURVIVE
@@ -116,7 +122,7 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
              on the profile and the survival board but nowhere in a
              run; it sits under the health readout, and the max HP
              beside it already includes the level bonus in campaign). -->
-        @if (gameState.currentGameMode() === 'campaign') {
+        @if (gameState.currentGameMode() === 'campaign' || gameState.currentGameMode() === 'endless') {
           <span class="text-orange-300/90 font-bold text-xs tracking-widest -mt-1">LV {{ gameState.level() }}</span>
         }
         <!-- Stamina arc (spec Section 2.5): a slim ring under the HP
@@ -557,6 +563,26 @@ export class GameComponent implements OnInit, OnDestroy {
 
   private bossDefeatTimestamp = 0;
 
+  // Mode trio run bookkeeping (see ngOnInit): the campaign segment
+  // markers for per-world Normal records, and the once-per-run
+  // guard for the Endless runs counter.
+  private segStartPlayTime = 0;
+  private segStartKills = 0;
+  private endlessRunCounted = false;
+
+  public totalSessionKills(): number {
+      return Object.values(this.gameState.sessionKills()).reduce((a, b) => a + b, 0);
+  }
+
+  public endlessStep(): number {
+      return endlessStepAt(this.gameState.sessionPlayTime());
+  }
+
+  private markSegmentStart() {
+      this.segStartPlayTime = this.gameState.sessionPlayTime();
+      this.segStartKills = this.totalSessionKills();
+  }
+
   private bossGemsDropped = 0;
 
   private bossGemsCollected = 0;
@@ -868,10 +894,12 @@ export class GameComponent implements OnInit, OnDestroy {
     // the design stage and confirmed NOT live by S4; wired here in
     // S6): +10 max HP per account level, capped at +200, computed
     // from the stored level at run start and never stored itself.
-    // Campaign runs only: Battle and AI vs AI replace the player's
-    // stat block with their generated sheets below, which already
-    // bake their own health budgets.
-    if (this.gameState.currentGameMode() === 'campaign') {
+    // Campaign-family runs only (Normal and Endless): Battle and AI
+    // vs AI replace the player's stat block with their generated
+    // sheets below, which already bake their own health budgets.
+    // Endless uses the player's real campaign loadout, so it takes
+    // the same bonus (mode trio).
+    if (this.gameState.currentGameMode() === 'campaign' || this.gameState.currentGameMode() === 'endless') {
         hp += levelHpBonusFor(this.gameState.level());
     }
     if (this.gameState.currentGameMode() === 'ai_vs_ai') hp *= 10;
@@ -880,6 +908,14 @@ export class GameComponent implements OnInit, OnDestroy {
     this.gameState.sessionPlayTime.set(0);
     this.gameState.sessionKills.set({});
     this.gameState.heartsCollected.set(0);
+    // Mode trio segment tracking: a campaign run chains realms in
+    // one component lifetime, so per-world Normal records measure
+    // the segment (time and kills since the current world began),
+    // not the whole session. Reset here and at every realm
+    // transition.
+    this.segStartPlayTime = 0;
+    this.segStartKills = 0;
+    this.endlessRunCounted = false;
     this.gameState.isRebirthing.set(false);
     this.gameState.phoenixOverridePosition.set(null);
     this.gameState.isPaused.set(false);
@@ -980,6 +1016,46 @@ export class GameComponent implements OnInit, OnDestroy {
                 spawnBossNow: () => {
                     this.spawner.spawnBoss(this.getSpawnerContext());
                 },
+                // Mode trio evidence surface: the run's mode and
+                // world, the world's identity (name, skin), the live
+                // record set, the Endless escalation state, the
+                // field composition, and the Battle rival's applied
+                // per-world scaling, all read from the game's own
+                // state so the harness verifies what shipped.
+                trio: () => {
+                    const w = this.gameState.selectedWorldIndex();
+                    const world = this.gameState.worlds[w];
+                    const rival = (this.battleAi.ai1 as any)?.worldScaling || null;
+                    const typeCounts: Record<string, number> = {};
+                    for (const e of this.enemies) {
+                        const t = e.plugin['data']?.type;
+                        if (t) typeCounts[t] = (typeCounts[t] || 0) + 1;
+                    }
+                    return {
+                        mode: this.gameState.currentGameMode(),
+                        worldIndex: w,
+                        worldName: world?.name,
+                        skinId: world?.skinId,
+                        records: JSON.parse(JSON.stringify(this.gameState.modeRecords())),
+                        sessionPlayTime: this.gameState.sessionPlayTime(),
+                        sessionKills: this.totalSessionKills(),
+                        endless: this.gameState.currentGameMode() === 'endless' ? {
+                            step: this.endlessStep(),
+                            phase: +endlessPhaseAt(this.gameState.sessionPlayTime()).toFixed(3),
+                            hpScale: +endlessHpScale(this.endlessStep()).toFixed(3),
+                            stepSeconds: ENDLESS_ESCALATION.stepSeconds
+                        } : null,
+                        field: { alive: this.enemies.length, typeCounts },
+                        rival: rival ? {
+                            ...rival,
+                            maxHealth: this.battleAi.ai1.stats.maxHealth,
+                            damage: this.battleAi.ai1.stats.damage,
+                            abilities: [...this.battleAi.ai1.abilities],
+                            abilityLevels: Object.fromEntries(this.battleAi.ai1.abilities.map(id => [id, this.battleAi.ai1.stats.unlockedAbilities[id]?.level]))
+                        } : null,
+                        bossSpawned: this.bossSpawned()
+                    };
+                },
                 // Stage 9: the boss rig's evidence surface. Returns
                 // a plain snapshot of the live campaign boss's fight
                 // state (fight clock, enrage roll and state, shield
@@ -1058,7 +1134,20 @@ export class GameComponent implements OnInit, OnDestroy {
           gameState: this.gameState,
           audioService: this.audioService,
           screenScale: this.screenScale,
-          progressPercent: () => this.progressPercent(),
+          // Endless (mode trio): the spawner's cadence curve reads
+          // the escalation phase (0 to 100 inside the step) instead
+          // of the campaign survival clock, so attempts quicken as
+          // a step builds, then reset with the next step's heavier
+          // HP scale.
+          progressPercent: () => this.gameState.currentGameMode() === 'endless'
+              ? endlessPhaseAt(this.gameState.sessionPlayTime()) * 100
+              : this.progressPercent(),
+          endlessPhase: () => this.gameState.currentGameMode() === 'endless'
+              ? endlessPhaseAt(this.gameState.sessionPlayTime())
+              : null,
+          enemyHpScale: () => this.gameState.currentGameMode() === 'endless'
+              ? endlessHpScale(this.endlessStep())
+              : 1,
           gameEnded: () => this.gameEnded(),
           isDead: () => this.isDead(),
           bossSpawned: this.bossSpawned,
@@ -1118,6 +1207,12 @@ export class GameComponent implements OnInit, OnDestroy {
               this.nextDropIndex++;
           }
           
+      } else if (this.gameState.currentGameMode() === 'endless') {
+          // Endless (mode trio): no countdown, no boss, no overtime.
+          // sessionPlayTime above is the survival clock; the
+          // escalation step and phase derive from it in the spawner
+          // context, and the run ends only on death (the standard
+          // death and revive flow) or quit.
       } else {
           this.timeRemaining.update(t => Math.max(0, Math.floor(t - 1)));
           if (this.timeRemaining() === 0 && this.bossSpawned() && !this.inBossDefeatSequence() && !this.isDead() && !this.rageModeActive()) {
@@ -1126,7 +1221,7 @@ export class GameComponent implements OnInit, OnDestroy {
           if (this.timeRemaining() === 0 && !this.bossSpawned() && this.progressPercent() >= 100) {
               this.spawner.spawnBoss(this.getSpawnerContext());
           }
-      }  
+      }
       
       if (this.gameState.sessionPlayTime() >= 60) this.gameState.awardTrophy("Survivor");
       
@@ -3514,6 +3609,15 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
         // spec Section 3.4). Recorded for every defeat, first or
         // repeat; the record is what the shop and cast paths read.
         this.gameState.recordBossBeaten(currentWorldIndex);
+        // Mode trio: the same kill is the world's Normal result.
+        // The segment clock and kill count measure this world only
+        // (they reset at run start and at every realm transition),
+        // so a chained run still records each world honestly.
+        if (this.gameState.currentGameMode() === 'campaign') {
+            this.gameState.recordNormalClear(currentWorldIndex,
+                this.gameState.sessionPlayTime() - this.segStartPlayTime,
+                this.totalSessionKills() - this.segStartKills);
+        }
         const isFirstDefeat = !this.gameState.unlockedWorlds().includes(currentWorldIndex + 1);
         const intendedGems = isFirstDefeat ? this.calculateBossGemDrop(currentWorldIndex) : 0;
         
@@ -3776,9 +3880,10 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       // run, dying with no revive tokens (and Rebirth unavailable or
       // on cooldown, which is why control reached here) revives at
       // 50 percent HP instead. Deliberately weaker than a token or
-      // Rebirth revive (full HP). Campaign only: Battle death ends
-      // the match, and the annihilation phase forbids all revives.
-      if (this.gameState.currentGameMode() === 'campaign' && !this.annihilationModeActive()
+      // Rebirth revive (full HP). Campaign-family only (Normal and
+      // Endless): Battle death ends the match, and the annihilation
+      // phase forbids all revives.
+      if ((this.gameState.currentGameMode() === 'campaign' || this.gameState.currentGameMode() === 'endless') && !this.annihilationModeActive()
           && this.gameState.reviveTokens() <= 0
           && this.gameState.currentStats().activeGadget === 'phoenix_feather'
           && !this.featherUsedThisRun) {
@@ -3963,6 +4068,8 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
               this.gameState.unlockedWorlds.update(worlds => [...worlds, nextIdx]);
           }
           this.gameState.selectedWorldIndex.set(nextIdx);
+          // Mode trio: the new realm starts a fresh record segment.
+          this.markSegmentStart();
           
           // Flash animation for cool realm switch
           const flash = document.createElement('div');
@@ -4312,11 +4419,23 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
     
     if (this.gameState.currentGameMode() === 'battle') {
         this.gameState.coins.update(c => c + this.battleCoinsCollected());
+        // Mode trio: the same result lands in the world's Battle
+        // record (the globals above keep feeding the global board).
+        this.gameState.recordBattleResult(this.gameState.selectedWorldIndex(),
+            this.currentBattleScore(), this.battleTimer(), this.currentBattleCoinsGained());
         this.gameState.syncProgressToServer({
             battleHighscore: this.currentBattleScore(),
             battleBestTime: this.battleTimer(),
             battleBestCoins: this.currentBattleCoinsGained()
         });
+    } else if (this.gameState.currentGameMode() === 'endless') {
+        // Mode trio: death is the Endless run's scoring moment
+        // (quit records again with the same bests if the player
+        // revives and improves; the runs counter moves once).
+        this.gameState.recordEndlessRun(this.gameState.selectedWorldIndex(),
+            this.gameState.sessionPlayTime(), this.totalSessionKills(), !this.endlessRunCounted);
+        this.endlessRunCounted = true;
+        this.gameState.syncProgressToServer();
     } else {
         this.gameState.syncProgressToServer();
     }
@@ -4527,11 +4646,24 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
           if (!this.isDead()) {
               this.gameState.coins.update(c => c + this.battleCoinsCollected());
           }
+          this.gameState.recordBattleResult(this.gameState.selectedWorldIndex(),
+              this.currentBattleScore(), this.battleTimer(), this.currentBattleCoinsGained());
           this.gameState.syncProgressToServer({
               battleHighscore: this.currentBattleScore(),
               battleBestTime: this.battleTimer(),
               battleBestCoins: this.currentBattleCoinsGained()
           });
+      } else if (this.gameState.currentGameMode() === 'ai_vs_ai') {
+          // Mode trio: AI vs AI results are per-world records too
+          // (accumulated win totals for this world).
+          this.gameState.recordAiVsAiResult(this.gameState.selectedWorldIndex(),
+              this.gameState.ai1Wins(), this.gameState.ai2Wins());
+          this.gameState.syncProgressToServer();
+      } else if (this.gameState.currentGameMode() === 'endless') {
+          this.gameState.recordEndlessRun(this.gameState.selectedWorldIndex(),
+              this.gameState.sessionPlayTime(), this.totalSessionKills(), !this.endlessRunCounted);
+          this.endlessRunCounted = true;
+          this.gameState.syncProgressToServer();
       } else {
           this.gameState.syncProgressToServer();
       }

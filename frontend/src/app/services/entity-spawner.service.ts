@@ -55,6 +55,15 @@ export interface SpawnerContext {
     battleDropGrace?: WritableSignal<boolean>;
     battleAi?: any;
     inBossDefeatSequence?: () => boolean;
+    // Mode trio (Endless): when endlessPhase returns a number, the
+    // composer reads the band phase from it (the position inside the
+    // current escalation step) instead of the campaign survival
+    // clock, and the pre-boss lull never applies, because no boss is
+    // coming. enemyHpScale multiplies the world HP law for the same
+    // reason (the escalation curve in balance.constants). Both are
+    // optional and default to campaign behavior when absent or null.
+    endlessPhase?: () => number | null;
+    enemyHpScale?: () => number;
 }
 
 @Injectable({
@@ -213,6 +222,12 @@ export class EntitySpawnerService {
     // the phase fraction comes from the world BGM position whenever
     // its duration is known, and from the run timer otherwise.
     public phaseProgress(ctx: SpawnerContext): number {
+        // Endless runs drive the phase from the escalation step
+        // clock (mode trio); every step replays the world's bands.
+        if (ctx.endlessPhase) {
+            const p = ctx.endlessPhase();
+            if (p !== null && p !== undefined) return Math.min(1, Math.max(0, p));
+        }
         const duration = ctx.audioService.getBgmDuration();
         if (duration > 0) {
             return Math.min(1, Math.max(0, ctx.audioService.getBgmCurrentTime() / duration));
@@ -240,9 +255,11 @@ export class EntitySpawnerService {
 
         // The pre-boss lull is a table property: in the last band,
         // once the boss trigger is lullSeconds away, attempts produce
-        // nothing and the field clears for the arrival.
+        // nothing and the field clears for the arrival. Endless has
+        // no boss trigger, so the lull never applies there.
+        const isEndless = !!(ctx.endlessPhase && ctx.endlessPhase() !== null);
         const isLastBand = band === table.bands[table.bands.length - 1];
-        if (isLastBand && table.lullSeconds > 0 && this.secondsToBoss(ctx) <= table.lullSeconds) {
+        if (!isEndless && isLastBand && table.lullSeconds > 0 && this.secondsToBoss(ctx) <= table.lullSeconds) {
             return;
         }
 
@@ -299,6 +316,11 @@ export class EntitySpawnerService {
         const def = SPAWN_DEFS[type];
         if (!def) return null;
         let health = Math.max(1, Math.floor(def.health * Math.pow(1.5, worldIndex)));
+        // Endless escalation (mode trio): the step multiplier from
+        // the balance constants, applied on top of the world law.
+        // Campaign contexts provide no scale (or 1) and are unchanged.
+        const hpScale = ctx.enemyHpScale ? ctx.enemyHpScale() : 1;
+        if (hpScale !== 1) health = Math.max(1, Math.floor(health * hpScale));
         // World 10 elite tint (S6, deferred by Stage 8): Sturdy and
         // Armored class types in the Abyssal Rift spawn at 1.5
         // times HP with the elite flag the renderer tints from. A

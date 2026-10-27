@@ -318,6 +318,81 @@ export const AD_UPGRADE_MAX_COST = 1000;
 // exchange with no spin.
 export const GEM_EXCHANGE_COINS_PER_GEM = 1500;
 
+// ---------------------------------------------------------------------------
+// Mode trio stage (Oct 27, 2026): Endless escalation and per-world
+// Battle rival scaling. Both are content tables; the game loop reads
+// them, nothing restates the numbers elsewhere.
+// ---------------------------------------------------------------------------
+
+// Endless escalation: a step every stepSeconds of survival. Inside a
+// step the wave composer replays the world's own band table from
+// early to pre-boss (phase = position inside the step), so the
+// composition pressure the campaign spreads over one run recurs in
+// miniature, minus the pre-boss lull (no boss is coming) and minus
+// the boss itself. Across steps the pressure grows through enemy HP:
+// hpScale multiplies the world's own HP law by growthPerStep^step,
+// capped at hpCap. 1.12 per step reaches about 2x at step 6 (4.5
+// minutes) and the 4x cap at step 12 (9 minutes): a fresh profile
+// should feel step 0 as the world's early bands and be genuinely
+// squeezed by step 4 to 6, while the cap keeps late Endless a
+// density and dodge problem instead of a pure HP wall. The band
+// maxAlive caps (12 at most) and the 45k live-points budget are
+// untouched, so density stays inside the shipped fairness caps.
+export const ENDLESS_ESCALATION = {
+  stepSeconds: 45,
+  hpGrowthPerStep: 1.12,
+  hpCap: 4,
+};
+
+export function endlessHpScale(step: number): number {
+  const s = Math.max(0, Math.floor(step));
+  return Math.min(ENDLESS_ESCALATION.hpCap, Math.pow(ENDLESS_ESCALATION.hpGrowthPerStep, s));
+}
+
+export function endlessStepAt(survivalSeconds: number): number {
+  return Math.floor(Math.max(0, survivalSeconds) / ENDLESS_ESCALATION.stepSeconds);
+}
+
+export function endlessPhaseAt(survivalSeconds: number): number {
+  const t = Math.max(0, survivalSeconds);
+  return (t % ENDLESS_ESCALATION.stepSeconds) / ENDLESS_ESCALATION.stepSeconds;
+}
+
+// Per-world Battle rival scaling: the rival's stat block starts as a
+// clone of the player's own world record (which already grows world
+// by world through upgrades), and Battle has always multiplied its
+// health by 10 to make a duel-length pool. This table adds the
+// per-world tier Carter asked for on top of that clone:
+//   hp:         extra health multiplier, 1.00 in World 1 rising to
+//               2.08 in World 10, so late-world rivals stay duel
+//               length against late-world player damage.
+//   damage:     multiplier on the rival's damage and burstDamage
+//               stats, 1.00 rising to 1.45. Speed and attack speed
+//               are deliberately NOT scaled: the player's learned
+//               dodge timing and the fairness invariants depend on
+//               them, and the duel tightens through health and hit
+//               weight instead.
+//   levelBonus: added to the rival's ability levels (which are the
+//               average of the player's equipped levels, the shipped
+//               parity rule): +1 from World 4, +2 from World 7, the
+//               loadout tier rising with the world.
+export interface RivalWorldScaling {
+  hp: number;
+  damage: number;
+  levelBonus: number;
+}
+
+export const RIVAL_WORLD_SCALING: RivalWorldScaling[] = Array.from({ length: 10 }, (_, w) => ({
+  hp: 1 + 0.12 * w,
+  damage: 1 + 0.05 * w,
+  levelBonus: Math.min(2, Math.floor(w / 3)),
+}));
+
+export function rivalScalingFor(worldIndex: number): RivalWorldScaling {
+  const w = Math.min(9, Math.max(0, Math.floor(worldIndex)));
+  return RIVAL_WORLD_SCALING[w];
+}
+
 // Section 3.3 per-move power index data. Damage is stated in SU
 // (1 SU = 10 damage at the base damage stat, scaling with the damage stat
 // unless a move says otherwise). pi is null where the spec does not cost

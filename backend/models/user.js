@@ -26,6 +26,17 @@ const userSchema = new mongoose.Schema({
   battleHighscore: { type: Number, default: 0 },
   battleBestTime: { type: Number, default: 0 },
   battleBestCoins: { type: Number, default: 0 },
+
+  // Mode trio (Oct 27, 2026): worlds whose campaign boss has been
+  // beaten, and the per-world per-mode personal bests. The client
+  // has sent beatenWorlds in its sync payload since S4 and reads it
+  // back at login; it is stored from this stage on so the record
+  // actually round-trips. modeRecords is the sanitized record map
+  // from frontend/src/app/data/mode-records.ts (scores only; the
+  // sync handler merges it best-by-best and never lets it touch
+  // currency, unlocks, or entitlements).
+  beatenWorlds: { type: [Number], default: [] },
+  modeRecords: { type: mongoose.Schema.Types.Mixed, default: {} },
   
   // Premium Items
   hasCosmicTrail: { type: Boolean, default: false },
