@@ -20,74 +20,13 @@ import { MlAiService } from '../../services/ml-ai.service';
 import { BattleAiService, BattleContext } from '../../services/battle-ai.service';
 import { EntitySpawnerService, SPAWN_DEFS } from '../../services/entity-spawner.service';
 import { AdsService } from '../../services/ads.service';
+import { EnemyData, SPARK_CELL_TYPES, STURDY_UP_TYPES, ARMORED_UP_TYPES } from './game.types';
+import { BossFight } from './boss-fight';
+import { AbilityExecutor } from './ability-executor';
+import { FxController } from './fx-controller';
+import { BattleSetup } from './battle-setup';
+import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mothFuseCharge, phantomReappearCharge, wraithLockCharge, serpentCoilCharge, darterLineupCharge } from './enemy-charges';
 
-interface EnemyData {
-  id: string;
-  type: 'bat' | 'slime' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite' | 'sentry_shard' | 'seedmother' | 'rift_mine' | 'shieldback' | 'pyre_moth' | 'phantom' | 'wraith' | 'chanter' | 'serpent' | 'darter' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'spark_cell' | 'overcharge' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance' | 'nova';
-  health: number;
-  maxHealth: number;
-  lastAttackTime?: number;
-  lastMinionTime?: number;
-  burstDamage?: number; // Custom damage payload
-  value?: number;
-  aiAbilities?: { id: string; level: number }[]; // For Battle Mode
-  owner?: 'player' | 'enemy';
-  ownerId?: string;
-  immortalUntil?: number;
-  weaveValue?: number; // Gloomwing weave sine, published for the renderer's banking
-  // S2 move payload fields (mirrors models/game.models.ts EnemyData).
-  moveId?: string;
-  pierce?: boolean;
-  hitIds?: string[];
-  targetId?: string;
-  meteorRushUntil?: number;
-  meteorRushDamage?: number;
-  meteorRushHits?: string[];
-  // Stage 3 behavior state machine fields (mirror models/game.models.ts).
-  behaviorState?: string;
-  stateUntil?: number;
-  telegraphStart?: number;
-  dashDirX?: number;
-  dashDirY?: number;
-  orbitDir?: number;
-  aimDirX?: number;
-  aimDirY?: number;
-  nextAimAt?: number;
-  // Stage 4 behavior fields (mirror models/game.models.ts).
-  motherId?: string;
-  sparkUntil?: number;
-  infernoUntil?: number;
-  // Stage 5 behavior fields (mirror models/game.models.ts).
-  buffUntil?: number;
-  lastPulseAt?: number;
-  anchorX?: number;
-  anchorY?: number;
-  passFired?: boolean;
-  trail?: Array<{ x: number, y: number }>;
-  segmentPositions?: Array<{ x: number, y: number }>;
-  // S4: ultimate cast id on projectiles (boss HP cap enforcement).
-  ultCastId?: string;
-  // Stage 9 boss rig fields (mirror models/game.models.ts).
-  bossState?: BossFightState;
-  bossPattern?: boolean;
-  // S6 fields (mirror models/game.models.ts): World 10 elite
-  // tint, World 10 summon alternation, contact cadence timestamp.
-  elite?: boolean;
-  summonAlt?: boolean;
-  lastContactAt?: number;
-}
-
-// Drop-table class membership (spec Sections 1.2 and 5.4, stage S5).
-// Speed classes: Swift (Wisp, Mite, Pyre Moth, Serpent) and Dart
-// (Gloomwing, Cinder Imp on its dash, Storm Darter on its passes)
-// feed the Spark Cell roll. Toughness classes: Sturdy and up (Brood
-// Pod, Sentry Shard, and everything tougher) raise the heart rate;
-// Armored and up (Bastion Golem, Seedmother, Shieldback, and the
-// Elite Loom Serpent) feed the Overcharge roll; the Serpent is the
-// roster's one Elite and feeds the gem roll.
-const SPARK_CELL_TYPES = new Set(['bat', 'imp', 'wisp', 'mite', 'pyre_moth', 'serpent', 'darter']);
-const STURDY_UP_TYPES = new Set(['pod', 'sentry_shard', 'golem', 'seedmother', 'shieldback', 'serpent']);
-const ARMORED_UP_TYPES = new Set(['golem', 'seedmother', 'shieldback', 'serpent']);
 
 @Component({
   selector: 'app-game',
@@ -451,13 +390,97 @@ const ARMORED_UP_TYPES = new Set(['golem', 'seedmother', 'shieldback', 'serpent'
   `
 })
 export class GameComponent implements OnInit, OnDestroy {
+  readonly battleSetup = new BattleSetup(this);
+  readonly fx = new FxController(this);
+  readonly abilities = new AbilityExecutor(this);
+
+  // Template-bound battle getters: the inline template calls these
+  // on the component; the logic lives in BattleSetup.
+  getTapIcon() { return this.battleSetup.getTapIcon(); }
+  getHoldIcon() { return this.battleSetup.getHoldIcon(); }
+  getDoubleIcon() { return this.battleSetup.getDoubleIcon(); }
+  getTripleIcon() { return this.battleSetup.getTripleIcon(); }
+  getDoubleMaxCooldown() { return this.battleSetup.getDoubleMaxCooldown(); }
+  getTripleMaxCooldown() { return this.battleSetup.getTripleMaxCooldown(); }
+  getTapMaxCooldown() { return this.battleSetup.getTapMaxCooldown(); }
+  getHoldMaxCooldown() { return this.battleSetup.getHoldMaxCooldown(); }
+
+
+  // Template-bound FX helpers: the inline template calls these on
+  // the component; the logic lives in FxController.
+  public damageSpriteTop(n: { y: number, born: number }): number { return this.fx.damageSpriteTop(n); }
+  public damageSpriteOpacity(n: { y: number, born: number }): number { return this.fx.damageSpriteOpacity(n); }
+  public staminaArcBackground(): string { return this.fx.staminaArcBackground(); }
+
+  // Delegating methods for the extracted executors: the playtest
+  // harness reaches several of these by name on the component
+  // instance (window.__phoenixS1.game) and wraps two of them
+  // (triggerAbility, fireProjectile) to count casts, so the
+  // component surface and its internal call routing stay exactly
+  // as they were before the organization pass.
+  public executeKillScreen() { return this.bossFight.executeKillScreen(); }
+  public calculateBossGemDrop(realmIndex: number): number { return this.bossFight.calculateBossGemDrop(realmIndex); }
+  public bossProjectileCount(): number { return this.bossFight.bossProjectileCount(); }
+  public fireBossProjectile(x: number, y: number, angle: number, speedPerStep: number, damage: number = 10, radius: number = 8): boolean { return this.bossFight.fireBossProjectile(x, y, angle, speedPerStep, damage, radius); }
+  public fireBossFan(x: number, y: number, bolts: number, speedPerStep: number, radius: number = 8) { return this.bossFight.fireBossFan(x, y, bolts, speedPerStep, radius); }
+  public bossTelegraphShowing(): boolean { return this.bossFight.bossTelegraphShowing(); }
+  public tickBossRig(boss: Matter.Body, data: EnemyData, st: BossFightState, deltaSec: number) { return this.bossFight.tickBossRig(boss, data, st, deltaSec); }
+  public bossAshen(st: BossFightState): boolean { return this.bossFight.bossAshen(st); }
+  public startSingularity(boss: Matter.Body, data: EnemyData, st: BossFightState) { return this.bossFight.startSingularity(boss, data, st); }
+  public bossShardRingUp(st: BossFightState): boolean { return this.bossFight.bossShardRingUp(st); }
+  public startSignature(boss: Matter.Body, data: EnemyData, st: BossFightState) { return this.bossFight.startSignature(boss, data, st); }
+  public fireSignature(boss: Matter.Body, data: EnemyData, st: BossFightState) { return this.bossFight.fireSignature(boss, data, st); }
+  public endSignature(st: BossFightState) { return this.bossFight.endSignature(st); }
+  public tickSignature(boss: Matter.Body, data: EnemyData, st: BossFightState) { return this.bossFight.tickSignature(boss, data, st); }
+  public summonBossMinions(boss: Matter.Body) { return this.bossFight.summonBossMinions(boss); }
+  public bossPublishCharge(data: EnemyData): number { return this.bossFight.bossPublishCharge(data); }
+  public bossPublishState(data: EnemyData): string | undefined { return this.bossFight.bossPublishState(data); }
+  public bossFormFlow(st: BossFightState): number { return this.bossFight.bossFormFlow(st); }
+  public bossWash(data: EnemyData): [number, number, number] | undefined { return this.bossFight.bossWash(data); }
+  public fireBossWaveAttack(pos: Matter.Vector, count: number = 12, angleOffset: number = 0) { return this.bossFight.fireBossWaveAttack(pos, count, angleOffset); }
+  public fireProjectile() { return this.abilities.fireProjectile(); }
+  public fireEnemyProjectile(source: Matter.Vector, speedPerStep: number = 7.5, targetOverride?: { x: number, y: number }) { return this.abilities.fireEnemyProjectile(source, speedPerStep, targetOverride); }
+  public fireWraithBolt(source: Matter.Body) { return this.abilities.fireWraithBolt(source); }
+  public fireDarterSpread(source: Matter.Body) { return this.abilities.fireDarterSpread(source); }
+  public triggerAbility(ability: string, sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number { return this.abilities.triggerAbility(ability, sourceBody, targetX, targetY, stats, ownerId); }
+  public triggerDrillAttack(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number { return this.abilities.triggerDrillAttack(sourceBody, targetX, targetY, stats, ownerId); }
+  public triggerFireBreath(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number { return this.abilities.triggerFireBreath(sourceBody, targetX, targetY, stats, ownerId); }
+  public triggerPhoenixTurret(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number { return this.abilities.triggerPhoenixTurret(sourceBody, targetX, targetY, stats, ownerId); }
+  public aimAngle(sourceBody: Matter.Body, targetX: number, targetY: number): number { return this.abilities.aimAngle(sourceBody, targetX, targetY); }
+  public spawnAbilityProjectile(opts: { x: number, y: number, radius: number, type: EnemyData['type'], moveId: string, damage: number, ownerId: string, angle: number, speedPerStep: number, lifeMs: number, extra?: Partial<EnemyData> }): Matter.Body { return this.abilities.spawnAbilityProjectile(opts); }
+  public triggerBurst(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number { return this.abilities.triggerBurst(sourceBody, targetX, targetY, stats, ownerId); }
+  public triggerPhoenixTalon(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number { return this.abilities.triggerPhoenixTalon(sourceBody, targetX, targetY, stats, ownerId); }
+  public triggerFireDart(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number { return this.abilities.triggerFireDart(sourceBody, targetX, targetY, stats, ownerId); }
+  public triggerSparkStorm(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number { return this.abilities.triggerSparkStorm(sourceBody, targetX, targetY, stats, ownerId); }
+  public triggerFireLance(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number { return this.abilities.triggerFireLance(sourceBody, targetX, targetY, stats, ownerId); }
+  public triggerMeteorRush(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number { return this.abilities.triggerMeteorRush(sourceBody, targetX, targetY, stats, ownerId); }
+  public triggerAura(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number { return this.abilities.triggerAura(sourceBody, targetX, targetY, stats, ownerId); }
+  public triggerPhoenixInferno(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number { return this.abilities.triggerPhoenixInferno(sourceBody, targetX, targetY, stats, ownerId); }
+  public triggerInfernoWave(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number { return this.abilities.triggerInfernoWave(sourceBody, targetX, targetY, stats, ownerId); }
+  public triggerPhoenixNova(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number { return this.abilities.triggerPhoenixNova(sourceBody, targetX, targetY, stats, ownerId); }
+  public triggerSupernova(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number { return this.abilities.triggerSupernova(sourceBody, targetX, targetY, stats, ownerId); }
+  public triggerDivineWrath(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number { return this.abilities.triggerDivineWrath(sourceBody, targetX, targetY, stats, ownerId); }
+  public spawnWrathColumn(x: number, y: number) { return this.abilities.spawnWrathColumn(x, y); }
+  public triggerPhoenixSingularity(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number { return this.abilities.triggerPhoenixSingularity(sourceBody, targetX, targetY, stats, ownerId); }
+  public triggerShake(trigger: string) { return this.fx.triggerShake(trigger); }
+  public updateFx(nowPerf: number) { return this.fx.updateFx(nowPerf); }
+  public recordDamageNumber(enemyId: string, x: number, y: number, amount: number, isBoss: boolean) { return this.fx.recordDamageNumber(enemyId, x, y, amount, isBoss); }
+  public initBattleMode() { return this.battleSetup.initBattleMode(); }
+  public setupAiPhoenix(isRespawn: boolean) { return this.battleSetup.setupAiPhoenix(isRespawn); }
+  public setupAi2Phoenix(isRespawn: boolean) { return this.battleSetup.setupAi2Phoenix(isRespawn); }
+  public resetCooldowns() { return this.battleSetup.resetCooldowns(); }
+  public getNextDropTime(index: number): number { return this.battleSetup.getNextDropTime(index); }
+  public buildMLState(actor: Matter.Body, target: Matter.Body | undefined, hpRatio: number, targetHpRatio: number, threatType: string): any { return this.battleSetup.buildMLState(actor, target, hpRatio, targetHpRatio, threatType); }
+  public resolveBattleDrop(playerWon: boolean, px: number, py: number) { return this.battleSetup.resolveBattleDrop(playerWon, px, py); }
+
+  readonly bossFight = new BossFight(this);
 
   @ViewChild('physicsContainer', { static: true }) physicsContainer!: ElementRef<HTMLDivElement>;
 
 
   public gameState = inject(GameStateService);
 
-  private audioService = inject(AudioService);
+  public audioService = inject(AudioService);
 
   public mlAi = inject(MlAiService);
   private adsService = inject(AdsService);
@@ -479,17 +502,17 @@ export class GameComponent implements OnInit, OnDestroy {
   // phone, a landscape phone, and a tablet. At the 412 px reference
   // phone the factor is exactly 1 and speeds equal the historical
   // pixel values the game was tuned with.
-  private get logicalUnit(): number {
+  public get logicalUnit(): number {
       return Math.min(window.innerWidth, window.innerHeight);
   }
 
-  private get speedScale(): number {
+  public get speedScale(): number {
       return this.logicalUnit / 412;
   }
 
   // Convert a speed tuned on the reference phone (px per 1/60 s step,
   // the unit Matter velocities use) into the current viewport's value.
-  private scaledSpeed(pxPerStepAtRef: number): number {
+  public scaledSpeed(pxPerStepAtRef: number): number {
       return pxPerStepAtRef * this.speedScale;
   }
 
@@ -640,7 +663,7 @@ export class GameComponent implements OnInit, OnDestroy {
 
   public hasRebirthed = false;
 
-  private lastClickTime = 0;
+  public lastClickTime = 0;
 
   // Tap-chain parser state (spec Section 3.2): taps landing within
   // 300 ms of the previous tap extend the chain. Count 2 fires the tap
@@ -666,9 +689,9 @@ export class GameComponent implements OnInit, OnDestroy {
   // Damage numbers (spec Section 4.4): per-enemy merged totals waiting
   // out their 100 ms merge window, then a pooled sprite layer of at
   // most 20 live numbers.
-  private dmgPending = new Map<string, { total: number, x: number, y: number, lastAdd: number, isBoss: boolean }>();
+  public dmgPending = new Map<string, { total: number, x: number, y: number, lastAdd: number, isBoss: boolean }>();
   public damageSprites = signal<Array<{ id: number, x: number, y: number, amount: number, born: number, size: number, color: string }>>([]);
-  private dmgSpriteSeq = 0;
+  public dmgSpriteSeq = 0;
   // Effects clock: bumped every physics frame so the sprite layer and
   // the stamina arc re-render; also carries the shake transform.
   public fxNow = signal<number>(0);
@@ -676,11 +699,11 @@ export class GameComponent implements OnInit, OnDestroy {
   // Every shake that actually fired, with its trigger. The allowed
   // list is SHAKE_ALLOWED_TRIGGERS; the harness asserts on this log.
   public shakeEvents: Array<{ trigger: string, at: number }> = [];
-  private shakeStartPerf = 0;
-  private shakeDurMs = 0;
-  private shakeAmpPx = 0;
-  private shakeDirX = 0;
-  private shakeDirY = 0;
+  public shakeStartPerf = 0;
+  public shakeDurMs = 0;
+  public shakeAmpPx = 0;
+  public shakeDirX = 0;
+  public shakeDirY = 0;
   // Per-frame impact-spark throttle (spec Section 4.6): spark spawns
   // beyond the per-frame allowance are dropped, oldest first, so a
   // 12-enemy death frame can never hitch the game.
@@ -695,22 +718,22 @@ export class GameComponent implements OnInit, OnDestroy {
   
   private tapAbilityEndTime = 0;
 
-  private holdAbilityEndTime = 0;
+  public holdAbilityEndTime = 0;
   // S2: Meteor Rush state for the player-side cast (the rival keeps
   // its rush state on its body data; see EnemyData.meteorRushUntil).
-  private meteorRushUntilMs = 0;
-  private meteorRushDamageValue = 0;
-  private meteorRushHitIds = new Set<string>();
+  public meteorRushUntilMs = 0;
+  public meteorRushDamageValue = 0;
+  public meteorRushHitIds = new Set<string>();
 
-  private doubleAbilityEndTime = 0;
+  public doubleAbilityEndTime = 0;
 
-  private tripleAbilityEndTime = 0;
+  public tripleAbilityEndTime = 0;
 
   // S3: Phoenix Inferno channel end for the player (the rival keeps
   // its channel end on its body data, EnemyData.infernoUntil). While
   // the channel is live the player is braked (Feather Brake speed)
   // and the hold cooldown does not tick down.
-  private playerInfernoUntil = 0;
+  public playerInfernoUntil = 0;
 
   // S3 gadget state (spec Section 5.3): run-local, reset every run.
   // The Feather Charm fires at most once per run; the Aegis Charm's
@@ -728,9 +751,9 @@ export class GameComponent implements OnInit, OnDestroy {
 
   
   // Input Tracking
-  private mouseX = window.innerWidth / 2;
+  public mouseX = window.innerWidth / 2;
 
-  private mouseY = window.innerHeight / 2;
+  public mouseY = window.innerHeight / 2;
 
   private isMouseHeld = false;
   // Hold-ability charge feedback (0..1) and the screen position of the charging finger.
@@ -745,7 +768,7 @@ export class GameComponent implements OnInit, OnDestroy {
 
 
   // Matter.js
-  private engine!: Matter.Engine;
+  public engine!: Matter.Engine;
 
   // Fixed-step physics driver (playtest round 1, speed consistency). The
   // engine is advanced in exact 1/60 s steps accumulated from wall-clock
@@ -757,7 +780,7 @@ export class GameComponent implements OnInit, OnDestroy {
   private physicsLastTime = 0;
   private physicsAccumulator = 0;
 
-  private playerBody!: Matter.Body;
+  public playerBody!: Matter.Body;
 
   
   private timerInterval: any;
@@ -765,7 +788,7 @@ export class GameComponent implements OnInit, OnDestroy {
 
   private attackInterval: any;
 
-  private enemies: Matter.Body[] = [];
+  public enemies: Matter.Body[] = [];
 
   private items: Matter.Body[] = [];
 
@@ -794,14 +817,14 @@ export class GameComponent implements OnInit, OnDestroy {
 
   public annihilationModeActive = signal<boolean>(false);
 
-  private annihilationInterval: any = null;
+  public annihilationInterval: any = null;
 
   private infiniteBurnInterval: any = null;
 
   public killScreenTimer = signal<number>(10);
   // S6: the overtime kill screen is deferred while a campaign
   // boss's rolled enrage is still pending (see triggerRageMode).
-  private rageDeferred = false;
+  public rageDeferred = false;
 
 
   constructor(private ngZone: NgZone) {
@@ -1015,7 +1038,7 @@ export class GameComponent implements OnInit, OnDestroy {
 
 
 
-  private getBattleContext(): BattleContext {
+  public getBattleContext(): BattleContext {
     return {
       gameState: this.gameState,
       bossMaxHealth: this.bossMaxHealth,
@@ -1026,7 +1049,7 @@ export class GameComponent implements OnInit, OnDestroy {
     };
   }
 
-  private getSpawnerContext() {
+  public getSpawnerContext() {
 
       return {
           engine: this.engine,
@@ -1151,137 +1174,6 @@ export class GameComponent implements OnInit, OnDestroy {
       this.updateFx(now);
     };
     this.physicsRafId = requestAnimationFrame(tick);
-  }
-
-  // --- Effects systems (spec Section 4): damage numbers and shake ---
-
-  private static readonly SHAKE_ALLOWED_TRIGGERS = ['boss_death', 'ultimate_cast', 'boss_contact', 'false_rebirth', 'singularity_detonation'];
-
-  // Fire a screen shake. The trigger list in Section 4.3 is
-  // exhaustive: boss death, an ultimate cast, the player taking a
-  // boss-contact hit, and the two boss-stage set pieces (Phoenix King
-  // False Rebirth and Eternal Phoenix Singularity, which land with
-  // the boss stages and call this same method). Amplitude caps at 6
-  // reference px, duration at 250 ms, linear decay, no rotation.
-  // Reduced applies at the setting and automatically while the
-  // Feather Brake is held.
-  public triggerShake(trigger: string) {
-    if (!GameComponent.SHAKE_ALLOWED_TRIGGERS.includes(trigger)) return;
-    // Boss telegraph suppression (deferred to the boss stages by
-    // S1): while a boss telegraph is showing, no shake fires, so
-    // the dodge read stays exact.
-    if (this.bossTelegraphShowing()) return;
-    const setting = this.gameState.screenShakeSetting();
-    if (setting === 'off') return;
-    let amp = 6 * this.speedScale;
-    if (setting === 'reduced') amp *= 0.4;
-    if (this.gameState.playerMovement.braking) amp *= 0.4;
-    this.shakeAmpPx = amp;
-    this.shakeDurMs = 250;
-    this.shakeStartPerf = performance.now();
-    const a = Math.random() * Math.PI * 2;
-    this.shakeDirX = Math.cos(a);
-    this.shakeDirY = Math.sin(a);
-    this.shakeEvents.push({ trigger, at: Date.now() });
-    if (this.shakeEvents.length > 200) this.shakeEvents.splice(0, this.shakeEvents.length - 200);
-  }
-
-  // Per-frame effects update, driven from the physics rAF: advances
-  // the damage number merge window and sprite lifetimes, and the
-  // shake decay.
-  private updateFx(nowPerf: number) {
-    this.fxNow.set(nowPerf);
-    // Damage numbers: entries whose merge window (100 ms since the
-    // last hit on that enemy) has closed become sprites.
-    if (this.gameState.damageNumbersEnabled() && this.dmgPending.size > 0) {
-      const now = Date.now();
-      const sprites = [...this.damageSprites()];
-      this.dmgPending.forEach((entry, key) => {
-        if (now - entry.lastAdd < 100) return;
-        this.dmgPending.delete(key);
-        const amount = Math.max(1, Math.round(entry.total));
-        // Pool cap 20: when full, the smallest pending number is
-        // dropped, never the largest (spec Section 4.4).
-        if (sprites.length >= 20) {
-          let smallestIdx = -1;
-          let smallestVal = amount;
-          sprites.forEach((s, i) => { if (s.amount < smallestVal) { smallestVal = s.amount; smallestIdx = i; } });
-          if (smallestIdx === -1) return; // the new number is the smallest: drop it
-          sprites.splice(smallestIdx, 1);
-        }
-        const skin = phoenixSkinForWorld(this.gameState.selectedWorldIndex());
-        const bright = skin.bright;
-        const size = Math.round(Math.max(10, Math.min(18, 13 * this.speedScale)) * (entry.isBoss ? 1.3 : 1));
-        sprites.push({
-          id: ++this.dmgSpriteSeq, x: entry.x, y: entry.y, amount,
-          born: nowPerf, size,
-          color: `rgb(${Math.round(bright[0] * 255)}, ${Math.round(bright[1] * 255)}, ${Math.round(bright[2] * 255)})`
-        });
-      });
-      this.damageSprites.set(sprites);
-    } else if (this.dmgPending.size > 0) {
-      this.dmgPending.clear();
-    }
-    // Sprite lifetimes: rise and fade over 0.6 s (positions computed
-    // in the template helpers from the sprite's birth time).
-    const live = this.damageSprites();
-    if (live.length > 0 && nowPerf - live[0].born > 650) {
-      this.damageSprites.set(live.filter(s => nowPerf - s.born <= 650));
-    }
-    // Shake decay.
-    if (this.shakeDurMs > 0) {
-      const p = (nowPerf - this.shakeStartPerf) / this.shakeDurMs;
-      if (p >= 1) {
-        this.shakeDurMs = 0;
-        if (this.shakeTransform() !== '') this.shakeTransform.set('');
-      } else {
-        const mag = this.shakeAmpPx * (1 - p);
-        this.shakeTransform.set(`translate(${ (this.shakeDirX * mag).toFixed(1) }px, ${ (this.shakeDirY * mag).toFixed(1) }px)`);
-      }
-    }
-  }
-
-  public damageSpriteTop(n: { y: number, born: number }): number {
-    const age = Math.min(600, Math.max(0, this.fxNow() - n.born));
-    return n.y - (age / 600) * 42 * this.speedScale;
-  }
-
-  public damageSpriteOpacity(n: { born: number }): number {
-    const age = Math.min(600, Math.max(0, this.fxNow() - n.born));
-    return 1 - (age / 600);
-  }
-
-  // Stamina arc background: a conic ring filled to the pool fraction
-  // in the skin's mid color, shifting to the hostile color as the
-  // pool drains (spec Section 2.5).
-  public staminaArcBackground(): string {
-    void this.fxNow();
-    const frac = Math.max(0, Math.min(1, this.gameState.playerMovement.stamina / STAMINA.max));
-    const skin = phoenixSkinForWorld(this.gameState.selectedWorldIndex());
-    const mid = skin.mid;
-    const midCss = `rgb(${Math.round(mid[0] * 255)}, ${Math.round(mid[1] * 255)}, ${Math.round(mid[2] * 255)})`;
-    const color = frac > 0.35 ? midCss : 'rgb(255, 46, 107)';
-    return `conic-gradient(${color} ${frac * 360}deg, rgba(255,255,255,0.12) 0deg)`;
-  }
-
-  // Record player-dealt damage for the number layer: totals merge per
-  // enemy inside a 100 ms window (spec Section 4.4), which keeps Aura,
-  // beams, and breath readable.
-  private recordDamageNumber(enemyId: string, x: number, y: number, amount: number, isBoss: boolean) {
-    if (!this.gameState.damageNumbersEnabled() || amount <= 0) return;
-    // Spec Section 4.4 numbers the damage the PLAYER deals. In AI vs
-    // AI there is no player at the controls, and the hits landing there
-    // are the second AI's, so the layer stays silent in that mode.
-    if (this.gameState.currentGameMode() === 'ai_vs_ai') return;
-    const existing = this.dmgPending.get(enemyId);
-    if (existing && Date.now() - existing.lastAdd < 100) {
-      existing.total += amount;
-      existing.x = x;
-      existing.y = y;
-      existing.lastAdd = Date.now();
-    } else {
-      this.dmgPending.set(enemyId, { total: amount, x, y, lastAdd: Date.now(), isBoss });
-    }
   }
 
   // Stop the fixed-step physics driver (pause, death, teardown).
@@ -1425,7 +1317,7 @@ export class GameComponent implements OnInit, OnDestroy {
                     rushContactDamage = data.meteorRushDamage || 0;
                 }
             }
-            let contactAmount = rushContactDamage > 0 ? rushContactDamage : this.contactDamageFor(data);
+            let contactAmount = rushContactDamage > 0 ? rushContactDamage : contactDamageFor(data);
             // Aegis Plating (spec Section 5.2, stage S5): each
             // stack subtracts 1 from contact damage taken, boss
             // contact excluded, and a hit can never drop below 1.
@@ -3068,7 +2960,7 @@ export class GameComponent implements OnInit, OnDestroy {
                      // code reads these back.
                      health: data.health,
                      maxHealth: data.maxHealth,
-                     attackCharge: data.type === 'boss' ? this.bossPublishCharge(data) : data.type === 'golem' ? Math.min(1, Math.max(0, (now - (data.lastAttackTime || 0)) / 3000)) : data.type === 'imp' ? this.impTelegraphCharge(data, now) : data.type === 'sentry_shard' ? this.shardCharge(data, now) : data.type === 'rift_mine' ? this.mineArmedCharge(body) : data.type === 'pyre_moth' ? this.mothFuseCharge(data, now) : data.type === 'phantom' ? this.phantomReappearCharge(data, now) : data.type === 'wraith' ? this.wraithLockCharge(data, now) : data.type === 'serpent' ? this.serpentCoilCharge(data, now) : data.type === 'darter' ? this.darterLineupCharge(data, now) : undefined,
+                     attackCharge: data.type === 'boss' ? this.bossPublishCharge(data) : data.type === 'golem' ? Math.min(1, Math.max(0, (now - (data.lastAttackTime || 0)) / 3000)) : data.type === 'imp' ? impTelegraphCharge(data, now) : data.type === 'sentry_shard' ? shardCharge(data, now) : data.type === 'rift_mine' ? mineArmedCharge(body, this.playerBody, this.logicalUnit) : data.type === 'pyre_moth' ? mothFuseCharge(data, now) : data.type === 'phantom' ? phantomReappearCharge(data, now) : data.type === 'wraith' ? wraithLockCharge(data, now) : data.type === 'serpent' ? serpentCoilCharge(data, now) : data.type === 'darter' ? darterLineupCharge(data, now) : undefined,
                      weave: data.type === 'bat' || data.type === 'serpent' ? data.weaveValue : undefined,
                      state: data.type === 'boss' ? this.bossPublishState(data) : (data.type === 'imp' || data.type === 'wisp' || data.type === 'sentry_shard' || data.type === 'seedmother' || data.type === 'rift_mine' || data.type === 'shieldback' || data.type === 'pyre_moth' || data.type === 'phantom' || data.type === 'wraith' || data.type === 'chanter' || data.type === 'serpent' || data.type === 'darter') ? data.behaviorState : undefined,
                      facing: (data.type === 'shieldback' || data.type === 'sentry_shard' || data.type === 'wraith' || data.type === 'darter' || data.type === 'serpent') && data.aimDirX !== undefined ? Math.atan2(data.aimDirY || 0, data.aimDirX || 0) : undefined,
@@ -3102,7 +2994,7 @@ export class GameComponent implements OnInit, OnDestroy {
                   y: body.position.y + dy / 2,
                   type: 'wraith_line',
                   size: Math.max(1, dist / 2),
-                  attackCharge: this.wraithLockCharge(data, now),
+                  attackCharge: wraithLockCharge(data, now),
                   facing: Math.atan2(dy, dx)
               });
           }
@@ -3287,1461 +3179,12 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   }
 
 
-  private initBattleMode() {
-      if (this.gameState.currentGameMode() === 'ai_vs_ai') {
-          this.gameState.ai1Wins.set(0);
-          this.gameState.ai2Wins.set(0);
-      }
-      this.battleAi.reset();
-      
-      this.setupAiPhoenix(false);
-      if (this.gameState.currentGameMode() === 'ai_vs_ai') {
-          this.setupAi2Phoenix(false);
-      }
-      
-      
-      this.nextDropIndex = 0;
-      this.battleDropReady.set(false);
-      this.battleDropGrace.set(false);
-      
-      const maxHp = this.battleAi.ai1.stats.maxHealth;
-      this.bossMaxHealth.set(maxHp);
-      this.bossHealth.set(maxHp);
-      
-      this.battleStartCoins = this.gameState.coins();
-      this.battleStartXp = this.gameState.xp();
-      this.battleCoinsCollected.set(0);
-      
-      this.resetCooldowns();
-      
-      // Entrance is LIVE (not a hard pause): physics keeps running, but AI logic/attacks are
-      // disabled and the player can't move or take damage until the intro finishes.
-      this.entranceActive.set(true);
-      this.gameState.isPaused.set(false);
-
-      // Spawn AI Phoenix off-screen top
-      const scale = this.screenScale;
-      const aiCore = Matter.Bodies.rectangle(window.innerWidth / 2, -200, 10 * scale, 20 * scale, { label: 'enemy' });
-      const aiLeftWing = Matter.Bodies.rectangle(window.innerWidth / 2 - (15 * scale), -200 - (5 * scale), 20 * scale, 8 * scale, { label: 'enemy' });
-      const aiRightWing = Matter.Bodies.rectangle(window.innerWidth / 2 + (15 * scale), -200 - (5 * scale), 20 * scale, 8 * scale, { label: 'enemy' });
-
-      const enemyPhoenix = Matter.Body.create({
-          parts: [aiCore, aiLeftWing, aiRightWing],
-          label: 'enemy',
-          plugin: {
-              data: {
-                  id: 'ai_phoenix',
-                  type: 'enemy_phoenix',
-                  health: maxHp,
-                  maxHealth: maxHp,
-                  value: 0
-              } as EnemyData
-          }
-      });
-      
-      Matter.Composite.add(this.engine.world, enemyPhoenix);
-      this.enemies.push(enemyPhoenix);
-      
-      // Cinematic Entrance for AI.
-      // Spread spawn positions further apart (AI top third, player bottom third) so the two
-      // Phoenixes don't overlap on short viewports and trigger separation-force jitter.
-      const aiStartY = -200;
-      const aiEndY = Math.max(120, window.innerHeight * 0.22);
-      const playerEndY = Math.min(window.innerHeight - 120, window.innerHeight * 0.78);
-      
-      const duration = 1500;
-      const startTime = Date.now();
-      
-      const animateEntrance = () => {
-          if (this.isDead() || this.gameEnded()) return;
-          const now = Date.now();
-          const progress = Math.min((now - startTime) / duration, 1);
-          
-          // Easing: easeOutQuad
-          const easeProgress = progress * (2 - progress);
-          
-          const currentAiY = aiStartY + (aiEndY - aiStartY) * easeProgress;
-          
-          // Override AI physics position and lock mouse to top
-          this.gameState.aiPhoenixOverridePosition.set({ x: window.innerWidth / 2, y: currentAiY });
-          this.gameState.aiMousePos.set({ x: window.innerWidth / 2, y: 50 });
-          Matter.Body.setPosition(enemyPhoenix, { x: window.innerWidth / 2, y: currentAiY });
-          Matter.Body.setVelocity(enemyPhoenix, { x: 0, y: 0 }); 
-          
-          // Animate Player from bottom to their start pos
-          if (this.playerBody) {
-              const playerStartY = window.innerHeight + 200;
-              const currentPlayerY = playerStartY + (playerEndY - playerStartY) * easeProgress;
-              this.gameState.phoenixOverridePosition.set({ x: window.innerWidth / 2, y: currentPlayerY });
-              Matter.Body.setPosition(this.playerBody, { x: window.innerWidth / 2, y: currentPlayerY });
-              Matter.Body.setVelocity(this.playerBody, { x: 0, y: 0 });
-          }
-          
-          if (progress < 1) {
-              requestAnimationFrame(animateEntrance);
-          } else {
-              this.gameState.aiPhoenixOverridePosition.set(null);
-        if ((this as any).aiEntranceAnimId) cancelAnimationFrame((this as any).aiEntranceAnimId);
-              this.gameState.phoenixOverridePosition.set(null);
-              // Sync the AI's post-entrance steering target to where it actually landed so it
-              // doesn't snap up to y=50 the instant the override clears.
-              this.gameState.aiMousePos.set({ x: window.innerWidth / 2, y: aiEndY });
-              this.gameState.aiPhoenixScreenPos.set({ x: window.innerWidth / 2, y: aiEndY });
-              this.triggerImpactEffect(window.innerWidth / 2, currentAiY, true); // AI flash effect on landing
-              if (this.playerBody) {
-                  this.triggerImpactEffect(window.innerWidth / 2, playerEndY, false);
-              }
-              // 1 second standoff, then hand control + AI back on (no unpause needed).
-              setTimeout(() => {
-                  if (!this.gameEnded() && !this.isDead()) {
-                      this.entranceActive.set(false);
-                      this.lastClickTime = Date.now();
-                  }
-              }, 1000);
-          }
-      };
-      
-      requestAnimationFrame(animateEntrance);
-  }
-
-
-  private setupAiPhoenix(isRespawn: boolean) {
-      const playerStats = this.gameState.currentStats();
-      this.battleAi.ai1.stats = JSON.parse(JSON.stringify(playerStats));
-      this.battleAi.ai1.stats.maxHealth *= 10; // Scale base health x10 for Battle Mode boss pool
-      
-      const worldId = this.gameState.selectedWorldIndex();
-      const realmAbilities = REALM_ABILITIES[worldId] || ['burst', 'aura'];
-      
-      const tapAbilities = realmAbilities.filter(k => ABILITIES[k]?.type === 'tap' && k !== 'rebirth');
-      const holdAbilities = realmAbilities.filter(k => ABILITIES[k]?.type === 'hold' && k !== 'rebirth');
-      // S2 (spec Section 7.2): the rival learns each family in the
-      // stage it ships, so it now also draws a double move.
-      const doubleAbilities = realmAbilities.filter(k => ABILITIES[k]?.type === 'double' && k !== 'rebirth');
-      // S4: and an ultimate, drawn the same way from the triple pool.
-      const tripleAbilities = realmAbilities.filter(k => ABILITIES[k]?.type === 'triple' && k !== 'rebirth');
-
-      let tap = tapAbilities.length > 0 ? tapAbilities[Math.floor(Math.random() * tapAbilities.length)] : 'burst';
-      let hold = holdAbilities.length > 0 ? holdAbilities[Math.floor(Math.random() * holdAbilities.length)] : 'aura';
-      let dbl = doubleAbilities.length > 0 ? doubleAbilities[Math.floor(Math.random() * doubleAbilities.length)] : null;
-      let tri = tripleAbilities.length > 0 ? tripleAbilities[Math.floor(Math.random() * tripleAbilities.length)] : null;
-
-      this.battleAi.ai1.abilities = [tap, hold, ...(dbl ? [dbl] : []), ...(tri ? [tri] : [])];
-
-      const playerTapLevel = playerStats.activeTapAbility ? (playerStats.unlockedAbilities[playerStats.activeTapAbility]?.level || 1) : 1;
-      const playerHoldLevel = playerStats.activeHoldAbility ? (playerStats.unlockedAbilities[playerStats.activeHoldAbility]?.level || 1) : 1;
-      // The AI loadout rule (Section 7.2): AI ability levels are the
-      // average of the player's EQUIPPED levels. The double slot joins
-      // the average when the player has one equipped.
-      const playerDoubleLevel = playerStats.activeDoubleAbility ? (playerStats.unlockedAbilities[playerStats.activeDoubleAbility]?.level || 1) : null;
-      // S4: the triple slot joins the average the same way.
-      const playerTripleLevel = playerStats.activeTripleAbility ? (playerStats.unlockedAbilities[playerStats.activeTripleAbility]?.level || 1) : null;
-      const equippedLevels = [playerTapLevel, playerHoldLevel, ...(playerDoubleLevel !== null ? [playerDoubleLevel] : []), ...(playerTripleLevel !== null ? [playerTripleLevel] : [])];
-      const avgPlayerLevel = Math.max(1, Math.floor(equippedLevels.reduce((a, b) => a + b, 0) / equippedLevels.length));
-      
-      this.battleAi.ai1.abilities.forEach(id => {
-          this.battleAi.ai1.stats.unlockedAbilities[id] = { level: avgPlayerLevel, modifiers: {} };
-          this.battleAi.ai1.stats.unlockedAbilities[id].modifiers = this.gameState.generateAbilityUpgrade(id, avgPlayerLevel, {});
-      });
-
-      if (!isRespawn) {
-          // Roll 1-5 tokens for each of the 8 stats
-          const statCount = 8;
-          let initialUpgradeTokens = 0;
-          for(let i=0; i<statCount; i++) {
-              initialUpgradeTokens += Math.floor(Math.random() * 5) + 1;
-          }
-          
-          // Roll 1-5 tokens for each of the 2 abilities
-          let initialAbilityTokens = 0;
-          for(let i=0; i<2; i++) {
-              initialAbilityTokens += Math.floor(Math.random() * 5) + 1;
-          }
-          
-          // Spend tokens
-          this.battleAi.spendTokens(this.battleAi.ai1.upgradeTokensBox, this.battleAi.ai1.abilityTokensBox, 'ai1', this.getBattleContext());
-          this.battleAi.ai1.upgradesWeights = {}; // reset weights after init
-      } else {
-          // On respawn, spend accumulated tokens from boxes
-          this.battleAi.spendTokens(this.battleAi.ai1.upgradeTokensBox, this.battleAi.ai1.abilityTokensBox, 'ai1', this.getBattleContext());
-          // (Weights are preserved across respawns)
-      }
-      this.gameState.aiPhoenixSpeed.set(this.battleAi.ai1.stats.speed);
-  }
-
-
-  private setupAi2Phoenix(isRespawn: boolean) {
-      const playerStats = this.gameState.currentStats();
-      this.battleAi.ai2.stats = JSON.parse(JSON.stringify(playerStats));
-      this.battleAi.ai2.stats.maxHealth *= 10; // AI2 gets x10 health as well
-      
-      let tap = playerStats.activeTapAbility || 'burst';
-      let hold = playerStats.activeHoldAbility || 'aura';
-      // S2: ai2 mirrors the player's double slot too (null when the
-      // player has none equipped, exactly like its tap/hold mirror).
-      let dbl = playerStats.activeDoubleAbility || null;
-      // S4: and the triple slot, mirrored the same way.
-      let tri = playerStats.activeTripleAbility || null;
-
-      this.battleAi.ai2.abilities = [tap, hold, ...(dbl ? [dbl] : []), ...(tri ? [tri] : [])];
-
-      const playerTapLevel = playerStats.activeTapAbility ? (playerStats.unlockedAbilities[playerStats.activeTapAbility]?.level || 1) : 1;
-      const playerHoldLevel = playerStats.activeHoldAbility ? (playerStats.unlockedAbilities[playerStats.activeHoldAbility]?.level || 1) : 1;
-      const playerDoubleLevel = playerStats.activeDoubleAbility ? (playerStats.unlockedAbilities[playerStats.activeDoubleAbility]?.level || 1) : null;
-      const playerTripleLevel = playerStats.activeTripleAbility ? (playerStats.unlockedAbilities[playerStats.activeTripleAbility]?.level || 1) : null;
-      const equippedLevels = [playerTapLevel, playerHoldLevel, ...(playerDoubleLevel !== null ? [playerDoubleLevel] : []), ...(playerTripleLevel !== null ? [playerTripleLevel] : [])];
-      const avgPlayerLevel = Math.max(1, Math.floor(equippedLevels.reduce((a, b) => a + b, 0) / equippedLevels.length));
-      
-      this.battleAi.ai2.abilities.forEach(id => {
-          this.battleAi.ai2.stats.unlockedAbilities[id] = { level: avgPlayerLevel, modifiers: {} };
-          this.battleAi.ai2.stats.unlockedAbilities[id].modifiers = this.gameState.generateAbilityUpgrade(id, avgPlayerLevel, {});
-      });
-
-      if (!isRespawn) {
-          const statCount = 8;
-          let initialUpgradeTokens = 0;
-          for(let i=0; i<statCount; i++) {
-              initialUpgradeTokens += Math.floor(Math.random() * 5) + 1;
-          }
-          
-          let initialAbilityTokens = 0;
-          for(let i=0; i<2; i++) {
-              initialAbilityTokens += Math.floor(Math.random() * 5) + 1;
-          }
-          
-          this.battleAi.spendTokens(this.battleAi.ai2.upgradeTokensBox, this.battleAi.ai2.abilityTokensBox, 'ai2', this.getBattleContext());
-          this.battleAi.ai2.upgradesWeights = {}; 
-      }
-  }
-
-
-  private resetCooldowns() {
-      this.battleAi.ai1.lastTapTime = 0;
-      this.battleAi.ai1.lastHoldTime = 0;
-      this.battleAi.ai1.lastDoubleTime = 0;
-      this.battleAi.ai1.lastTripleTime = 0;
-      this.battleAi.ai2.lastTapTime = 0;
-      this.battleAi.ai2.lastHoldTime = 0;
-      this.battleAi.ai2.lastDoubleTime = 0;
-      this.battleAi.ai2.lastTripleTime = 0;
-      this.lastClickTime = 0;
-      this.holdAbilityEndTime = 0;
-      this.doubleAbilityEndTime = 0;
-      this.tripleAbilityEndTime = 0;
-      this.tapCooldown.set(0);
-      this.holdCooldown.set(0);
-      this.doubleCooldown.set(0);
-      this.tripleCooldown.set(0);
-      this.battleAi.ai2.tapCooldown = 0;
-      this.battleAi.ai2.holdCooldown = 0;
-      this.battleAi.ai2.doubleCooldown = 0;
-      this.battleAi.ai2.tripleCooldown = 0;
-  }
-
-
-  private getNextDropTime(index: number): number {
-      if (index < 5) return (index + 1) * 60; // 1m, 2m, 3m, 4m, 5m
-      if (index < 8) return 300 + (index - 4) * 90; // 6:30, 8:00, 9:30
-      return 570 + (index - 7) * 120; // 11:30, 13:30, ...
-  }
-
-
-  getTapIcon() { return ABILITIES[this.gameState.currentStats().activeTapAbility || 'burst']?.icon || '💥'; }
-
-  getHoldIcon() { return ABILITIES[this.gameState.currentStats().activeHoldAbility || 'aura']?.icon || '🌀'; }
-
-  getDoubleIcon() { const id = this.gameState.currentStats().activeDoubleAbility; return (id && ABILITIES[id]?.icon) || '⚡'; }
-
-  getTripleIcon() { const id = this.gameState.currentStats().activeTripleAbility; return (id && ABILITIES[id]?.icon) || '✨'; }
-
-  private slotMaxCooldown(id: string | null): number {
-      if (!id) return 1;
-      const abilityData = this.gameState.worldUpgrades()[this.gameState.selectedWorldIndex()]?.unlockedAbilities[id];
-      const mod = abilityData?.modifiers?.['cooldown'] || 1.0;
-      return (ABILITIES[id]?.baseCooldown || 1) * mod;
-  }
-
-  getDoubleMaxCooldown() { return this.slotMaxCooldown(this.gameState.currentStats().activeDoubleAbility); }
-
-  getTripleMaxCooldown() { return this.slotMaxCooldown(this.gameState.currentStats().activeTripleAbility); }
-
-
-  getTapMaxCooldown() {
-      const id = this.gameState.currentStats().activeTapAbility || 'burst';
-      const abilityData = this.gameState.worldUpgrades()[this.gameState.selectedWorldIndex()]?.unlockedAbilities[id];
-      const mod = abilityData?.modifiers?.['cooldown'] || 1.0;
-      if (id === 'drill_attack') return 3 * mod;
-      if (id === 'fire_breath') return 8 * mod;
-      // S2: burst (now 6 s) and the new tap moves read their real
-      // base cooldown from ABILITIES; the old hardcoded 5 here was
-      // burst's pre-S2 value.
-      return (ABILITIES[id]?.baseCooldown || 5) * mod;
-  }
-
-
-  getHoldMaxCooldown() {
-      // Every hold move reads its real base cooldown from ABILITIES
-      // times its cooldown modifier (the slotMaxCooldown convention).
-      // The old hardcoded values (turret 10, rebirth 60, else 15)
-      // disagreed with the cooldowns triggerAbility actually
-      // returned, so the HUD ring lied; S3's charge payment also
-      // moved the bases (turret 14, aura 17, rebirth 75).
-      return this.slotMaxCooldown(this.gameState.currentStats().activeHoldAbility || 'aura');
-  }
-
-
-  private buildMLState(actor: Matter.Body, target: Matter.Body | undefined, hpRatio: number, targetHpRatio: number, threatType: string): any {
-      const projectiles = Matter.Composite.allBodies(this.engine.world).filter(b => b.label === 'projectile' && b.plugin['data']?.type === threatType);
-      
-      const rays = 8;
-      const radarDists = Array(rays).fill(0);
-      const maxRange = 400;
-      
-      for (let i = 0; i < rays; i++) {
-          const angle = (Math.PI * 2 / rays) * i;
-          const endPoint = {
-              x: actor.position.x + Math.cos(angle) * maxRange,
-              y: actor.position.y + Math.sin(angle) * maxRange
-          };
-          
-          const hits = Matter.Query.ray(projectiles, actor.position, endPoint);
-          if (hits.length > 0) {
-              let minDist = maxRange;
-              for (let hit of hits) {
-                  const dist = Matter.Vector.magnitude(Matter.Vector.sub(actor.position, (hit as any).body.position));
-                  if (dist < minDist) minDist = dist;
-              }
-              radarDists[i] = 1.0 - (minDist / maxRange);
-          }
-      }
-
-      let closestMobType = 0;
-      let closestMobDist = 1.0;
-      let closestMobVelX = 0;
-      let closestMobVelY = 0;
-      let nearestBody: Matter.Body | null = null;
-      let minDistRaw = Infinity;
-
-      const allBodies = Matter.Composite.allBodies(this.engine.world);
-      for (let b of allBodies) {
-           if (b === actor || b === target) continue;
-           if (b.label === 'enemy' || b.label === 'boss' || b.label === 'projectile') {
-                const dist = Matter.Vector.magnitude(Matter.Vector.sub(actor.position, b.position));
-                if (dist < minDistRaw) {
-                    minDistRaw = dist;
-                    nearestBody = b;
-                }
-           }
-      }
-
-      if (nearestBody) {
-           closestMobDist = Math.min(1.0, minDistRaw / maxRange);
-           closestMobVelX = nearestBody.velocity.x;
-           closestMobVelY = nearestBody.velocity.y;
-           
-           const data = nearestBody.plugin['data'];
-           const typeStr = data ? data.type : nearestBody.label;
-           
-           // Deterministic string hash to [0, 1] so new mobs work automatically
-           let hash = 0;
-           if (typeStr) {
-               for (let i = 0; i < typeStr.length; i++) {
-                   hash = (hash * 31 + typeStr.charCodeAt(i)) % 1000;
-               }
-           }
-           closestMobType = hash / 1000.0;
-      }
-
-      const isBottomAi = threatType === 'projectile_enemy'; // If it fires enemy projectiles, it's the Bottom AI acting as player
-      const aiY = isBottomAi ? window.innerHeight - actor.position.y : actor.position.y;
-      const aiVelY = isBottomAi ? -actor.velocity.y : actor.velocity.y;
-      const pY = target?.position.y || (isBottomAi ? window.innerHeight - 100 : 100);
-      const playerY = isBottomAi ? window.innerHeight - pY : pY;
-      const playerVelY = isBottomAi ? -(target?.velocity.y || 0) : (target?.velocity.y || 0);
-      const mobVelY = isBottomAi ? -closestMobVelY : closestMobVelY;
-
-      return {
-          aiX: actor.position.x, aiY: aiY,
-          aiVelX: actor.velocity.x, aiVelY: aiVelY,
-          playerX: target?.position.x || window.innerWidth / 2, playerY: playerY,
-          playerVelX: target?.velocity.x || 0, playerVelY: playerVelY,
-          hpRatio: hpRatio,
-          playerHpRatio: targetHpRatio,
-          radar0: radarDists[0], radar1: radarDists[1], radar2: radarDists[2], radar3: radarDists[3],
-          radar4: radarDists[4], radar5: radarDists[5], radar6: radarDists[6], radar7: radarDists[7],
-          closestMobType: closestMobType,
-          closestMobDist: closestMobDist,
-          closestMobVelX: closestMobVelX,
-          closestMobVelY: mobVelY
-      };
-  }
-
-
-  private executeKillScreen() {
-      const boss = this.enemies.find(e => e.plugin['data']?.type === 'boss');
-      if (!boss) return;
-      
-      this.annihilationModeActive.set(true);
-      
-      // Clear all enemies except boss
-      this.enemies.forEach(e => {
-          if (e.plugin['data']?.type !== 'boss') {
-              Matter.Composite.remove(this.engine.world, e);
-          }
-      });
-      this.spliceOut(this.enemies, e => e === boss);
-      
-      // Clear existing projectiles
-      const currentBodies = Matter.Composite.allBodies(this.engine.world);
-      currentBodies.forEach(b => {
-          if (b.label === 'projectile') {
-              Matter.Composite.remove(this.engine.world, b);
-          }
-      });
-
-      // Start Annihilation Barrage (every 200ms)
-      if (this.annihilationInterval) clearInterval(this.annihilationInterval);
-      this.annihilationInterval = setInterval(() => {
-          if (this.isDead() || this.gameEnded() || this.inBossDefeatSequence()) {
-              clearInterval(this.annihilationInterval);
-              return;
-          }
-          
-          const dir = Matter.Vector.normalise(Matter.Vector.sub(this.playerBody.position, boss.position));
-          const angle = Math.atan2(dir.y, dir.x);
-          const fireDir = { x: Math.cos(angle), y: Math.sin(angle) };
-          const proj = Matter.Bodies.circle(boss.position.x, boss.position.y, 20, {
-              label: 'projectile', isSensor: true,
-              plugin: { data: { id: Math.random().toString(), type: 'annihilation_fire', health: 1, maxHealth: 1 } as EnemyData }
-          });
-          Matter.Body.setVelocity(proj, Matter.Vector.mult(fireDir, this.scaledSpeed(7.5)));
-          Matter.Composite.add(this.engine.world, proj);
-          
-      }, 200);
-  }
-
-
-
-
-
-
-  private calculateBossGemDrop(realmIndex: number): number {
-      // Boss drop should be roughly the equivalent of $5 worth of gems (approx 50 gems)
-      // but with a random range, and scaling slightly per realm.
-      let min = 40;
-      let max = 60;
-      
-      if (realmIndex > 0) {
-          min += realmIndex * 20;
-          max += realmIndex * 30;
-      }
-      return Math.floor(Math.random() * (max - min + 1)) + min;
-  }
-
-
-
-  // -----------------------------------------------------------------
-  // Stage 9 boss rig (data in data/boss-rig.ts): one state machine
-  // for every campaign boss. Enrage (rolled per fight inside the
-  // world's window, with a 5 s charge-up warning), shield and regen
-  // phases (hard caps from Carter's addendum), the signature attack
-  // schedule, and the hazard ticks. All timing runs on the fight
-  // clock (accumulated physics steps), never on wall time, so
-  // pauses and frame rate cannot move a telegraph or an enrage.
-  // -----------------------------------------------------------------
-
-  private bossProjectileCount(): number {
-      let n = 0;
-      for (const b of Matter.Composite.allBodies(this.engine.world)) {
-          if (b.label === 'projectile' && (b.plugin['data'] as EnemyData)?.bossPattern) n++;
-      }
-      return n;
-  }
-
-  // One boss-pattern projectile, aimed from (x, y) along angle.
-  // The density cap is a fairness invariant (addendum rule 3): when
-  // the cap is reached the shot simply does not spawn, so a dodge
-  // line always exists.
-  private fireBossProjectile(x: number, y: number, angle: number, speedPerStep: number, damage: number = 10, radius: number = 8): boolean {
-      if (this.bossProjectileCount() >= BOSS_PROJECTILE_CAP) return false;
-      const proj = Matter.Bodies.circle(x, y, radius, {
-          label: 'projectile', isSensor: true,
-          plugin: { data: { id: Math.random().toString(), type: 'projectile_enemy', health: 1, maxHealth: 1, owner: 'enemy', burstDamage: damage, bossPattern: true } as EnemyData }
-      });
-      Matter.Body.setVelocity(proj, { x: Math.cos(angle) * this.scaledSpeed(speedPerStep), y: Math.sin(angle) * this.scaledSpeed(speedPerStep) });
-      Matter.Composite.add(this.engine.world, proj);
-      setTimeout(() => { if (proj.parent) Matter.Composite.remove(this.engine.world, proj); }, 2600);
-      return true;
-  }
-
-  private fireBossFan(x: number, y: number, bolts: number, speedPerStep: number, radius: number = 8) {
-      const base = Math.atan2(this.playerBody.position.y - y, this.playerBody.position.x - x);
-      const spread = 0.32;
-      for (let i = 0; i < bolts; i++) {
-          const a = bolts === 1 ? base : base + (i / (bolts - 1) - 0.5) * spread * (bolts - 1);
-          this.fireBossProjectile(x, y, a, speedPerStep, 10, radius);
-      }
-  }
-
-  // Is a boss telegraph showing right now? Drives the screen shake
-  // suppression (systems spec Section 4.3, deferred to the boss
-  // stages by S1): while a telegraph is up, the field stays still
-  // so the dodge read is never blurred.
-  private bossTelegraphShowing(): boolean {
-      const boss = this.enemies.find(e => e.plugin['data']?.type === 'boss');
-      const st = (boss?.plugin['data'] as EnemyData)?.bossState;
-      if (!st) return false;
-      if (st.shieldTelegraphStartSec >= 0) return true;
-      return !!st.sig && st.sig.phase === 'telegraph';
-  }
-
-  private tickBossRig(boss: Matter.Body, data: EnemyData, st: BossFightState, deltaSec: number) {
-      if (this.gameEnded() || this.isDead() || this.inBossDefeatSequence()) return;
-      const def = bossDefFor(st.worldIndex);
-      st.fightSec += deltaSec;
-      const t = st.fightSec;
-
-      // Enrage: warning first (glow and cracks build over the final
-      // seconds, with a rising audio cue), then the trigger.
-      if (!st.enraged && !st.enrageWarned && t >= st.enrageAtSec - BOSS_ENRAGE_WARNING_SEC) {
-          st.enrageWarned = true;
-          bossEvent(st, 'enrage_warning', `enrage at ${st.enrageAtSec.toFixed(1)}s`);
-          this.audioService.playSFX('boss');
-      }
-      if (!st.enraged && t >= st.enrageAtSec) {
-          st.enraged = true;
-          this.bossEnraged.set(true);
-          bossEvent(st, 'enraged');
-          this.audioService.playSFX('boss');
-      }
-
-      // Shield telegraph completing: the shield snaps on.
-      if (st.shieldTelegraphStartSec >= 0 && t >= st.shieldTelegraphStartSec + SHIELD_TELEGRAPH_SEC) {
-          st.shieldTelegraphStartSec = -1;
-          st.shieldUp = true;
-          st.shieldHp = st.shieldMaxHp;
-          st.shieldUpAtSec = t;
-          st.healedThisPhase = 0;
-          st.phasesUsed++;
-          this.bossShieldHealth.set(st.shieldHp);
-          this.bossShieldMaxHealth.set(st.shieldMaxHp);
-          bossEvent(st, 'shield_up', `shield hp ${st.shieldMaxHp}`);
-      }
-
-      // Shield offers at the scripted HP thresholds. The offer is
-      // consumed even when a guard refuses it (final-sliver
-      // lockout, spacing, heal cap), so thresholds never queue.
-      if (!st.shieldUp && st.shieldTelegraphStartSec < 0 && st.nextThresholdIdx < SHIELD_HP_FRACTIONS.length) {
-          const hpFrac = data.health / Math.max(1, data.maxHealth);
-          if (hpFrac <= SHIELD_HP_FRACTIONS[st.nextThresholdIdx]) {
-              st.nextThresholdIdx++;
-              const fightCap = SHIELD_HEAL_FIGHT_CAP_FRAC * data.maxHealth;
-              if (hpFrac > SHIELD_MIN_HP_FRAC
-                  && st.healedThisFight < fightCap - 0.001
-                  && t - st.lastShieldStartSec >= SHIELD_MIN_SPACING_SEC) {
-                  st.shieldTelegraphStartSec = t;
-                  st.lastShieldStartSec = t;
-                  bossEvent(st, 'shield_telegraph', `at ${(hpFrac * 100).toFixed(1)} percent hp`);
-              } else {
-                  bossEvent(st, 'shield_refused', `hp ${(hpFrac * 100).toFixed(1)} percent, healed ${st.healedThisFight.toFixed(0)}, spacing ${(t - st.lastShieldStartSec).toFixed(1)}s`);
-              }
-          }
-      }
-
-      // Regen behind the shield, clamped by both heal caps.
-      if (st.shieldUp) {
-          const phaseCap = SHIELD_HEAL_PHASE_CAP_FRAC * data.maxHealth;
-          const fightCap = SHIELD_HEAL_FIGHT_CAP_FRAC * data.maxHealth;
-          const room = Math.min(phaseCap - st.healedThisPhase, fightCap - st.healedThisFight, data.maxHealth - data.health);
-          if (room > 0) {
-              const heal = Math.min(room, SHIELD_REGEN_FRAC_PER_SEC * data.maxHealth * deltaSec);
-              data.health += heal;
-              st.healedThisPhase += heal;
-              st.healedThisFight += heal;
-              this.bossHealth.set(Math.max(0, Math.ceil(data.health)));
-          }
-          if (t - st.shieldUpAtSec >= SHIELD_PHASE_MAX_SEC) {
-              st.shieldUp = false;
-              st.shieldHp = 0;
-              this.bossShieldHealth.set(0);
-              bossEvent(st, 'shield_down', 'phase timeout');
-          }
-      }
-
-      // World 6 False Rebirth (visual spec Section 4 sheet, Stage
-      // 10): once per fight, crossing 50 percent HP collapses the
-      // King into ash for 1.5 s. The arena holds (no attacks, no
-      // summons, no signature, and the ash cannot be hit; the
-      // damage gate is in damageEnemy), then it reignites at the
-      // health it fell at (never above the 50 percent mark: this
-      // is spectacle, not a second health bar) with faster decree
-      // fans for the rest of the fight.
-      if (st.worldIndex === 5 && !st.rebirthUsed && data.health / Math.max(1, data.maxHealth) <= 0.50) {
-          st.rebirthUsed = true;
-          st.ashUntilSec = t + 1.5;
-          st.sig = null;
-          st.nextSignatureAtSec = t + 3.5;
-          bossEvent(st, 'false_rebirth', `ash until ${st.ashUntilSec.toFixed(1)}s fight time`);
-          this.audioService.playSFX('boss');
-      }
-      if (st.rebirthUsed && !st.rebirthDone && st.ashUntilSec !== undefined && t >= st.ashUntilSec) {
-          st.rebirthDone = true;
-          bossEvent(st, 'rebirth_reignite', 'decree fans faster from here');
-      }
-
-      // World 9 form cycle (Stage 10): the Chaos Demon flows
-      // between its three silhouettes every 6 s of fight time; the
-      // renderer morphs the point cloud across the first second of
-      // each form from the published form fields.
-      if (st.worldIndex === 8) {
-          if (st.formStartSec === undefined) { st.formIdx = 0; st.formStartSec = t; }
-          else if (t - st.formStartSec >= 6) { // 6 s per form (sheet value)
-              st.formIdx = ((st.formIdx || 0) + 1) % 3;
-              st.formStartSec = t;
-              bossEvent(st, 'chaos_form', `form ${st.formIdx}`);
-          }
-      }
-
-      // World 10 (Stage 10): the finale rage below 25 percent HP
-      // (summons stop, the kit rotation collapses to drill chained
-      // into burst), and the Singularity casts at 66 and 33 percent
-      // HP, which take the signature slot the moment they trigger.
-      if (st.worldIndex === 9) {
-          const hpFrac = data.health / Math.max(1, data.maxHealth);
-          if (!st.finaleRage && hpFrac <= 0.25) {
-              st.finaleRage = true;
-              bossEvent(st, 'finale_rage', 'summons stop; drill chains into burst');
-          }
-          const singThresholds = [0.66, 0.33];
-          const sIdx = st.singIdx || 0;
-          if (sIdx < singThresholds.length && hpFrac <= singThresholds[sIdx] && !st.sig && !this.bossAshen(st)) {
-              st.singIdx = sIdx + 1;
-              this.startSingularity(boss, data, st);
-          }
-      }
-
-      // Enrage and overtime (S6 item 4): if the kill screen's
-      // countdown finished while this fight's enrage is still
-      // pending, the rage was deferred (see triggerRageMode); it
-      // starts 20 s after the enrage lands, so the player always
-      // gets a real enraged fight before the overtime ends it.
-      if (this.rageDeferred && st.enraged && t >= st.enrageAtSec + 20) {
-          this.rageDeferred = false;
-          this.triggerRageMode();
-      }
-
-      // Signature schedule.
-      if (!st.sig && !this.annihilationModeActive() && t >= st.nextSignatureAtSec && !this.bossAshen(st)) {
-          this.startSignature(boss, data, st);
-      }
-      if (st.sig) this.tickSignature(boss, data, st);
-      void def;
-  }
-
-  // The Phoenix King's ash window (Stage 10): while it runs, the
-  // boss cannot act and cannot be hit.
-  private bossAshen(st: BossFightState): boolean {
-      return st.ashUntilSec !== undefined && st.fightSec < st.ashUntilSec;
-  }
-
-  // World 10 Singularity cast (Stage 10): the Eternal Phoenix
-  // collapses into a point of light over a 1 s telegraph, then
-  // detonates into three rings whose gaps rotate ring to ring.
-  // Triggered by the HP thresholds in tickBossRig, not by the
-  // rotation schedule.
-  private startSingularity(boss: Matter.Body, data: EnemyData, st: BossFightState) {
-      void boss; void data;
-      st.sig = {
-          id: 'singularity', phase: 'telegraph', startSec: st.fightSec, telegraphSec: 1.0,
-          fireSec: st.fightSec + 1.0,
-          data: { kind: 'singularity', gapBase: Math.random() * Math.PI * 2, ringsFired: 0, nextRingSec: 0, lastRingSec: 0 }
-      };
-      bossEvent(st, 'signature_telegraph', 'singularity');
-      this.audioService.playSFX('boss');
-  }
-
-  // The Crystal Titan's signature ring blocks player fire while it
-  // is up (its damage windows are the drops after each fan).
-  private bossShardRingUp(st: BossFightState): boolean {
-      return !!st.sig && st.sig.id === 'shard_fan' && st.sig.phase === 'active' && !!st.sig.data.ringUp;
-  }
-
-  private startSignature(boss: Matter.Body, data: EnemyData, st: BossFightState) {
-      const def = bossDefFor(st.worldIndex);
-      const LU = this.logicalUnit;
-      const bp = boss.position;
-      const pp = this.playerBody.position;
-      let telegraphSec = 0.6;
-      let sigData: any = {};
-      switch (def.signature) {
-          case 'flame_ring': {
-              telegraphSec = 0.6;
-              const count = st.enraged ? 10 : 8;
-              const ringR = 0.30 * LU;
-              const offset = Math.random() * Math.PI * 2;
-              const pillars = [];
-              for (let i = 0; i < count; i++) {
-                  const a = offset + (i / count) * Math.PI * 2;
-                  pillars.push({ x: bp.x + Math.cos(a) * ringR, y: bp.y + Math.sin(a) * ringR, hit: false });
-              }
-              sigData = { cx: bp.x, cy: bp.y, ringR, pillars, litUntilSec: 0 };
-              break;
-          }
-          case 'shadow_split': {
-              telegraphSec = 0.6;
-              const offs = [
-                  { x: -0.34 * LU, y: 0.10 * LU },
-                  { x: 0.34 * LU, y: 0.10 * LU }
-              ];
-              sigData = {
-                  copies: offs.map(o => ({
-                      x: Math.max(40, Math.min(window.innerWidth - 40, bp.x + o.x)),
-                      y: Math.max(40, Math.min(window.innerHeight - 40, bp.y + o.y))
-                  })),
-                  volley2AtSec: 0
-              };
-              break;
-          }
-          case 'shard_fan': {
-              telegraphSec = 0.6;
-              sigData = { ringUp: false, fanIdx: 0, fanTimes: st.enraged ? [1.0, 4.2, 7.4] : [1.0, 4.6], dropUntilSec: 0, endAtSec: 0 };
-              break;
-          }
-          case 'storm_call': {
-              telegraphSec = 0.7;
-              const cols = [pp.x, pp.x - 0.30 * LU, pp.x + 0.30 * LU];
-              if (st.enraged) cols.push(pp.x - 0.15 * LU, pp.x + 0.15 * LU);
-              sigData = {
-                  columns: cols.map(x => ({ x: Math.max(20, Math.min(window.innerWidth - 20, x)), hit: false })),
-                  strikeUntilSec: 0
-              };
-              break;
-          }
-          case 'harvest_arc': {
-              telegraphSec = 0.7;
-              const ang = Math.atan2(pp.y - bp.y, pp.x - bp.x);
-              const arcs = [{ ang, startSec: 0, hit: false }];
-              if (st.enraged) arcs.push({ ang: ang + Math.PI / 2, startSec: 0.5, hit: false });
-              sigData = { cx: bp.x, cy: bp.y, radius: 0.52 * LU, span: 1.9, arcs, endAtSec: st.enraged ? 1.0 : 0.5 };
-              break;
-          }
-          case 'royal_decree': {
-              // World 6, Phoenix King (Stage 10): a fan of slow
-              // golden feathers, then the King's own Drill-dash
-              // across the field. The dash target locks when the fan
-              // fires and is telegraphed by the published line for
-              // the whole wind-up; the rear-back and crown flare are
-              // the telegraph phase itself (charge plus state).
-              telegraphSec = 0.7;
-              const feathers = (st.enraged ? 9 : 7) + (st.rebirthDone ? 2 : 0);
-              sigData = { feathers, dashState: 'pending', dashAtSec: 0, dashTx: 0, dashTy: 0, dashUntilSec: 0, secondDash: false };
-              break;
-          }
-          case 'frozen_court': {
-              // World 7, Ice Empress (Stage 10): three expanding
-              // freeze rings in sequence around the locked court
-              // center. Each ring draws for its telegraph, then
-              // solidifies into a damaging wall for 1 s; the safe
-              // ground is between the rings. Enraged, the court
-              // runs tighter (draw 0.55 s, still above the 0.5 s
-              // telegraph floor).
-              telegraphSec = 0.6;
-              const interval = st.enraged ? 1.3 : 1.6;
-              const drawSec = st.enraged ? 0.55 : 0.6;
-              sigData = {
-                  cx: bp.x, cy: bp.y, interval, drawSec,
-                  rings: [0.22, 0.40, 0.58].map(frac => ({ r: frac * LU, drawAtSec: 0, solidAtSec: 0, untilSec: 0, hit: false })),
-                  fan1Done: false, fan2Done: false
-              };
-              break;
-          }
-          case 'emperors_breath': {
-              // World 8, Dragon Emperor (Stage 10): the maw glows
-              // for 0.8 s with the cone outline drawn on the field,
-              // then a sustained flame cone sweeps slowly toward
-              // the player's side for 1.5 s. The cone direction
-              // locks at the player's side when the telegraph
-              // starts; the sweep rate is capped in the tick.
-              telegraphSec = 0.8;
-              sigData = {
-                  coneAng: Math.atan2(pp.y - bp.y, pp.x - bp.x),
-                  coneHalf: 0.61, coneLen: 0.62 * LU,
-                  burnUntilSec: 0, sparks2: false, lastHitSec: -9, lastTickSec: 0
-              };
-              break;
-          }
-          case 'chaos_roulette': {
-              // World 9, Chaos Demon (Stage 10): the accent color
-              // announces the pattern a full second ahead (red
-              // rings, violet spirals, white fans), with a full-body
-              // color wash the renderer reads off the published boss
-              // entity. It never fires an unannounced pattern, and
-              // never repeats the previous cast's pattern. Enraged,
-              // a second pattern overlaps the first.
-              telegraphSec = 1.0;
-              const patterns = ['rings', 'spiral', 'fans'];
-              let pattern = patterns[Math.floor(Math.random() * patterns.length)];
-              if (pattern === st.lastChaosPattern) {
-                  pattern = patterns[(patterns.indexOf(pattern) + 1) % patterns.length];
-              }
-              st.lastChaosPattern = pattern;
-              const pattern2 = st.enraged
-                  ? patterns[(patterns.indexOf(pattern) + 1 + Math.floor(Math.random() * 2)) % patterns.length]
-                  : null;
-              sigData = { pattern, pattern2, casts: [] as any[], endAtSec: 0 };
-              break;
-          }
-          case 'singularity': {
-              // World 10, Eternal Phoenix (Stage 10): the regular
-              // signature slot rotates the player's own kit at boss
-              // scale (feather fan, Burst ring, Drill dash, Aura
-              // burn zone), each telegraphed in the player's visual
-              // language rendered hostile. The Singularity proper
-              // is threshold-triggered (startSingularity), not part
-              // of this rotation. Below 25 percent HP the rotation
-              // collapses to the drill chained into the burst.
-              const kinds = ['fan', 'burst', 'drill', 'aura'];
-              const kind = st.finaleRage
-                  ? (((st.kitIdx || 0) % 2 === 0) ? 'drill' : 'burst')
-                  : kinds[(st.kitIdx || 0) % kinds.length];
-              st.kitIdx = (st.kitIdx || 0) + 1;
-              telegraphSec = kind === 'drill' ? 0.7 : 0.6;
-              sigData = { kind, shotsLeft: 0, nextShotSec: 0, auraUntilSec: 0, lastHitSec: -9, chained: false, dashState: 'pending', dashTx: 0, dashTy: 0, dashUntilSec: 0 };
-              if (kind === 'drill') {
-                  // The drill line locks at telegraph start, on the
-                  // player's position then, with overshoot.
-                  const dx = pp.x - bp.x, dy = pp.y - bp.y;
-                  const dl = Math.hypot(dx, dy) || 1;
-                  sigData.dashTx = pp.x + (dx / dl) * 0.15 * LU;
-                  sigData.dashTy = pp.y + (dy / dl) * 0.15 * LU;
-              }
-              break;
-          }
-          default:
-              st.nextSignatureAtSec = st.fightSec + SIGNATURE_INTERVAL_SEC;
-              return;
-      }
-      st.sig = { id: def.signature, phase: 'telegraph', startSec: st.fightSec, telegraphSec, fireSec: st.fightSec + telegraphSec, data: sigData };
-      bossEvent(st, 'signature_telegraph', def.signature);
-  }
-
-  private fireSignature(boss: Matter.Body, data: EnemyData, st: BossFightState) {
-      const sig = st.sig!;
-      const t = st.fightSec;
-      sig.phase = 'active';
-      bossEvent(st, 'signature_fire', sig.id);
-      switch (sig.id) {
-          case 'flame_ring': {
-              this.fireBossWaveAttack(boss.position);
-              if (st.enraged) this.fireBossWaveAttack(boss.position, 12, Math.PI / 12);
-              sig.data.litUntilSec = t + 1.0;
-              break;
-          }
-          case 'shadow_split': {
-              const bolts = st.enraged ? 5 : 3;
-              this.fireBossFan(boss.position.x, boss.position.y, bolts, 6);
-              for (const c of sig.data.copies) this.fireBossFan(c.x, c.y, bolts, 6);
-              sig.data.volley2AtSec = t + 1.5;
-              break;
-          }
-          case 'shard_fan': {
-              sig.data.ringUp = true;
-              sig.data.t0 = t;
-              const lastFan = sig.data.fanTimes[sig.data.fanTimes.length - 1];
-              sig.data.endAtSec = t + lastFan + 2.6;
-              break;
-          }
-          case 'storm_call': {
-              sig.data.strikeUntilSec = t + 0.25;
-              this.audioService.playSFX('boss');
-              break;
-          }
-          case 'harvest_arc': {
-              for (const arc of sig.data.arcs) arc.startSec = t + arc.startSec;
-              sig.data.endAtSec = t + sig.data.endAtSec;
-              break;
-          }
-          case 'royal_decree': {
-              // The feather fan: slow, large, individually
-              // dodgeable golden bolts aimed at the player's side.
-              this.fireBossFan(boss.position.x, boss.position.y, sig.data.feathers, 4.5, 13);
-              // Then the dash: the target locks now (the player's
-              // position plus overshoot) and the published line
-              // telegraphs it for the full 0.9 s wind-up.
-              const pp = this.playerBody.position;
-              const dx = pp.x - boss.position.x, dy = pp.y - boss.position.y;
-              const dl = Math.hypot(dx, dy) || 1;
-              sig.data.dashTx = pp.x + (dx / dl) * 0.15 * this.logicalUnit;
-              sig.data.dashTy = pp.y + (dy / dl) * 0.15 * this.logicalUnit;
-              sig.data.dashState = 'windup';
-              sig.data.dashAtSec = t + 0.9;
-              break;
-          }
-          case 'frozen_court': {
-              const d = sig.data;
-              d.rings.forEach((r: any, k: number) => {
-                  r.drawAtSec = t + k * d.interval;
-                  r.solidAtSec = r.drawAtSec + d.drawSec;
-                  r.untilSec = r.solidAtSec + 1.0;
-              });
-              break;
-          }
-          case 'emperors_breath': {
-              // Scale sparks wave one rides the breath's start:
-              // two waves of aimed shots bracket the burn.
-              this.fireBossFan(boss.position.x, boss.position.y, 3, 6);
-              sig.data.burnUntilSec = t + (st.enraged ? 1.8 : 1.5);
-              sig.data.lastTickSec = t;
-              break;
-          }
-          case 'chaos_roulette': {
-              const d = sig.data;
-              d.casts = [{ pattern: d.pattern, startSec: t, w1: false, w2: false, nextAt: t, ang0: Math.random() * Math.PI * 2, shots: 0 }];
-              if (d.pattern2) {
-                  d.casts.push({ pattern: d.pattern2, startSec: t + 0.3, w1: false, w2: false, nextAt: t + 0.3, ang0: Math.random() * Math.PI * 2, shots: 0 });
-              }
-              d.endAtSec = t + 2.9;
-              break;
-          }
-          case 'singularity': {
-              const d = sig.data;
-              if (d.kind === 'fan') {
-                  d.shotsLeft = 2;
-                  d.nextShotSec = t;
-              } else if (d.kind === 'burst') {
-                  for (let k = 0; k < 12; k++) {
-                      this.fireBossProjectile(boss.position.x, boss.position.y, (k / 12) * Math.PI * 2, 5.5);
-                  }
-              } else if (d.kind === 'drill') {
-                  d.dashState = 'dash';
-                  d.dashUntilSec = t + 1.0;
-                  bossEvent(st, 'signature_dash', 'eternal drill');
-              } else if (d.kind === 'aura') {
-                  d.auraUntilSec = t + 4;
-              } else if (d.kind === 'singularity') {
-                  d.ringsFired = 0;
-                  d.nextRingSec = t;
-              }
-              break;
-          }
-      }
-  }
-
-  private endSignature(st: BossFightState) {
-      bossEvent(st, 'signature_end', st.sig?.id);
-      st.sig = null;
-      let interval = (st.enraged ? SIGNATURE_INTERVAL_ENRAGED_SEC : SIGNATURE_INTERVAL_SEC) + Math.random() * 2;
-      // After the False Rebirth reignition the King's decree
-      // cycle runs faster for the rest of the fight (Stage 10).
-      if (st.rebirthDone) interval *= 0.75;
-      st.nextSignatureAtSec = st.fightSec + interval;
-  }
-
-  private tickSignature(boss: Matter.Body, data: EnemyData, st: BossFightState) {
-      const sig = st.sig!;
-      const t = st.fightSec;
-      if (sig.phase === 'telegraph') {
-          if (t >= sig.fireSec) this.fireSignature(boss, data, st);
-          return;
-      }
-      const pp = this.playerBody.position;
-      const LU = this.logicalUnit;
-      switch (sig.id) {
-          case 'flame_ring': {
-              // Lit pillars hurt once each while they burn (1.0 s);
-              // the ring positions were telegraphed for 0.6 s and
-              // the wave itself passes the ring about 0.5 s after
-              // firing, which is what the sheet's timing describes.
-              if (t <= sig.data.litUntilSec) {
-                  for (const p of sig.data.pillars) {
-                      if (!p.hit && Math.hypot(pp.x - p.x, pp.y - p.y) < 0.085 * LU) {
-                          p.hit = true;
-                          bossEvent(st, 'hazard_hit', 'flame pillar');
-                          this.takeDamage(10);
-                      }
-                  }
-              } else this.endSignature(st);
-              break;
-          }
-          case 'shadow_split': {
-              if (sig.data.volley2AtSec && t >= sig.data.volley2AtSec) {
-                  sig.data.volley2AtSec = 0;
-                  const bolts = st.enraged ? 5 : 3;
-                  this.fireBossFan(boss.position.x, boss.position.y, bolts, 6);
-                  for (const c of sig.data.copies) this.fireBossFan(c.x, c.y, bolts, 6);
-              }
-              if (t >= sig.fireSec + 4) this.endSignature(st);
-              break;
-          }
-          case 'shard_fan': {
-              const d = sig.data;
-              const rel = t - d.t0;
-              if (d.fanIdx < d.fanTimes.length && rel >= d.fanTimes[d.fanIdx]) {
-                  this.fireBossFan(boss.position.x, boss.position.y, st.enraged ? 4 : 3, 7.5);
-                  d.fanIdx++;
-                  d.ringUp = false;
-                  d.dropUntilSec = t + 2.0; // the damage window after each fan
-                  bossEvent(st, 'signature_fan', `fan ${d.fanIdx}`);
-              }
-              if (!d.ringUp && d.dropUntilSec && t >= d.dropUntilSec && rel < d.fanTimes[d.fanTimes.length - 1]) {
-                  d.ringUp = true;
-                  d.dropUntilSec = 0;
-              }
-              if (t >= d.endAtSec) this.endSignature(st);
-              break;
-          }
-          case 'storm_call': {
-              if (t <= sig.data.strikeUntilSec) {
-                  for (const c of sig.data.columns) {
-                      if (!c.hit && Math.abs(pp.x - c.x) <= 0.05 * LU + 10) {
-                          c.hit = true;
-                          bossEvent(st, 'hazard_hit', 'lightning column');
-                          this.takeDamage(10);
-                      }
-                  }
-              } else this.endSignature(st);
-              break;
-          }
-          case 'harvest_arc': {
-              for (const arc of sig.data.arcs) {
-                  // Damaging for the sweep's first 0.35 s; the final
-                  // 0.15 s is the fade the sheet lets the player
-                  // pass through.
-                  if (!arc.hit && t >= arc.startSec && t <= arc.startSec + 0.35) {
-                      const dist = Math.hypot(pp.x - sig.data.cx, pp.y - sig.data.cy);
-                      let da = Math.atan2(pp.y - sig.data.cy, pp.x - sig.data.cx) - arc.ang;
-                      while (da > Math.PI) da -= Math.PI * 2;
-                      while (da < -Math.PI) da += Math.PI * 2;
-                      if (Math.abs(dist - sig.data.radius) <= 0.06 * LU && Math.abs(da) <= sig.data.span / 2) {
-                          arc.hit = true;
-                          bossEvent(st, 'hazard_hit', 'harvest arc');
-                          this.takeDamage(10);
-                      }
-                  }
-              }
-              if (t >= sig.data.endAtSec) this.endSignature(st);
-              break;
-          }
-          case 'royal_decree': {
-              const d = sig.data;
-              if (d.dashState === 'windup' && t >= d.dashAtSec) {
-                  d.dashState = 'dash';
-                  d.dashUntilSec = t + 1.0;
-                  bossEvent(st, 'signature_dash', 'royal decree');
-              } else if (d.dashState === 'dash') {
-                  const dist = Math.hypot(boss.position.x - d.dashTx, boss.position.y - d.dashTy);
-                  if (dist < 0.08 * LU || t >= d.dashUntilSec) {
-                      if (st.enraged && !d.secondDash) {
-                          // Enraged, the decree chains: a second
-                          // wind-up and dash back across the field,
-                          // locked on the player's position now.
-                          d.secondDash = true;
-                          const dx = pp.x - boss.position.x, dy = pp.y - boss.position.y;
-                          const dl = Math.hypot(dx, dy) || 1;
-                          d.dashTx = pp.x + (dx / dl) * 0.15 * LU;
-                          d.dashTy = pp.y + (dy / dl) * 0.15 * LU;
-                          d.dashState = 'windup';
-                          d.dashAtSec = t + 0.7;
-                      } else {
-                          this.endSignature(st);
-                      }
-                  }
-              }
-              break;
-          }
-          case 'frozen_court': {
-              const d = sig.data;
-              // Icicle lance fans between the rings: Sentry-style
-              // aimed shots in threes, fired from the Empress.
-              if (!d.fan1Done && t >= sig.fireSec + 0.8) {
-                  d.fan1Done = true;
-                  this.fireBossFan(boss.position.x, boss.position.y, 3, 7.5);
-              }
-              if (!d.fan2Done && t >= sig.fireSec + 0.8 + d.interval) {
-                  d.fan2Done = true;
-                  this.fireBossFan(boss.position.x, boss.position.y, 3, 7.5);
-              }
-              // Solid rings hurt once each while they stand; the
-              // player must be between rings (the bands are 0.045
-              // LU half-width on 0.18 LU spacing, so the lanes
-              // between them are real ground).
-              for (const r of d.rings) {
-                  if (!r.hit && t >= r.solidAtSec && t <= r.untilSec) {
-                      const dist = Math.hypot(pp.x - d.cx, pp.y - d.cy);
-                      if (Math.abs(dist - r.r) <= 0.045 * LU) {
-                          r.hit = true;
-                          bossEvent(st, 'hazard_hit', 'freeze ring');
-                          this.takeDamage(10);
-                      }
-                  }
-              }
-              if (t >= d.rings[d.rings.length - 1].untilSec) this.endSignature(st);
-              break;
-          }
-          case 'emperors_breath': {
-              const d = sig.data;
-              const dt = Math.max(0, t - (d.lastTickSec || t));
-              d.lastTickSec = t;
-              if (t <= d.burnUntilSec) {
-                  // The cone sweeps slowly toward the player's side
-                  // at a capped rate (escape is crossing behind the
-                  // head or out-ranging the cone, and both stay
-                  // open at this rate against cruise speed).
-                  const want = Math.atan2(pp.y - boss.position.y, pp.x - boss.position.x);
-                  let da = want - d.coneAng;
-                  while (da > Math.PI) da -= Math.PI * 2;
-                  while (da < -Math.PI) da += Math.PI * 2;
-                  const maxStep = (st.enraged ? 0.8 : 0.5) * dt;
-                  d.coneAng += Math.max(-maxStep, Math.min(maxStep, da));
-                  // Standing in the cone hurts on the same 500 ms
-                  // cadence takeDamage's i-frames enforce; the
-                  // calls are paced to it so a hazard log reads as
-                  // landed hits, not per-step noise.
-                  const distP = Math.hypot(pp.x - boss.position.x, pp.y - boss.position.y);
-                  let pa = Math.atan2(pp.y - boss.position.y, pp.x - boss.position.x) - d.coneAng;
-                  while (pa > Math.PI) pa -= Math.PI * 2;
-                  while (pa < -Math.PI) pa += Math.PI * 2;
-                  if (distP <= d.coneLen && Math.abs(pa) <= d.coneHalf && t - d.lastHitSec >= 0.5) {
-                      d.lastHitSec = t;
-                      bossEvent(st, 'hazard_hit', 'emperors breath');
-                      this.takeDamage(10);
-                  }
-              } else {
-                  if (!d.sparks2 && t >= d.burnUntilSec + 0.4) {
-                      d.sparks2 = true;
-                      this.fireBossFan(boss.position.x, boss.position.y, 3, 6);
-                  }
-                  if (d.sparks2) this.endSignature(st);
-              }
-              break;
-          }
-          case 'chaos_roulette': {
-              const d = sig.data;
-              for (const cast of d.casts) {
-                  const ct = t - cast.startSec;
-                  if (ct < 0) continue;
-                  if (cast.pattern === 'rings') {
-                      if (!cast.w1) { cast.w1 = true; this.fireBossWaveAttack(boss.position, 14); }
-                      if (!cast.w2 && ct >= 0.5) { cast.w2 = true; this.fireBossWaveAttack(boss.position, 14, Math.PI / 14); }
-                  } else if (cast.pattern === 'spiral') {
-                      // Two rotating spiral arms over 2.2 s.
-                      if (ct <= 2.2 && t >= cast.nextAt) {
-                          cast.nextAt = t + 0.11;
-                          const a = cast.ang0 + ct * 2.4;
-                          this.fireBossProjectile(boss.position.x, boss.position.y, a, 5);
-                          this.fireBossProjectile(boss.position.x, boss.position.y, a + Math.PI, 5);
-                      }
-                  } else { // fans
-                      if (cast.shots < 3 && ct >= cast.shots * 0.45) {
-                          cast.shots++;
-                          this.fireBossFan(boss.position.x, boss.position.y, 5, 6.5);
-                      }
-                  }
-              }
-              if (t >= d.endAtSec) this.endSignature(st);
-              break;
-          }
-          case 'singularity': {
-              const d = sig.data;
-              if (d.kind === 'fan') {
-                  if (d.shotsLeft > 0 && t >= d.nextShotSec) {
-                      d.shotsLeft--;
-                      d.nextShotSec = t + 0.5;
-                      this.fireBossFan(boss.position.x, boss.position.y, 5, 7);
-                  }
-                  if (d.shotsLeft <= 0) this.endSignature(st);
-              } else if (d.kind === 'burst') {
-                  this.endSignature(st);
-              } else if (d.kind === 'drill') {
-                  const dist = Math.hypot(boss.position.x - d.dashTx, boss.position.y - d.dashTy);
-                  if (dist < 0.08 * LU || t >= d.dashUntilSec) {
-                      if (st.finaleRage && !d.chained) {
-                          // Finale rage: the drill chains straight
-                          // into the burst at the dash's end.
-                          d.chained = true;
-                          bossEvent(st, 'signature_chain', 'drill into burst');
-                          for (let k = 0; k < 12; k++) {
-                              this.fireBossProjectile(boss.position.x, boss.position.y, (k / 12) * Math.PI * 2, 5.5);
-                          }
-                      }
-                      this.endSignature(st);
-                  }
-              } else if (d.kind === 'aura') {
-                  // The burn zone it carries: standing inside the
-                  // aura radius hurts on the 500 ms cadence. The
-                  // zone is published as a ring at the boss's live
-                  // position, so its edge is always readable.
-                  if (t <= d.auraUntilSec) {
-                      const distP = Math.hypot(pp.x - boss.position.x, pp.y - boss.position.y);
-                      if (distP <= 0.34 * LU && t - d.lastHitSec >= 0.5) {
-                          d.lastHitSec = t;
-                          bossEvent(st, 'hazard_hit', 'eternal aura');
-                          this.takeDamage(10);
-                      }
-                  } else this.endSignature(st);
-              } else if (d.kind === 'singularity') {
-                  // Three rings with rotating gaps: each ring
-                  // leaves a 0.9 rad gap, and the gap center steps
-                  // 0.7 rad ring to ring, so the dodge line moves
-                  // and always exists.
-                  if (d.ringsFired < 3 && t >= d.nextRingSec) {
-                      const gapCenter = d.gapBase + d.ringsFired * 0.7;
-                      for (let k = 0; k < 14; k++) {
-                          const a = (k / 14) * Math.PI * 2;
-                          let ga = a - gapCenter;
-                          while (ga > Math.PI) ga -= Math.PI * 2;
-                          while (ga < -Math.PI) ga += Math.PI * 2;
-                          if (Math.abs(ga) < 0.45) continue;
-                          this.fireBossProjectile(boss.position.x, boss.position.y, a, 5.5);
-                      }
-                      d.ringsFired++;
-                      d.lastRingSec = t;
-                      d.nextRingSec = t + 0.45;
-                  }
-                  if (d.ringsFired >= 3 && t >= d.lastRingSec + 0.3) this.endSignature(st);
-              } else {
-                  this.endSignature(st);
-              }
-              break;
-          }
-          default:
-              this.endSignature(st);
-      }
-  }
-
-  // Boss minion summons (visual spec Section 4 sheets): each world
-  // calls its own variant type. Bats use the legacy boss-minion law;
-  // roster types spawn through the production factory at world HP,
-  // with the sheet's alive caps for the heavy types.
-  private summonBossMinions(boss: Matter.Body) {
-      const worldIndex = this.gameState.selectedWorldIndex();
-      const def = bossDefFor(worldIndex);
-      const ctx = this.getSpawnerContext();
-      const bossData = boss.plugin['data'] as EnemyData;
-      // The King's ash window holds the arena: no summons (Stage 10).
-      if (bossData?.bossState && this.bossAshen(bossData.bossState)) return;
-      // World 10 finale rage (Stage 10): below 25 percent HP the
-      // Eternal Phoenix stops summoning entirely.
-      if (bossData?.bossState?.finaleRage) return;
-      // World 10 (Stage 10 sheet): summons alternate between
-      // Gloomwing variants and a Mite pack.
-      if (worldIndex === 9 && bossData) {
-          if (bossData.summonAlt) {
-              bossData.summonAlt = false;
-              for (let i = 0; i < 3; i++) {
-                  const a = Math.random() * Math.PI * 2;
-                  this.spawner.spawnEnemyOfType(ctx, 'mite',
-                      boss.position.x + Math.cos(a) * 120 * this.speedScale,
-                      boss.position.y + Math.sin(a) * 120 * this.speedScale, worldIndex);
-              }
-              return;
-          }
-          bossData.summonAlt = true;
-      }
-      if (def.minionType === 'bat') {
-          for (let i = 0; i < def.minionsPerSummon; i++) {
-              this.spawner.spawnMinion(boss.position.x, boss.position.y, ctx);
-          }
-          return;
-      }
-      const alive = this.enemies.filter(e => e.plugin['data']?.type === def.minionType).length;
-      if (def.minionCap > 0 && alive >= def.minionCap) return;
-      for (let i = 0; i < def.minionsPerSummon; i++) {
-          if (def.minionCap > 0 && alive + i >= def.minionCap) break;
-          const a = Math.random() * Math.PI * 2;
-          this.spawner.spawnEnemyOfType(ctx, def.minionType,
-              boss.position.x + Math.cos(a) * 120 * this.speedScale,
-              boss.position.y + Math.sin(a) * 120 * this.speedScale, worldIndex);
-      }
-  }
-
-  // Renderer charge for the boss (visual spec addendum: enrage
-  // visuals): one 0 to 1 value the particle background reads as
-  // telegraph progress, enrage warning build, shield gather, or
-  // the enraged core pulse, whichever is live.
-  private bossPublishCharge(data: EnemyData): number {
-      const st = data.bossState;
-      if (!st) return 0;
-      if (st.sig && st.sig.phase === 'telegraph') {
-          return Math.min(1, Math.max(0, (st.fightSec - st.sig.startSec) / st.sig.telegraphSec));
-      }
-      if (st.shieldTelegraphStartSec >= 0) {
-          return Math.min(1, Math.max(0, (st.fightSec - st.shieldTelegraphStartSec) / SHIELD_TELEGRAPH_SEC));
-      }
-      if (st.enrageWarned && !st.enraged) {
-          return Math.min(1, Math.max(0, (st.fightSec - (st.enrageAtSec - BOSS_ENRAGE_WARNING_SEC)) / BOSS_ENRAGE_WARNING_SEC));
-      }
-      if (st.enraged) return 0.65 + 0.25 * Math.sin(st.fightSec * 6);
-      return 0;
-  }
-
-  private bossPublishState(data: EnemyData): string | undefined {
-      const st = data.bossState;
-      if (!st) return undefined;
-      if (this.bossAshen(st)) return 'ashen';
-      if (st.sig && st.sig.data?.kind === 'singularity' && st.sig.phase === 'telegraph') return 'singularity';
-      if (st.enraged) return 'enraged';
-      if (st.shieldUp) return 'shielded';
-      if (st.sig && st.sig.phase === 'telegraph') return 'telegraph';
-      return undefined;
-  }
-
-  // Stage 10: how far the Chaos Demon's current form has flowed
-  // in (0 at the switch, 1 a second later). A form that began
-  // before the fight clock started reads as fully settled.
-  private bossFormFlow(st: BossFightState): number {
-      if (st.formStartSec === undefined || st.formStartSec < 0) return 1;
-      return Math.min(1, Math.max(0, st.fightSec - st.formStartSec));
-  }
-
-  // Stage 10: the Chaos Roulette announcement wash. The pattern is
-  // announced by color a full second ahead (red rings, violet
-  // spirals, white fans); the renderer washes the Demon's body in
-  // this color for the whole telegraph, and it never fires an
-  // unannounced pattern.
-  private bossWash(data: EnemyData): [number, number, number] | undefined {
-      const st = data.bossState;
-      if (!st?.sig || st.sig.id !== 'chaos_roulette' || st.sig.phase !== 'telegraph') return undefined;
-      if (st.sig.data.pattern === 'rings') return [1.0, 0.22, 0.28];
-      if (st.sig.data.pattern === 'spiral') return [0.62, 0.3, 1.0];
-      return [1.0, 1.0, 1.0];
-  }
-
-  private fireBossWaveAttack(pos: Matter.Vector, count: number = 12, angleOffset: number = 0) {
-      this.audioService.playSFX('shoot');
-      for (let i = 0; i < count; i++) {
-          if (this.bossProjectileCount() >= BOSS_PROJECTILE_CAP) break;
-          const angle = angleOffset + (i / count) * Math.PI * 2;
-          const dir = { x: Math.cos(angle), y: Math.sin(angle) };
-          const proj = Matter.Bodies.circle(pos.x, pos.y, 15, {
-              label: 'projectile', isSensor: true,
-              plugin: { data: { id: Math.random().toString(), type: 'projectile_enemy', health: 1, maxHealth: 1, owner: 'enemy', burstDamage: 10, bossPattern: true } as EnemyData }
-          });
-          Matter.Body.setVelocity(proj, Matter.Vector.mult(dir, this.scaledSpeed(4)));
-          Matter.Composite.add(this.engine.world, proj);
-
-          setTimeout(() => {
-              if (proj.parent) {
-                  Matter.Body.setVelocity(proj, { x: 0, y: 0 }); // Pause
-                  setTimeout(() => {
-                      if (proj.parent) {
-                          const boss = this.enemies.find(e => e.plugin['data']?.type === 'boss');
-                          if (boss) {
-                              const returnDir = Matter.Vector.normalise(Matter.Vector.sub(boss.position, proj.position));
-                              Matter.Body.setVelocity(proj, Matter.Vector.mult(returnDir, this.scaledSpeed(6)));
-                              setTimeout(() => { if (proj.parent) Matter.Composite.remove(this.engine.world, proj); }, 2000);
-                          } else {
-                              Matter.Composite.remove(this.engine.world, proj);
-                          }
-                      }
-                  }, 500);
-              }
-          }, 1500);
-      }
-  }
-
-
-  public resolveBattleDrop(playerWon: boolean, px: number, py: number) {
-      this.battleDropReady.set(false);
-      this.battleDropGrace.set(false);
-      
-      if (playerWon) {
-          this.spawner.triggerBattleDrop(px, py, false, this.getSpawnerContext());
-      } else {
-          // AI Won -> Steal
-          const aiEnemy = this.enemies.find(e => e.plugin['data']?.type === 'enemy_phoenix');
-          if (aiEnemy) {
-              const data = aiEnemy.plugin['data'] as EnemyData;
-              // AI heals 15-25% max health
-              const healPercent = 0.15 + (Math.random() * 0.10);
-              data.health = Math.min(data.maxHealth, data.health + (data.maxHealth * healPercent));
-              this.bossHealth.set(data.health);
-              
-              // 50% chance to steal coins
-              if (Math.random() < 0.5) {
-                 const playerCoins = this.gameState.coins();
-                 const stealAmount = Math.floor(playerCoins * 0.10); // steal 10%
-                 if (stealAmount > 0) {
-                     this.gameState.coins.set(playerCoins - stealAmount);
-                     this.battleAi.ai1.coins += stealAmount;
-                 }
-              }
-              
-              this.triggerImpactEffect(px, py, false); // Small red burst maybe
-          }
-          this.battleAi.coinGainRate += 1; // Increase income anyway
-      }
-  }
 
 
   // Contact damage per type (visual spec Section 3.3): the shipped
   // pattern is 10 standard and 50 boss; the Stage 3 sheets name two
   // exceptions, the Mite at 5 and the Cinder Imp at 15 while, and
   // only while, it is in its dash state.
-  private contactDamageFor(data: EnemyData): number {
-    if (data.type === 'boss' || data.type === 'enemy_phoenix') return 50;
-    if (data.type === 'mite') return 5;
-    if (data.type === 'imp' && data.behaviorState === 'dash') return 15;
-    return 10;
-  }
-
-  // The Imp's published telegraph charge: 0 to 1 across the 0.5 s
-  // flare, held at 1 through the dash, 0 otherwise. The renderer
-  // swells the body and whitens the core off this value.
-  private impTelegraphCharge(data: EnemyData, now: number): number {
-    if (data.behaviorState === 'telegraph') {
-      return Math.min(1, Math.max(0, (now - (data.telegraphStart || now)) / 500));
-    }
-    if (data.behaviorState === 'dash') return 1;
-    return 0;
-  }
-
-  // The Sentry Shard's published charge: 0 to 1 across the 0.4 s
-  // core-glow window at the end of its 2.5 s fire cycle, driven by
-  // the same lastAttackTime the hook fires from.
-  private shardCharge(data: EnemyData, now: number): number {
-    if (data.behaviorState !== 'anchored') return 0;
-    return Math.min(1, Math.max(0, (now - (data.lastAttackTime || 0) - 2100) / 400));
-  }
-
-  // The Rift Mine's published armed flag: 1 while the player is
-  // inside the trigger radius (the renderer doubles the core blink),
-  // 0 otherwise. The detonation itself runs in the steering hook.
-  private mineArmedCharge(body: Matter.Body): number {
-    const d = Math.hypot(this.playerBody.position.x - body.position.x, this.playerBody.position.y - body.position.y);
-    return d < 0.12 * this.logicalUnit ? 1 : 0;
-  }
-
-  // The Pyre Moth's published fuse charge: 0 to 1 across its 0.6 s
-  // fuse, 0 while chasing. The renderer strobes off this value.
-  private mothFuseCharge(data: EnemyData, now: number): number {
-    if (data.behaviorState !== 'fusing') return 0;
-    return Math.min(1, Math.max(0, (now - (data.telegraphStart || now)) / 600));
-  }
-
-  // Stage 5 published charges, each 0 to 1 across its telegraph
-  // window and 0 outside it: the Phantom's reappear shimmer (0.7 s),
-  // the Wraith's lock (0.7 s), the Serpent's coil (0.5 s), and the
-  // Darter's line-up (0.5 s).
-  private phantomReappearCharge(data: EnemyData, now: number): number {
-    if (data.behaviorState !== 'reappear') return 0;
-    return Math.min(1, Math.max(0, (now - (data.telegraphStart || now)) / 700));
-  }
-
-  private wraithLockCharge(data: EnemyData, now: number): number {
-    if (data.behaviorState !== 'lock') return 0;
-    return Math.min(1, Math.max(0, (now - (data.telegraphStart || now)) / 700));
-  }
-
-  private serpentCoilCharge(data: EnemyData, now: number): number {
-    if (data.behaviorState !== 'coil') return 0;
-    return Math.min(1, Math.max(0, (now - (data.telegraphStart || now)) / 500));
-  }
-
-  private darterLineupCharge(data: EnemyData, now: number): number {
-    if (data.behaviorState !== 'lineup') return 0;
-    return Math.min(1, Math.max(0, (now - (data.telegraphStart || now)) / 500));
-  }
 
   // Rift Mine detonation (design sheet 10): a 4-projectile cross at
   // standard enemy projectile speed and payload. Runs on proximity
@@ -4780,7 +3223,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   private ultCastSeq = 0;
   private ultCasts = new Map<string, { base: Map<string, number>, dealt: Map<string, number> }>();
 
-  private registerUltCast(casterOwnerId: string): string {
+  public registerUltCast(casterOwnerId: string): string {
     const id = 'ult_' + (++this.ultCastSeq) + '_' + Date.now();
     const base = new Map<string, number>();
     for (const e of this.enemies) {
@@ -4793,7 +3236,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
     return id;
   }
 
-  private clampUltDamage(castId: string, targetKey: string, fallbackBase: number, damage: number): number {
+  public clampUltDamage(castId: string, targetKey: string, fallbackBase: number, damage: number): number {
     const cast = this.ultCasts.get(castId);
     if (!cast) return damage;
     if (!cast.base.has(targetKey)) cast.base.set(targetKey, fallbackBase);
@@ -4805,7 +3248,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
     return clamped;
   }
 
-  private damageEnemy(enemy: Matter.Body, damage: number, sourcePos?: { x: number, y: number }, ultCastId?: string) {
+  public damageEnemy(enemy: Matter.Body, damage: number, sourcePos?: { x: number, y: number }, ultCastId?: string) {
     const data = enemy.plugin['data'] as EnemyData;
     // S6 corpse guard: a body whose health already ran out is
     // dead, even if its removal lands a frame later. Without
@@ -5176,7 +3619,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
 
 
-  private takeDamage(amount: number, source?: 'boss_contact') {
+  public takeDamage(amount: number, source?: 'boss_contact') {
     if (this.isDead() || this.gameEnded() || this.gameState.isRebirthing() || this.gameState.isPaused() || this.entranceActive()) return;
     if (Date.now() < this.gameState.immortalUntil) return;
 
@@ -5457,13 +3900,13 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   // boss into the orphaned array, so the boss sat off-screen at its
   // spawn point forever and no campaign boss could ever be fought.
   // These arrays must only ever be mutated in place.
-  private spliceOut<T>(arr: T[], keep: (item: T) => boolean) {
+  public spliceOut<T>(arr: T[], keep: (item: T) => boolean) {
       for (let i = arr.length - 1; i >= 0; i--) {
           if (!keep(arr[i])) arr.splice(i, 1);
       }
   }
 
-  private spliceRemove<T>(arr: T[], item: T) {
+  public spliceRemove<T>(arr: T[], item: T) {
       const idx = arr.indexOf(item);
       if (idx >= 0) arr.splice(idx, 1);
   }
@@ -5856,1035 +4299,6 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   }
 
 
-  private fireProjectile() {
-    if (this.enemies.length === 0) return;
-
-    let nearest = this.enemies[0];
-    let minDist = Infinity;
-    this.enemies.forEach(e => {
-      const dist = Matter.Vector.magnitude(Matter.Vector.sub(e.position, this.playerBody.position));
-      if (dist < minDist) { minDist = dist; nearest = e; }
-    });
-
-    // Range gate wired to the attackRange stat (spec Sections 3.1
-    // and 5.1): the shop passive finally feeds the auto-fire it names.
-    // It used to read a hardcoded 500 while the stat sat at base 400.
-    if (minDist > this.gameState.currentStats().attackRange * this.speedScale) return;
-
-    const dir = Matter.Vector.normalise(Matter.Vector.sub(nearest.position, this.playerBody.position));
-
-    // Projectiles spawn EXACTLY at the player body (which is now exactly the Phoenix 3D visual position)
-    const projectile = Matter.Bodies.circle(this.playerBody.position.x, this.playerBody.position.y, 8, {
-      label: 'projectile',
-      isSensor: true,
-      plugin: {
-          data: { id: Math.random().toString(), type: 'projectile_player', health: 1, maxHealth: 1, owner: 'player', burstDamage: this.gameState.currentStats().damage } as EnemyData
-      }
-    });
-
-    Matter.Body.setVelocity(projectile, Matter.Vector.mult(dir, this.scaledSpeed(7.5)));
-    Matter.Composite.add(this.engine.world, projectile);
-    
-    this.audioService.playSFX('shoot');
-    setTimeout(() => { if (projectile.parent) Matter.Composite.remove(this.engine.world, projectile); }, 2000);
-  }
-
-
-  private fireEnemyProjectile(source: Matter.Vector, speedPerStep: number = 7.5, targetOverride?: { x: number, y: number }) {
-    // Use stale position for reaction delay (human-like ~150ms lag)
-    const enemyPhoenix = this.enemies.find(e => e.plugin['data']?.type === 'enemy_phoenix');
-    const eAny = enemyPhoenix as any;
-    const targetPos = targetOverride || (eAny?.__stalePlayerPos) || this.playerBody.position;
-    const dir = Matter.Vector.normalise(Matter.Vector.sub(targetPos, source));
-    const damage = this.battleAi.ai1.stats?.damage || 10;
-
-    // Aim spread: ±3° base, increasing with distance (human-like inaccuracy)
-    const dist = Matter.Vector.magnitude(Matter.Vector.sub(this.playerBody.position, source));
-    const maxSpread = 0.05 + (dist / 1000) * 0.08; // Radians
-    const spreadAngle = (Math.random() - 0.5) * maxSpread * 2;
-    const finalDir = Matter.Vector.rotate(dir, spreadAngle);
-
-    const projectile = Matter.Bodies.circle(source.x, source.y, 8, {
-      label: 'projectile',
-      isSensor: true,
-      plugin: {
-          data: { id: Math.random().toString(), type: 'projectile_enemy', ownerId: 'ai1', health: 1, maxHealth: 1, burstDamage: damage } as EnemyData
-      }
-    });
-
-    Matter.Body.setVelocity(projectile, Matter.Vector.mult(finalDir, this.scaledSpeed(speedPerStep)));
-    Matter.Composite.add(this.engine.world, projectile);
-    setTimeout(() => { if (projectile.parent) Matter.Composite.remove(this.engine.world, projectile); }, 2000);
-  }
-
-
-  // Lance Wraith bolt (Stage 5, design sheet 14): one fast piercing
-  // bolt along the locked aim at Dart-class speed (13 per step, the
-  // Fire Lance's class). No aim spread: the 0.7 s lock line is the
-  // warning, and the dodge is to be off the line when it fires. It
-  // passes through the player's fire (the projectile-clash branch
-  // exempts it) and through the field until its life ends.
-  private fireWraithBolt(source: Matter.Body) {
-    const data = source.plugin['data'] as EnemyData;
-    const dirX = data.aimDirX ?? 1;
-    const dirY = data.aimDirY ?? 0;
-    const proj = Matter.Bodies.circle(
-      source.position.x + dirX * 30 * this.speedScale,
-      source.position.y + dirY * 30 * this.speedScale, 5, {
-      label: 'projectile',
-      isSensor: true,
-      frictionAir: 0,
-      plugin: {
-          data: { id: Math.random().toString(), type: 'projectile_enemy', owner: 'enemy', ownerId: 'enemy', health: 1, maxHealth: 1, burstDamage: 10, moveId: 'wraith_bolt', pierce: true, hitIds: [] } as EnemyData
-      }
-    });
-    Matter.Body.setVelocity(proj, { x: dirX * this.scaledSpeed(13), y: dirY * this.scaledSpeed(13) });
-    Matter.Composite.add(this.engine.world, proj);
-    setTimeout(() => { if (proj.parent) Matter.Composite.remove(this.engine.world, proj); }, 1600);
-  }
-
-  // Storm Darter spread (Stage 5, design sheet 16): a 3-shot fan
-  // across the pass direction, fired once at the pass midpoint at
-  // standard enemy projectile speed and payload.
-  private fireDarterSpread(source: Matter.Body) {
-    const data = source.plugin['data'] as EnemyData;
-    const base = Math.atan2(data.dashDirY ?? 0, data.dashDirX ?? 1);
-    for (const off of [-0.18, 0, 0.18]) {
-      const a = base + off;
-      const proj = Matter.Bodies.circle(source.position.x, source.position.y, 5, {
-        label: 'projectile',
-        isSensor: true,
-        frictionAir: 0,
-        plugin: {
-            data: { id: Math.random().toString(), type: 'projectile_enemy', owner: 'enemy', ownerId: 'enemy', health: 1, maxHealth: 1, burstDamage: 10, moveId: 'darter_spread' } as EnemyData
-        }
-      });
-      Matter.Body.setVelocity(proj, { x: Math.cos(a) * this.scaledSpeed(7.5), y: Math.sin(a) * this.scaledSpeed(7.5) });
-      Matter.Composite.add(this.engine.world, proj);
-      setTimeout(() => { if (proj.parent) Matter.Composite.remove(this.engine.world, proj); }, 1400);
-    }
-  }
-
-  private triggerAbility(ability: string, sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
-      if (ownerId === 'player' && this.gameState.isRebirthing()) return 0;
-      
-      if (ability === 'drill_attack') return this.triggerDrillAttack(sourceBody, targetX, targetY, stats, ownerId);
-      else if (ability === 'burst') return this.triggerBurst(sourceBody, targetX, targetY, stats, ownerId);
-      else if (ability === 'fire_dart') return this.triggerFireDart(sourceBody, targetX, targetY, stats, ownerId);
-      else if (ability === 'meteor_rush') return this.triggerMeteorRush(sourceBody, targetX, targetY, stats, ownerId);
-      else if (ability === 'phoenix_talon') return this.triggerPhoenixTalon(sourceBody, targetX, targetY, stats, ownerId);
-      else if (ability === 'spark_storm') return this.triggerSparkStorm(sourceBody, targetX, targetY, stats, ownerId);
-      else if (ability === 'fire_lance') return this.triggerFireLance(sourceBody, targetX, targetY, stats, ownerId);
-      else if (ability === 'fire_breath') return this.triggerFireBreath(sourceBody, targetX, targetY, stats, ownerId);
-      else if (ability === 'phoenix_turret') return this.triggerPhoenixTurret(sourceBody, targetX, targetY, stats, ownerId);
-      else if (ability === 'phoenix_inferno') return this.triggerPhoenixInferno(sourceBody, targetX, targetY, stats, ownerId);
-      else if (ability === 'inferno_wave') return this.triggerInfernoWave(sourceBody, targetX, targetY, stats, ownerId);
-      else if (ability === 'aura') return this.triggerAura(sourceBody, targetX, targetY, stats, ownerId);
-      else if (ability === 'phoenix_nova') return this.triggerPhoenixNova(sourceBody, targetX, targetY, stats, ownerId);
-      else if (ability === 'supernova') return this.triggerSupernova(sourceBody, targetX, targetY, stats, ownerId);
-      else if (ability === 'divine_wrath') return this.triggerDivineWrath(sourceBody, targetX, targetY, stats, ownerId);
-      else if (ability === 'phoenix_singularity') return this.triggerPhoenixSingularity(sourceBody, targetX, targetY, stats, ownerId);
-      return 0;
-  }
-
-
-
-
-  private triggerDrillAttack(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
-      const abilityData = stats.unlockedAbilities['drill_attack'];
-      const mods = abilityData?.modifiers || { cooldown: 1.0, speed: 1.0, duration: 1.0, damage: 1.0, radius: 1.0, range: 1.0 };
-      const duration = 600 * mods['duration'];
-      const baseCooldown = ABILITIES['drill_attack']?.baseCooldown || 20;
-      const cd = baseCooldown * mods['cooldown'];
-
-      this.audioService.playSFX('shoot');
-      
-      if (ownerId === 'player') {
-          this.gameState.isDrilling.set(true);
-      }
-      
-      setTimeout(() => {
-          if (ownerId === 'player') {
-              this.gameState.isDrilling.set(false);
-          }
-      }, duration);
-      return cd;
-  }
-
-
-  private triggerFireBreath(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
-      const abilityData = stats.unlockedAbilities['fire_breath'];
-      const mods = abilityData?.modifiers || { cooldown: 1.0, speed: 1.0, duration: 1.0, damage: 1.0, radius: 1.0, range: 1.0, ammo: 1.0 };
-      const baseCooldown = ABILITIES['fire_breath']?.baseCooldown || 8;
-      const cd = baseCooldown * mods['cooldown'];
-
-      let nearest = null;
-      let minDist = Infinity;
-      const validTargets = ownerId === 'player' ? this.enemies : [this.playerBody];
-      if (validTargets.length > 0) {
-          nearest = validTargets[0];
-          validTargets.forEach(e => {
-              const dist = Matter.Vector.magnitude(Matter.Vector.sub(e.position, sourceBody.position));
-              if (dist < minDist) { minDist = dist; nearest = e; }
-          });
-      }
-      if (minDist > 500 * this.speedScale || !nearest) return cd;
-
-      const ammo = Math.floor(20 * (mods['ammo'] || 1.0));
-      const fireIntervalMs = 50;
-      const firingDurationSec = (ammo * fireIntervalMs) / 1000;
-      
-      const damage = stats.damage * 0.5 * mods['damage'];
-      const range = this.scaledSpeed(6 * mods['range']);
-      
-      const incomingDamage = new Map<string, number>();
-
-      for(let i=0; i<ammo; i++) {
-          setTimeout(() => {
-              if (!sourceBody.parent || (ownerId === 'player' && (this.isDead() || this.gameState.isRebirthing()))) return;
-              
-              let target: any = null;
-              let bestDist = Infinity;
-              
-              if (validTargets.length > 0) {
-                  validTargets.forEach(e => {
-                      const data = e.plugin['data'] as EnemyData;
-                      if (!data) return;
-                      const currentIncoming = incomingDamage.get(data.id) || 0;
-                      if (data.health - currentIncoming > 0 || data.type === 'boss') {
-                          const dist = Matter.Vector.magnitude(Matter.Vector.sub(e.position, sourceBody.position));
-                          if (dist < bestDist) { bestDist = dist; target = e; }
-                      }
-                  });
-                  
-                  if (!target) {
-                      validTargets.forEach(e => {
-                          const dist = Matter.Vector.magnitude(Matter.Vector.sub(e.position, sourceBody.position));
-                          if (dist < bestDist) { bestDist = dist; target = e; }
-                      });
-                  }
-              }
-              
-              let fireAngle = 0;
-              if (target) {
-                  const dirVec = Matter.Vector.sub(target.position, sourceBody.position);
-                  fireAngle = Math.atan2(dirVec.y, dirVec.x);
-                  
-                  const data = target.plugin['data'] as EnemyData;
-                  if (data) incomingDamage.set(data.id, (incomingDamage.get(data.id) || 0) + damage);
-              }
-
-              this.audioService.playSFX('shoot');
-              
-              const spreadAngle = (Math.random() - 0.5) * 0.5;
-              const angle = fireAngle + spreadAngle;
-              const fireDir = { x: Math.cos(angle), y: Math.sin(angle) };
-              const proj = Matter.Bodies.circle(sourceBody.position.x, sourceBody.position.y, 15, {
-                  isSensor: true, label: 'projectile',
-                  // S2 root fix: pellets now carry owner alongside
-                  // ownerId (the aura convention). Without owner, the
-                  // collision branches could not skip the caster, so a
-                  // fire breath cast was eaten by the caster's own body
-                  // at spawn and damaged the caster instead of the
-                  // target (probe: STAGE-S2.md).
-                  plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: damage, owner: ownerId, ownerId: ownerId } as EnemyData }
-              });
-              Matter.Body.setVelocity(proj, Matter.Vector.mult(fireDir, range));
-              Matter.Composite.add(this.engine.world, proj);
-              setTimeout(() => { if (proj.parent) Matter.Composite.remove(this.engine.world, proj) }, 500);
-          }, i * fireIntervalMs);
-      }
-      return cd;
-  }
-
-
-  private triggerPhoenixTurret(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
-      const abilityData = stats.unlockedAbilities['phoenix_turret'];
-      const mods = abilityData?.modifiers || { cooldown: 1.0, speed: 1.0, duration: 1.0, damage: 1.0, radius: 1.0, range: 1.0 };
-      const baseCooldown = ABILITIES['phoenix_turret']?.baseCooldown || 14;
-      const cd = baseCooldown * mods['cooldown'];
-      
-      const seekRange = 500 * (mods['range'] || 1.0);
-      const tetherRange = 100 * (mods['range'] || 1.0);
-      const duration = 6000 * mods['duration'];
-      const baseDamage = stats.damage * mods['damage'];
-      
-      if (ownerId === 'player') {
-          this.holdAbilityEndTime = Date.now() + duration + 2000; 
-      } else {
-          const eAny = sourceBody.plugin['data'] as any;
-          if (eAny) eAny.holdAbilityEndTime = Date.now() + duration + 2000;
-      }
-      
-      const egg = Matter.Bodies.circle(sourceBody.position.x, sourceBody.position.y, 20, {
-          isStatic: true, isSensor: true, label: 'projectile',
-          plugin: { data: { id: Math.random().toString(), type: 'egg', health: 1000, maxHealth: 1000, size: 20, aggroTarget: null, ownerId: ownerId } as any }
-      });
-      Matter.Composite.add(this.engine.world, egg);
-      
-      this.audioService.playSFX('drop');
-      
-      setTimeout(() => {
-          if (!egg.parent) return;
-          this.audioService.playSFX('shoot');
-          
-          const baby = Matter.Bodies.circle(egg.position.x, egg.position.y - 30, 15, {
-              isSensor: true, label: 'projectile', frictionAir: 0.1,
-              plugin: { data: { id: Math.random().toString(), type: 'turret', health: 500, maxHealth: 500, size: 15, ownerId: ownerId } as EnemyData }
-          });
-          Matter.Composite.add(this.engine.world, baby);
-          
-          let exploded = false;
-          let fireInterval: any;
-          let boidLogic: any;
-          
-          const explode = () => {
-              if (exploded) return;
-              exploded = true;
-              if (boidLogic) Matter.Events.off(this.engine, 'beforeUpdate', boidLogic);
-              if (fireInterval) clearInterval(fireInterval);
-              
-              this.audioService.playSFX('explosion');
-              const radius = 200;
-              
-              for (let i = 0; i < 40; i++) {
-                  const angle = Math.random() * Math.PI * 2;
-                  const speed = this.scaledSpeed(Math.random() * 4 + 2);
-                  const fireDir = { x: Math.cos(angle), y: Math.sin(angle) };
-                  const proj = Matter.Bodies.circle(egg.position.x, egg.position.y, 15, {
-                      isSensor: true, label: 'projectile',
-                      plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: baseDamage * 5, owner: ownerId } as EnemyData }
-                  });
-                  Matter.Body.setVelocity(proj, Matter.Vector.mult(fireDir, speed));
-                  Matter.Composite.add(this.engine.world, proj);
-                  setTimeout(() => { if (proj.parent) Matter.Composite.remove(this.engine.world, proj) }, 500 + Math.random() * 300);
-              }
-              
-              const validTargets = ownerId === 'player' ? this.enemies : [this.playerBody];
-              validTargets.forEach(e => {
-                  const dist = Matter.Vector.magnitude(Matter.Vector.sub(e.position, egg.position));
-                  if (dist < radius) {
-                      if (e === this.playerBody) this.takeDamage(baseDamage * 5);
-                      else this.damageEnemy(e, baseDamage * 5, egg.position);
-                  }
-              });
-              
-              if (baby.parent) Matter.Composite.remove(this.engine.world, baby);
-              if (egg.parent) Matter.Composite.remove(this.engine.world, egg);
-          };
-
-          let isReturning = false;
-          boidLogic = () => {
-              const eggData = egg.plugin['data'] as any;
-              if (eggData && eggData.health <= 0 && !exploded) {
-                  explode();
-                  return;
-              }
-              
-              if (!baby.parent || !egg.parent) {
-                  if (!exploded) explode();
-                  return;
-              }
-              
-              const speed = (isReturning ? 2 : (eggData.aggroTarget ? 1.5 : 1)) * this.speedScale;
-              const maxTurnForce = 0.5;
-              let combinedForce = { x: 0, y: 0 };
-              
-              if (isReturning) {
-                  const dir = Matter.Vector.normalise(Matter.Vector.sub(egg.position, baby.position));
-                  combinedForce.x = dir.x * 5.0;
-                  combinedForce.y = dir.y * 5.0;
-              } else {
-                  const t = Date.now() * 0.002;
-                  const wanderForce = { x: Math.cos(t), y: Math.sin(t) };
-                  combinedForce.x += wanderForce.x * 0.5;
-                  combinedForce.y += wanderForce.y * 0.5;
-                  
-                  const validTargets = ownerId === 'player' ? this.enemies : [this.playerBody];
-                  if (validTargets.length > 0) {
-                      let nearest: Matter.Body;
-                      if (eggData && eggData.aggroTarget && eggData.aggroTarget.parent) {
-                          nearest = eggData.aggroTarget;
-                      } else {
-                          nearest = validTargets[0];
-                          let minDist = Infinity;
-                          validTargets.forEach(e => {
-                              const dist = Matter.Vector.magnitude(Matter.Vector.sub(e.position, baby.position));
-                              if (dist < minDist) { minDist = dist; nearest = e; }
-                          });
-                      }
-                      
-                      const distToNearest = Matter.Vector.magnitude(Matter.Vector.sub(nearest.position, baby.position));
-                      if (distToNearest < seekRange) {
-                          const dir = Matter.Vector.normalise(Matter.Vector.sub(nearest.position, baby.position));
-                          combinedForce.x += dir.x * 2.0;
-                          combinedForce.y += dir.y * 2.0;
-                      }
-                  }
-                  
-                  const distToEgg = Matter.Vector.magnitude(Matter.Vector.sub(baby.position, egg.position));
-                  if (distToEgg > tetherRange) {
-                      const repel = Matter.Vector.normalise(Matter.Vector.sub(egg.position, baby.position));
-                      const repelStrength = (distToEgg - tetherRange) * 0.1;
-                      combinedForce.x += repel.x * repelStrength;
-                      combinedForce.y += repel.y * repelStrength;
-                  }
-              }
-              
-              if (combinedForce.x === 0 && combinedForce.y === 0) combinedForce = { x: 1, y: 0 };
-              const desiredVelocity = Matter.Vector.mult(Matter.Vector.normalise(combinedForce), speed);
-              const steering = Matter.Vector.sub(desiredVelocity, baby.velocity);
-              const steeringMag = Matter.Vector.magnitude(steering);
-              
-              if (steeringMag > maxTurnForce) {
-                  const limitedSteering = Matter.Vector.mult(Matter.Vector.normalise(steering), maxTurnForce);
-                  Matter.Body.applyForce(baby, baby.position, Matter.Vector.mult(limitedSteering, 0.005));
-              } else {
-                  Matter.Body.applyForce(baby, baby.position, Matter.Vector.mult(steering, 0.005));
-              }
-              
-              const currentSpeed = Matter.Vector.magnitude(baby.velocity);
-              if (currentSpeed > 0) {
-                 Matter.Body.setVelocity(baby, Matter.Vector.mult(Matter.Vector.normalise(baby.velocity), speed));
-              } else {
-                 Matter.Body.setVelocity(baby, { x: speed, y: 0 });
-              }
-          };
-          
-          Matter.Events.on(this.engine, 'beforeUpdate', boidLogic);
-
-          fireInterval = setInterval(() => {
-              if (!baby.parent || this.gameEnded()) {
-                  clearInterval(fireInterval);
-                  return;
-              }
-              
-              const validTargets = ownerId === 'player' ? this.enemies : [this.playerBody];
-              if (validTargets.length > 0) {
-                  const eggData = egg.plugin['data'] as any;
-                  let nearest = null;
-                  if (eggData && eggData.aggroTarget && eggData.aggroTarget.parent) {
-                      nearest = eggData.aggroTarget;
-                  } else {
-                      nearest = validTargets[0];
-                      let minDist = Infinity;
-                      validTargets.forEach(e => {
-                          const dist = Matter.Vector.magnitude(Matter.Vector.sub(e.position, baby.position));
-                          if (dist < minDist) { minDist = dist; nearest = e; }
-                      });
-                  }
-                  
-                  const distToNearest = Matter.Vector.magnitude(Matter.Vector.sub(nearest.position, baby.position));
-                  if (distToNearest < seekRange) {
-                      const dir = Matter.Vector.normalise(Matter.Vector.sub(nearest.position, baby.position));
-                      for(let i=0; i<5; i++) {
-                          setTimeout(() => {
-                              if (!baby.parent) return;
-                              const spreadAngle = (Math.random() - 0.5) * 0.5;
-                              const angle = Math.atan2(dir.y, dir.x) + spreadAngle;
-                              const fireDir = { x: Math.cos(angle), y: Math.sin(angle) };
-                              const proj = Matter.Bodies.circle(baby.position.x, baby.position.y, 10, {
-                                  isSensor: true, label: 'projectile',
-                                  // S3 owner fix: the baby's shots now
-                                  // carry owner alongside ownerId (the
-                                  // S2 fire-breath fix pattern). Without
-                                  // it, a player turret's own shots could
-                                  // not be skipped by the player collision
-                                  // branch and damaged the player who
-                                  // deployed the turret.
-                                  plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: baseDamage, owner: ownerId, ownerId: ownerId } as EnemyData }
-                              });
-                              Matter.Body.setVelocity(proj, Matter.Vector.mult(fireDir, this.scaledSpeed(7.5)));
-                              Matter.Composite.add(this.engine.world, proj);
-                              setTimeout(() => { if (proj.parent) Matter.Composite.remove(this.engine.world, proj) }, 1000);
-                          }, i * 50);
-                      }
-                  }
-              }
-          }, 500);
-
-          setTimeout(() => {
-              if (!baby.parent || !egg.parent || exploded) return;
-              isReturning = true;
-              
-              const returnCheck = setInterval(() => {
-                  if (!baby.parent || !egg.parent || exploded || this.gameEnded()) { clearInterval(returnCheck); return; }
-                  const dist = Matter.Vector.magnitude(Matter.Vector.sub(baby.position, egg.position));
-                  if (dist < 20) {
-                      clearInterval(returnCheck);
-                      explode();
-                  }
-              }, 50);
-              
-              setTimeout(() => {
-                  clearInterval(returnCheck);
-                  if (baby.parent && egg.parent && !exploded) explode();
-              }, 2000);
-          }, duration);
-      }, 2000);
-      return ownerId === 'player' ? cd : cd + (duration + 2000) / 1000;
-  }
-
-
-  // Aim direction from a body toward a target point, with a safe
-  // fallback (straight up) when the point sits exactly on the body.
-  private aimAngle(sourceBody: Matter.Body, targetX: number, targetY: number): number {
-      const dx = targetX - sourceBody.position.x;
-      const dy = targetY - sourceBody.position.y;
-      if (dx === 0 && dy === 0) return -Math.PI / 2;
-      return Math.atan2(dy, dx);
-  }
-
-  // S2 shared projectile construction. Every ability projectile
-  // carries BOTH owner and ownerId (the convention the aura fix
-  // established): the player collision branch skips owner 'player',
-  // the enemy branch skips owner 'enemy', and the projectile clash
-  // branch requires owner on both bodies. A projectile missing owner
-  // collides with its own caster at spawn: that is the defect the S2
-  // probes measured on fire breath and on the old burst fan
-  // (STAGE-S2.md), and no S2 move may reintroduce it.
-  private spawnAbilityProjectile(opts: {
-      x: number, y: number, radius: number, type: EnemyData['type'], moveId: string,
-      damage: number, ownerId: string, angle: number, speedPerStep: number, lifeMs: number,
-      extra?: Partial<EnemyData>
-  }): Matter.Body {
-      const data = {
-          id: Math.random().toString(), type: opts.type, health: 1, maxHealth: 1,
-          burstDamage: opts.damage, owner: opts.ownerId, ownerId: opts.ownerId,
-          moveId: opts.moveId, ...(opts.extra || {})
-      } as EnemyData;
-      const proj = Matter.Bodies.circle(opts.x, opts.y, opts.radius, {
-          label: 'projectile', isSensor: true, plugin: { data }
-      });
-      Matter.Body.setVelocity(proj, { x: Math.cos(opts.angle) * opts.speedPerStep, y: Math.sin(opts.angle) * opts.speedPerStep });
-      Matter.Composite.add(this.engine.world, proj);
-      setTimeout(() => { if (proj.parent) Matter.Composite.remove(this.engine.world, proj); }, opts.lifeMs);
-      return proj;
-  }
-
-  private triggerBurst(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
-      const abilityData = stats.unlockedAbilities['burst'];
-      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0, count: 1.0 };
-      const baseCooldown = ABILITIES['burst']?.baseCooldown || 6;
-      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
-      // S2 redesign (systems spec Section 3.3): Burst is a true radial
-      // ring, 8 bolts of 0.8 SU each (6.4 SU total), cooldown 6 s.
-      // PI 1.07 at its intended 2.5-target profile, 0.27 against a
-      // single target: the ring is the crowd answer, not a duel tool.
-      // The aimed fan it used to fire moved to Phoenix Talon with its
-      // geometry unchanged. The ring count is the move's identity, not
-      // an upgrade axis: Burst's upgrade targets stay cooldown, damage
-      // and radius, and only cooldown and damage are read here (the
-      // same convention the old fan used for 'count').
-      const damage = (stats.damage || 10) * 0.8 * (mods['damage'] ?? 1.0);
-      const type = ownerId === 'player' ? 'projectile_player' : 'projectile_enemy';
-      for (let k = 0; k < 8; k++) {
-          this.spawnAbilityProjectile({
-              x: sourceBody.position.x, y: sourceBody.position.y, radius: 8,
-              type, moveId: 'burst', damage, ownerId,
-              angle: k * Math.PI / 4, speedPerStep: this.scaledSpeed(10), lifeMs: 1000
-          });
-      }
-      this.audioService.playSFX('shoot');
-      return cd;
-  }
-
-  private triggerPhoenixTalon(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
-      const abilityData = stats.unlockedAbilities['phoenix_talon'];
-      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
-      const baseCooldown = ABILITIES['phoenix_talon']?.baseCooldown || 7;
-      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
-      // Section 3.3: three slashes of 1.5 SU in a fan, the exact
-      // geometry Burst fired before S2 (offsets (i-1) x 0.15 rad
-      // around the aim direction, speed 10, 2 s life). PI 0.96.
-      const damage = (stats.damage || 10) * 1.5 * (mods['damage'] ?? 1.0);
-      const type = ownerId === 'player' ? 'projectile_player' : 'projectile_enemy';
-      const baseAngle = this.aimAngle(sourceBody, targetX, targetY);
-      for (let i = 0; i < 3; i++) {
-          this.spawnAbilityProjectile({
-              x: sourceBody.position.x, y: sourceBody.position.y, radius: 8,
-              type, moveId: 'phoenix_talon', damage, ownerId,
-              angle: baseAngle + (i - 1) * 0.15, speedPerStep: this.scaledSpeed(10), lifeMs: 2000
-          });
-      }
-      this.audioService.playSFX('shoot');
-      return cd;
-  }
-
-  private triggerFireDart(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
-      const abilityData = stats.unlockedAbilities['fire_dart'];
-      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
-      const baseCooldown = ABILITIES['fire_dart']?.baseCooldown || 2;
-      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
-      // Section 3.3: one 1.5 SU projectile, no homing, the shortest
-      // cooldown in the game (2 s). PI 1.1: its trade is that a miss
-      // is a total loss, with no spread and no seeking to save it.
-      const damage = (stats.damage || 10) * 1.5 * (mods['damage'] ?? 1.0);
-      this.spawnAbilityProjectile({
-          x: sourceBody.position.x, y: sourceBody.position.y, radius: 6,
-          type: 'dart', moveId: 'fire_dart', damage, ownerId,
-          angle: this.aimAngle(sourceBody, targetX, targetY), speedPerStep: this.scaledSpeed(12), lifeMs: 2000
-      });
-      this.audioService.playSFX('shoot');
-      return cd;
-  }
-
-  private triggerSparkStorm(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
-      const abilityData = stats.unlockedAbilities['spark_storm'];
-      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
-      const baseCooldown = ABILITIES['spark_storm']?.baseCooldown || 9;
-      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
-      // Section 3.3: 6 homing sparks of 0.8 SU that seek SEPARATE
-      // targets when available (PI 0.8). Targets are assigned round
-      // robin at cast time; the steering lives in the physics loop
-      // (see the spark block in the beforeUpdate handler). An enemy
-      // cast seeks the player bird via the '__player__' sentinel.
-      const damage = (stats.damage || 10) * 0.8 * (mods['damage'] ?? 1.0);
-      const aim = this.aimAngle(sourceBody, targetX, targetY);
-      let targetIds: string[] = [];
-      if (ownerId === 'player') {
-          targetIds = this.enemies
-              .map(e => (e.plugin['data'] as EnemyData)?.id)
-              .filter((id): id is string => !!id);
-      } else {
-          targetIds = ['__player__'];
-      }
-      for (let i = 0; i < 6; i++) {
-          const targetId = targetIds.length ? targetIds[i % targetIds.length] : undefined;
-          this.spawnAbilityProjectile({
-              x: sourceBody.position.x, y: sourceBody.position.y, radius: 5,
-              type: 'spark', moveId: 'spark_storm', damage, ownerId,
-              angle: aim + (i - 2.5) * 0.18, speedPerStep: this.scaledSpeed(8), lifeMs: 2500,
-              extra: targetId ? { targetId } : undefined
-          });
-      }
-      this.audioService.playSFX('shoot');
-      return cd;
-  }
-
-  private triggerFireLance(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
-      const abilityData = stats.unlockedAbilities['fire_lance'];
-      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
-      const baseCooldown = ABILITIES['fire_lance']?.baseCooldown || 8;
-      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
-      // Section 3.3: one 3.5 SU piercing line, no tracking (PI 1.3 at
-      // 2 targets in the line, 0.66 single). Piercing is implemented
-      // in the enemy collision branch: the lance is not consumed on
-      // hit and hitIds records what it has already damaged.
-      const damage = (stats.damage || 10) * 3.5 * (mods['damage'] ?? 1.0);
-      this.spawnAbilityProjectile({
-          x: sourceBody.position.x, y: sourceBody.position.y, radius: 10,
-          type: 'lance', moveId: 'fire_lance', damage, ownerId,
-          angle: this.aimAngle(sourceBody, targetX, targetY), speedPerStep: this.scaledSpeed(13), lifeMs: 1600,
-          extra: { pierce: true, hitIds: [] }
-      });
-      this.audioService.playSFX('shoot');
-      return cd;
-  }
-
-  private triggerMeteorRush(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
-      const abilityData = stats.unlockedAbilities['meteor_rush'];
-      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
-      const baseCooldown = ABILITIES['meteor_rush']?.baseCooldown || 10;
-      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
-      // Section 3.3: 3 SU to each enemy crossed during a 600 ms rush.
-      // The named trade against Drill is exposure: the rush grants NO
-      // damage reduction and does not skip the caster's own contact
-      // damage; the collision branch applies the rush hit and the
-      // normal contact rules independently. PI 0.9 at 2 crossed.
-      const damage = (stats.damage || 10) * 3 * (mods['damage'] ?? 1.0);
-      const duration = 600;
-      this.audioService.playSFX('shoot');
-      if (ownerId === 'player') {
-          this.gameState.isMeteorRushing.set(true);
-          this.meteorRushUntilMs = Date.now() + duration;
-          this.meteorRushDamageValue = damage;
-          this.meteorRushHitIds.clear();
-          setTimeout(() => { this.gameState.isMeteorRushing.set(false); }, duration);
-      } else {
-          const d = sourceBody.plugin['data'] as EnemyData;
-          if (d) {
-              d.meteorRushUntil = Date.now() + duration;
-              d.meteorRushDamage = damage;
-              d.meteorRushHits = [];
-          }
-      }
-      return cd;
-  }
-
-
-  private triggerAura(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
-      const abilityData = stats.unlockedAbilities['aura'];
-      const mods = abilityData?.modifiers || { cooldown: 1.0, duration: 1.0, radius: 1.0, damage: 1.0 };
-      const baseCooldown = ABILITIES['aura']?.baseCooldown || 17;
-      // Aura's upgrade targets define damage and radius only, so its
-      // cooldown and duration multipliers are absent from the record;
-      // an absent multiplier reads as 1.0 (the same convention as
-      // slotMaxCooldown). Reading them raw produced NaN: the cooldown
-      // never engaged and the zone's removal timer fired immediately.
-      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
-
-      const duration = 5000 * (mods['duration'] ?? 1.0);
-      // Radius wired to the auraRadius stat (spec Sections 3.1 and
-      // 5.1): it used to be a hardcoded 150 while the shop passive of
-      // the same name (base 250) fed a different path.
-      const radius = stats.auraRadius * mods['radius'];
-
-      // S3 tick math (spec Section 3.3): the zone deals 0.25 SU per
-      // tick, 2 ticks per second, for 5 s (25 damage total at base
-      // stats, PI about 0.5 with the zone's defensive credit). The
-      // old implementation dealt damage through the collision
-      // branch at 0.5 SU per contact event, which made the total
-      // depend on physics contact timing instead of the spec's
-      // clock. The visual body now carries burstDamage 0, so both
-      // collision branches skip it, and an explicit interval applies
-      // the ticks to everything inside the radius of the caster's
-      // live position.
-      const tickDamage = stats.damage * 0.25 * mods['damage'];
-      const aura = Matter.Bodies.circle(sourceBody.position.x, sourceBody.position.y, radius, {
-          isSensor: true,
-          label: 'projectile',
-          plugin: { data: { id: Math.random().toString(), type: 'aura', owner: ownerId, ownerId: ownerId, burstDamage: 0, health: 1, maxHealth: 1 } as EnemyData }
-      });
-
-      Matter.Composite.add(this.engine.world, aura);
-      this.audioService.playSFX('heal');
-
-      const updateAura = () => {
-          if (!aura.parent || this.isDead() || this.gameEnded()) return;
-          Matter.Body.setPosition(aura, sourceBody.position);
-      };
-
-      Matter.Events.on(this.engine, 'beforeUpdate', updateAura);
-
-      const tickInterval = setInterval(() => {
-          if (!aura.parent || !sourceBody.parent || this.gameEnded()) {
-              clearInterval(tickInterval);
-              return;
-          }
-          const cx = sourceBody.position.x;
-          const cy = sourceBody.position.y;
-          if (ownerId === 'player') {
-              // Snapshot the list: damageEnemy can remove bodies and
-              // spawn splits while the loop runs.
-              for (const e of [...this.enemies]) {
-                  const d = Math.hypot(e.position.x - cx, e.position.y - cy);
-                  if (d < radius) this.damageEnemy(e, tickDamage, sourceBody.position);
-              }
-          } else {
-              const d = Math.hypot(this.playerBody.position.x - cx, this.playerBody.position.y - cy);
-              if (d < radius && !this.isDead()) this.takeDamage(tickDamage);
-          }
-      }, 500);
-
-      setTimeout(() => {
-          clearInterval(tickInterval);
-          if (aura.parent) Matter.Composite.remove(this.engine.world, aura);
-          Matter.Events.off(this.engine, 'beforeUpdate', updateAura);
-      }, duration);
-
-      return cd;
-  }
-
-  private triggerPhoenixInferno(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
-      const abilityData = stats.unlockedAbilities['phoenix_inferno'];
-      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
-      const baseCooldown = ABILITIES['phoenix_inferno']?.baseCooldown || 14;
-      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
-      // Section 3.3: a channeled beam, 1.2 SU per 0.25 s tick for up
-      // to 3 s (14.4 SU for a full channel, PI 1.27 across the whole
-      // cycle). The caster is held at Feather Brake speed for the
-      // channel (the player's brake is forced in the physics loop;
-      // the rival's channel end rides on its body data), and the
-      // cooldown only starts when the beam stops, which the caller
-      // sees as the returned cooldown plus the channel length for AI
-      // and as holdAbilityEndTime for the player.
-      const tickDamage = (stats.damage || 10) * 1.2 * (mods['damage'] ?? 1.0);
-      const channelMs = 3000;
-      const channelEnd = Date.now() + channelMs;
-      if (ownerId === 'player') {
-          this.playerInfernoUntil = channelEnd;
-          this.holdAbilityEndTime = channelEnd;
-      } else {
-          const d = sourceBody.plugin['data'] as EnemyData;
-          if (d) d.infernoUntil = channelEnd;
-      }
-      this.audioService.playSFX('shoot');
-
-      const range = 0.5 * this.logicalUnit;
-      const halfWidth = 30 * this.speedScale;
-      let visualFlip = false;
-      const tick = setInterval(() => {
-          if (Date.now() >= channelEnd || !sourceBody.parent || this.gameEnded()
-              || (ownerId === 'player' && (this.isDead() || this.gameState.isRebirthing()))) {
-              clearInterval(tick);
-              return;
-          }
-          // The beam follows the caster's current aim: for the
-          // player that is the mouse, for the rival its steering
-          // target (the player bird).
-          let aimX: number, aimY: number;
-          if (ownerId === 'player') {
-              aimX = this.mouseX; aimY = this.mouseY;
-          } else {
-              aimX = this.playerBody.position.x; aimY = this.playerBody.position.y;
-          }
-          const sx = sourceBody.position.x;
-          const sy = sourceBody.position.y;
-          let ax = aimX - sx;
-          let ay = aimY - sy;
-          const alen = Math.hypot(ax, ay);
-          if (alen < 1) { ax = 0; ay = -1; } else { ax /= alen; ay /= alen; }
-          const targets = ownerId === 'player' ? [...this.enemies] : [this.playerBody];
-          for (const t of targets) {
-              const rx = t.position.x - sx;
-              const ry = t.position.y - sy;
-              const along = rx * ax + ry * ay;
-              if (along < 0 || along > range) continue;
-              const perp = Math.abs(rx * -ay + ry * ax);
-              if (perp > halfWidth) continue;
-              if (t === this.playerBody) this.takeDamage(tickDamage);
-              else this.damageEnemy(t, tickDamage, sourceBody.position);
-          }
-          // Beam visual: short-lived fire blobs along the corridor,
-          // alternating ticks. They carry burstDamage 0, so both
-          // collision branches skip them; they are pure display.
-          visualFlip = !visualFlip;
-          if (visualFlip) {
-              for (let s = 1; s <= 5; s++) {
-                  const bx = sx + ax * range * (s / 6) + (Math.random() - 0.5) * 14 * this.speedScale;
-                  const by = sy + ay * range * (s / 6) + (Math.random() - 0.5) * 14 * this.speedScale;
-                  const blob = Matter.Bodies.circle(bx, by, 13, {
-                      isSensor: true, label: 'projectile',
-                      plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: 0, owner: ownerId, ownerId: ownerId } as EnemyData }
-                  });
-                  Matter.Composite.add(this.engine.world, blob);
-                  setTimeout(() => { if (blob.parent) Matter.Composite.remove(this.engine.world, blob); }, 260);
-              }
-          }
-      }, 250);
-
-      return ownerId === 'player' ? cd : cd + channelMs / 1000;
-  }
-
-  private triggerInfernoWave(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
-      const abilityData = stats.unlockedAbilities['inferno_wave'];
-      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
-      const baseCooldown = ABILITIES['inferno_wave']?.baseCooldown || 16;
-      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
-      // Section 3.3: an expanding ring, 3 SU to every enemy it
-      // crosses (a swarm clearer; single-target PI is low by
-      // design). All 16 bolts share one hitIds array with pierce, so
-      // the ring's two sides crossing the same enemy still hit it
-      // exactly once per cast. The ring is the same construction as
-      // Burst's, at hold-family damage and a longer life.
-      const damage = (stats.damage || 10) * 3 * (mods['damage'] ?? 1.0);
-      const type = ownerId === 'player' ? 'projectile_player' : 'projectile_enemy';
-      const sharedHitIds: string[] = [];
-      for (let k = 0; k < 16; k++) {
-          this.spawnAbilityProjectile({
-              x: sourceBody.position.x, y: sourceBody.position.y, radius: 8,
-              type, moveId: 'inferno_wave', damage, ownerId,
-              angle: k * Math.PI / 8, speedPerStep: this.scaledSpeed(6), lifeMs: 2500,
-              extra: { pierce: true, hitIds: sharedHitIds }
-          });
-      }
-      this.audioService.playSFX('shoot');
-      return cd;
-  }
-
-  // S4 ultimates (systems spec Section 3.3, the triple-tap slot).
-  // Shared conventions: modifiers read with the S1 fallbacks (an
-  // absent key is 1.0), damage is SU times the damage stat times
-  // the damage modifier, and every trigger registers its cast
-  // first so every packet against a boss-class target (or the
-  // player, for an enemy cast) passes the per-cast 25 percent cap.
-
-  private triggerPhoenixNova(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
-      const abilityData = stats.unlockedAbilities['phoenix_nova'];
-      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
-      const baseCooldown = ABILITIES['phoenix_nova']?.baseCooldown || 60;
-      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
-      // Section 3.3 (catalog hold_5): 25 SU to everything within
-      // Large radius, clamped by the burst cap. Built as a ring of
-      // 24 piercing bolts sharing one hit set (the Inferno Wave
-      // construction at ultimate density), so each target takes
-      // the packet once per cast. Speed and life are sized to the
-      // Large radius (0.5 x min dimension): at 10 per step for
-      // 900 ms a bolt covers about 0.55 x min dimension on the
-      // reference phone.
-      const damage = (stats.damage || 10) * 25 * (mods['damage'] ?? 1.0);
-      const castId = this.registerUltCast(ownerId);
-      const sharedHitIds: string[] = [];
-      for (let k = 0; k < 24; k++) {
-          this.spawnAbilityProjectile({
-              x: sourceBody.position.x, y: sourceBody.position.y, radius: 10,
-              type: 'nova', moveId: 'phoenix_nova', damage, ownerId,
-              angle: k * Math.PI / 12, speedPerStep: this.scaledSpeed(10), lifeMs: 900,
-              extra: { pierce: true, hitIds: sharedHitIds, ultCastId: castId, owner: ownerId === 'player' ? 'player' : 'enemy' }
-          });
-      }
-      this.audioService.playSFX('explosion');
-      return cd;
-  }
-
-  private triggerSupernova(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
-      const abilityData = stats.unlockedAbilities['supernova'];
-      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
-      const baseCooldown = ABILITIES['supernova']?.baseCooldown || 75;
-      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
-      // Section 3.3 (catalog triple_8): a visible mass swells at
-      // the target point for a 0.8 s fuse (the telegraph: three
-      // harmless fire blobs growing on a 250 ms stagger), then
-      // detonates for 18 SU to everything inside Medium radius
-      // (0.30 x min dimension).
-      const damage = (stats.damage || 10) * 18 * (mods['damage'] ?? 1.0);
-      const castId = this.registerUltCast(ownerId);
-      const radius = 0.30 * this.logicalUnit;
-      for (let i = 0; i < 3; i++) {
-          setTimeout(() => {
-              if (this.gameEnded()) return;
-              const blob = Matter.Bodies.circle(targetX, targetY, (10 + i * 10) * this.speedScale, {
-                  label: 'projectile', isSensor: true,
-                  plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: 0, owner: ownerId === 'player' ? 'player' : 'enemy', ownerId } as EnemyData }
-              });
-              Matter.Composite.add(this.engine.world, blob);
-              setTimeout(() => { if (blob.parent) Matter.Composite.remove(this.engine.world, blob); }, 850 - i * 250);
-          }, i * 250);
-      }
-      setTimeout(() => {
-          if (this.gameEnded() || this.isDead()) return;
-          for (const e of [...this.enemies]) {
-              if (e === sourceBody) continue;
-              const d = e.plugin['data'] as EnemyData;
-              if (!d) continue;
-              if (Math.hypot(e.position.x - targetX, e.position.y - targetY) <= radius) {
-                  this.damageEnemy(e, damage, { x: targetX, y: targetY }, castId);
-              }
-          }
-          if (ownerId !== 'player' && Math.hypot(this.playerBody.position.x - targetX, this.playerBody.position.y - targetY) <= radius) {
-              this.takeDamage(this.clampUltDamage(castId, '__player__', this.currentHealth(), damage));
-          }
-          this.triggerImpactEffect(targetX, targetY, true);
-      }, 800);
-      this.audioService.playSFX('shoot');
-      return cd;
-  }
-
-  private triggerDivineWrath(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
-      const abilityData = stats.unlockedAbilities['divine_wrath'];
-      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
-      const baseCooldown = ABILITIES['divine_wrath']?.baseCooldown || 70;
-      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
-      // Section 3.3 (catalog hold_8): 5 strikes of 3 SU over 2 s,
-      // columns at the enemies nearest the target point inside a
-      // Large area (0.5 x min dimension), cycling the living. The
-      // player cast locks the caster for the first 0.5 s on the
-      // same forced-brake field the Phoenix Inferno channel uses.
-      const damage = (stats.damage || 10) * 3 * (mods['damage'] ?? 1.0);
-      const castId = this.registerUltCast(ownerId);
-      const areaR = 0.5 * this.logicalUnit;
-      const targets = this.enemies
-          .filter(e => e !== sourceBody && Math.hypot(e.position.x - targetX, e.position.y - targetY) <= areaR)
-          .sort((a, b) => Math.hypot(a.position.x - targetX, a.position.y - targetY) - Math.hypot(b.position.x - targetX, b.position.y - targetY))
-          .slice(0, 5);
-      if (ownerId === 'player') {
-          this.playerInfernoUntil = Math.max(this.playerInfernoUntil, Date.now() + 500);
-      }
-      for (let s = 0; s < 5; s++) {
-          setTimeout(() => {
-              if (this.gameEnded()) return;
-              if (ownerId === 'player') {
-                  const live = targets.filter(t => t.parent && ((t.plugin['data'] as EnemyData)?.health || 0) > 0);
-                  if (!live.length) return;
-                  const t = live[s % live.length];
-                  this.damageEnemy(t, damage, t.position, castId);
-                  this.spawnWrathColumn(t.position.x, t.position.y);
-              } else if (Math.hypot(this.playerBody.position.x - targetX, this.playerBody.position.y - targetY) <= areaR) {
-                  this.takeDamage(this.clampUltDamage(castId, '__player__', this.currentHealth(), damage));
-                  this.spawnWrathColumn(this.playerBody.position.x, this.playerBody.position.y);
-              }
-          }, s * 400);
-      }
-      this.audioService.playSFX('explosion');
-      return cd;
-  }
-
-  // A Divine Wrath strike visual: a short-lived column of harmless
-  // fire bodies (burstDamage 0, so every collision branch skips it).
-  private spawnWrathColumn(x: number, y: number) {
-      for (let i = 0; i < 4; i++) {
-          const blob = Matter.Bodies.circle(x + (Math.random() - 0.5) * 20 * this.speedScale, y - i * 34 * this.speedScale, 12 * this.speedScale, {
-              label: 'projectile', isSensor: true,
-              plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: 0 } as EnemyData }
-          });
-          Matter.Composite.add(this.engine.world, blob);
-          setTimeout(() => { if (blob.parent) Matter.Composite.remove(this.engine.world, blob); }, 220);
-      }
-  }
-
-  private triggerPhoenixSingularity(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
-      const abilityData = stats.unlockedAbilities['phoenix_singularity'];
-      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
-      const baseCooldown = ABILITIES['phoenix_singularity']?.baseCooldown || 90;
-      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
-      // Section 3.3 (catalog hold_24): a vortex at the target point
-      // pulls everything inside Medium radius (0.30 x min
-      // dimension) toward it for 2 s, then detonates for 15 SU
-      // inside the same radius. The pull blends velocities toward
-      // the point every 50 ms; the detonation is the packet the
-      // cast clamp caps. An enemy cast cannot drag the player body
-      // (it is position-slaved to the renderer), so against the
-      // player the detonation is the threat, as with Supernova.
-      const damage = (stats.damage || 10) * 15 * (mods['damage'] ?? 1.0);
-      const castId = this.registerUltCast(ownerId);
-      const radius = 0.30 * this.logicalUnit;
-      const pullStart = Date.now();
-      let tick = 0;
-      const swirl = setInterval(() => {
-          if (this.gameEnded()) { clearInterval(swirl); return; }
-          tick++;
-          for (const e of this.enemies) {
-              if (e === sourceBody) continue;
-              const dx = targetX - e.position.x, dy = targetY - e.position.y;
-              const d = Math.hypot(dx, dy);
-              if (d > radius || d < 1) continue;
-              const v = Matter.Body.getVelocity(e);
-              const pull = 0.9 * this.logicalUnit; // px per second toward the point
-              Matter.Body.setVelocity(e, {
-                  x: (v.x * 60 + ((dx / d) * pull - v.x * 60) * 0.25) / 60,
-                  y: (v.y * 60 + ((dy / d) * pull - v.y * 60) * 0.25) / 60
-              });
-          }
-          if (tick % 4 === 0) {
-              const a = Math.random() * Math.PI * 2;
-              const blob = Matter.Bodies.circle(targetX + Math.cos(a) * radius * 0.7, targetY + Math.sin(a) * radius * 0.7, 9 * this.speedScale, {
-                  label: 'projectile', isSensor: true,
-                  plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: 0, owner: ownerId === 'player' ? 'player' : 'enemy', ownerId } as EnemyData }
-              });
-              Matter.Composite.add(this.engine.world, blob);
-              setTimeout(() => { if (blob.parent) Matter.Composite.remove(this.engine.world, blob); }, 200);
-          }
-          if (Date.now() - pullStart >= 2000) {
-              clearInterval(swirl);
-              if (this.isDead()) return;
-              for (const e of [...this.enemies]) {
-                  if (e === sourceBody) continue;
-                  const d = e.plugin['data'] as EnemyData;
-                  if (!d) continue;
-                  if (Math.hypot(e.position.x - targetX, e.position.y - targetY) <= radius) {
-                      this.damageEnemy(e, damage, { x: targetX, y: targetY }, castId);
-                  }
-              }
-              if (ownerId !== 'player' && Math.hypot(this.playerBody.position.x - targetX, this.playerBody.position.y - targetY) <= radius) {
-                  this.takeDamage(this.clampUltDamage(castId, '__player__', this.currentHealth(), damage));
-              }
-              this.triggerImpactEffect(targetX, targetY, true);
-          }
-      }, 50);
-      this.audioService.playSFX('shoot');
-      return cd;
-  }
 
 
   private triggerDeathSequence() {
@@ -6952,7 +4366,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   }
 
 
-  private triggerRageMode() {
+  public triggerRageMode() {
       if (this.rageModeActive()) return; // Fix race condition
       // Enrage and overtime (S6 item 4): the run clock (300 s) and
       // the intense track both end before the top of every enrage
@@ -7022,7 +4436,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   }
 
 
-  private triggerImpactEffect(x: number, y: number, isBoss: boolean) {
+  public triggerImpactEffect(x: number, y: number, isBoss: boolean) {
     // Per-frame spark throttle (spec Section 4.6): beyond the frame
     // allowance, spawns are dropped (oldest first in effect, since the
     // earliest calls in the frame win the budget).
