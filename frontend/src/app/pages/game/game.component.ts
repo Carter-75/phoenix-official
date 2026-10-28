@@ -128,6 +128,14 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
              <div class="h-full bg-gradient-to-r from-red-600 to-orange-500 transition-all duration-300"
                   [style.width]="(currentHealth() / maxHealth()) * 100 + '%'"></div>
           </div>
+          <!-- Bar length (Carter, Oct 28): the flex-1 bar spanned
+               nearly the whole row and crowded the rail. This
+               spacer takes a 0.64 share of the row's free space
+               against the bar's flex-1, leaving the bar at about
+               57 percent of its old span at any width, while the
+               readout and the LV badge stay right-anchored exactly
+               as before. -->
+          <div aria-hidden="true" class="pointer-events-none" style="flex: 0.64 1 0"></div>
           <span class="text-red-300 font-bold text-sm shrink-0">{{ currentHealth() }} / {{ maxHealth() }}</span>
           <!-- Account level in the HUD (S6 level audit), now a badge
                on the HP row where it can never be covered. The max HP
