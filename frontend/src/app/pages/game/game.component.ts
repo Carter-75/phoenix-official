@@ -21,6 +21,7 @@ import { BattleAiService, BattleContext } from '../../services/battle-ai.service
 import { EntitySpawnerService, SPAWN_DEFS } from '../../services/entity-spawner.service';
 import { AdsService } from '../../services/ads.service';
 import { EnemyData, SPARK_CELL_TYPES, STURDY_UP_TYPES, ARMORED_UP_TYPES } from './game.types';
+import { HoldStillTracker } from './hold-still';
 import { BossFight } from './boss-fight';
 import { AbilityExecutor } from './ability-executor';
 import { FxController } from './fx-controller';
@@ -811,9 +812,10 @@ export class GameComponent implements OnInit, OnDestroy {
   // session; 0 means no session timing is running.
   private lastChargeStamp = 0;
 
-  private holdStartX = 0;
-
-  private holdStartY = 0;
+  // Carter's stillness rule (Bird Rebuild): the charge accrues only
+  // while the steering pointer is down and has been effectively
+  // stationary for a continuous 0.5 s; the tracker owns the samples.
+  private holdStill = new HoldStillTracker();
 
 
   // Matter.js
@@ -1959,36 +1961,26 @@ export class GameComponent implements OnInit, OnDestroy {
 
       // 2. Track Hold-Still for the hold ability (S3 charge redesign,
       // spec Section 3.2). Player presses and holds; a charge ring
-      // fills over 1.5 s; at full charge the ability fires. The old
-      // rule reset the charge on any movement past 10 px, which made
-      // hold moves unusable under bot steering and twitchy on touch.
-      // Now the charge has a fixed origin (where the press began):
-      // drifting beyond the drift radius from that origin PAUSES
-      // accumulation with progress kept, and returning inside resumes
-      // it. The charge in exchange for the shorter, forgiving charge
-      // is the family's higher cooldowns (turret 14, aura 17,
-      // rebirth 75). The Focus Charm gadget multiplies the charge
-      // time by 0.75. Releasing the press, or having no ready hold
-      // move, still ends the session.
+      // fills over 1.5 s; at full charge the ability fires. The
+      // charge in exchange is the family's higher cooldowns (turret
+      // 14, aura 17, rebirth 75). The Focus Charm gadget multiplies
+      // the charge time by 0.75. Releasing the press, or having no
+      // ready hold move, ends the session.
       //
-      // Fix Round 1, Part 3 (Carter's device feedback, Oct 27 2026):
-      // two corrections to the shipped numbers. (a) The drift radius
-      // was 25 percent of the min screen dimension (90 CSS px on a
-      // 360 px wide phone): the finger could roam a 180 px circle
-      // with the bird flying after it while the charge filled and
-      // fired, which reads as charging while moving. The radius is
-      // now a planted-finger tolerance (24 CSS px, about natural
-      // fingertip jitter): the charge builds only while the player
-      // is holding position, per spec Section 2.4 (the steering
-      // finger planted). (b) The charge accumulated the fixed
-      // physics step per beforeUpdate event; the Matter runner
-      // delivers those events in bursts (catch-up steps inside one
-      // rendered frame, none in others), so the displayed percent
-      // stalled, then jumped. Accumulation is now wall-clock based
-      // (clamped per event), so the percent tracks real elapsed time
-      // and rises continuously at any refresh rate.
+      // Bird Rebuild (Carter's final rule, Oct 28 2026) replaces the
+      // fixed-origin drift radius of Fix Round 1 Part 3: the charge
+      // accrues ONLY while the steering pointer is touching AND
+      // effectively stationary, and accrual begins only after 0.5 s
+      // of continuous stillness. Any movement beyond the stillness
+      // threshold pauses accrual (progress kept), and resuming
+      // requires a fresh 0.5 s of stillness wherever the finger now
+      // rests. The tracker (hold-still.ts) measures stillness as
+      // path length over the trailing 0.5 s, so a slow continuous
+      // drag can never charge even though each step is sub-pixel.
+      // Accumulation stays wall-clock based (clamped per event, the
+      // Fix Round 1 Part 3 fix), so the percent tracks real elapsed
+      // time and rises continuously at any refresh rate.
       const chargeMs = 1500 * (this.gameState.currentStats().activeGadget === 'focus_charm' ? 0.75 : 1);
-      const driftLimit = 24;
       if (this.isMouseHeld && !this.isDead() && !this.gameState.isPaused() && !this.gameState.isRebirthing()) {
         const holdAbility = this.gameState.currentStats().activeHoldAbility;
         // Brake and charge are mutually exclusive (spec Section 2.4):
@@ -2001,25 +1993,24 @@ export class GameComponent implements OnInit, OnDestroy {
             this.lastChargeStamp = 0;
             if (this.holdChargeProgress() !== 0) this.holdChargeProgress.set(0);
         } else {
-            if (this.holdTimer <= 0 && this.holdChargeProgress() === 0) {
-                // New charge session: fix the origin at the press point.
-                this.holdStartX = this.mouseX;
-                this.holdStartY = this.mouseY;
-            }
-            const dist = Math.hypot(this.mouseX - this.holdStartX, this.mouseY - this.holdStartY);
+            // Sample the live pointer position every physics tick so
+            // the stillness window stays populated even when no
+            // input events fire (a planted finger fires none).
+            this.holdStill.sample(now, this.mouseX, this.mouseY);
             // Wall-clock accumulation: each event adds the real time
             // since the previous live event (clamped at 100 ms, so a
             // pause or hitch can never bank more than a fifteenth of
             // the charge in one step). The stamp advances whether or
-            // not the pointer is inside the radius, so time spent
-            // drifted out is never banked.
+            // not the pointer is still, so time spent moving is
+            // never banked.
             const stepMs = this.lastChargeStamp ? Math.min(100, Math.max(0, now - this.lastChargeStamp)) : 0;
             this.lastChargeStamp = now;
-            if (dist <= driftLimit) {
+            if (this.holdStill.isStill(now)) {
                 this.holdTimer += stepMs;
             }
-            // Outside the drift radius the timer simply does not
-            // advance: progress is frozen, not lost.
+            // While the pointer moves (or is still inside its 0.5 s
+            // arming window) the timer simply does not advance:
+            // progress is frozen, not lost.
             this.holdChargeProgress.set(Math.min(1, this.holdTimer / chargeMs));
             this.holdChargePos.set({ x: this.mouseX, y: this.mouseY });
             if (this.holdTimer >= chargeMs) {
@@ -2038,6 +2029,7 @@ export class GameComponent implements OnInit, OnDestroy {
       } else {
         this.holdTimer = 0;
         this.lastChargeStamp = 0;
+        this.holdStill.release();
         if (this.holdChargeProgress() !== 0) this.holdChargeProgress.set(0);
       }
 
@@ -4289,6 +4281,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       const adjusted = this.gameState.applyTouchOffset(x, y, isTouch);
       this.mouseX = adjusted.x;
       this.mouseY = adjusted.y;
+      this.holdStill.sample(Date.now(), adjusted.x, adjusted.y);
   }
 
 
@@ -4326,8 +4319,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       if (this.gameState.currentGameMode() === 'ai_vs_ai') return;
       const adjusted = this.gameState.applyTouchOffset(x, y, isTouch);
       this.isMouseHeld = true;
-      this.holdStartX = adjusted.x;
-      this.holdStartY = adjusted.y;
+      this.holdStill.press(Date.now(), adjusted.x, adjusted.y);
       this.holdTimer = 0;
 
       const now = Date.now();
@@ -4435,6 +4427,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       if (event.button !== 0) return;
       this.evaluateFlick(event.clientX, event.clientY);
       this.isMouseHeld = false;
+      this.holdStill.release();
   }
 
   private onTouchEnd(event: TouchEvent) {
@@ -4455,6 +4448,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
           const t = event.changedTouches[0];
           if (t) this.evaluateFlick(t.clientX, t.clientY);
           this.isMouseHeld = false;
+          this.holdStill.release();
       }
   }
 
