@@ -1,4 +1,6 @@
 import { Injectable, signal } from '@angular/core';
+import { App } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
 
 @Injectable({
   providedIn: 'root'
@@ -36,6 +38,14 @@ export class AudioService {
   private analyser: AnalyserNode | null = null;
   private dataArray: Uint8Array | null = null;
   private sourceMap = new Map<HTMLAudioElement, MediaElementAudioSourceNode>();
+
+  // Fix Round 1, Part 8: when the app is left (tab hidden or the
+  // Capacitor app goes inactive), ALL audio stops: every BGM element
+  // is hard-paused, live SFX clones are paused, and the audio context
+  // is suspended. backgroundedBgm remembers which track was playing
+  // so the return path can make the right call per game state.
+  private backgroundedBgm: HTMLAudioElement | null = null;
+  private liveSfx = new Set<HTMLAudioElement>();
 
   constructor() {
     this.menuBgm.loop = false;
@@ -134,6 +144,65 @@ export class AudioService {
 
     this.loadSettings();
     this.updateVolumes();
+
+    // Part 8 wiring: the document visibility signal covers web and
+    // the WebView; the Capacitor app-state event covers native
+    // backgrounding that does not flip document.hidden first.
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) this.suspendForBackground();
+        else this.resumeFromBackground();
+    });
+    if (Capacitor.isNativePlatform()) {
+        App.addListener('appStateChange', ({ isActive }) => {
+            if (isActive) this.resumeFromBackground();
+            else this.suspendForBackground();
+        }).catch(() => {});
+    }
+  }
+
+  // Hard-stop everything audible. Unlike pauseCurrentBgm (a 300 ms
+  // fade for the pause menu), backgrounding must be silent at once:
+  // the OS can freeze the WebView before a fade would finish.
+  public suspendForBackground() {
+      if (this.fadeInterval) {
+          clearInterval(this.fadeInterval);
+          this.fadeInterval = null;
+      }
+      // Both the visibility signal and the native app-state event can
+      // fire for one backgrounding; a repeat call finds everything
+      // already paused and simply leaves the record as it is.
+      for (const el of [this.menuBgm, this.worldBgm, this.intenseBgm]) {
+          if (!el.paused) {
+              if (el === this.currentBgm || this.backgroundedBgm === null) {
+                  this.backgroundedBgm = el;
+              }
+              el.pause();
+          }
+      }
+      for (const sfx of [...this.liveSfx]) {
+          sfx.pause();
+          this.liveSfx.delete(sfx);
+      }
+      if (this.audioCtx && this.audioCtx.state === 'running') {
+          this.audioCtx.suspend().catch(() => {});
+      }
+  }
+
+  // Return path. The audio context resumes. The menu track resumes
+  // if the player is still on the menu (there is no pause menu
+  // there). A run track deliberately does NOT auto-resume: leaving
+  // auto-paused the run, and its music restarts only when the player
+  // resumes from the pause menu (togglePause -> resumeCurrentBgm),
+  // or never if the run ended while away (currentBgm has moved on).
+  public resumeFromBackground() {
+      if (this.audioCtx && this.audioCtx.state === 'suspended') {
+          this.audioCtx.resume().catch(() => {});
+      }
+      const was = this.backgroundedBgm;
+      this.backgroundedBgm = null;
+      if (was === this.menuBgm && this.currentBgm === this.menuBgm && this.menuBgm.paused) {
+          this.menuBgm.play().then(() => this.fadeAudio(false, 300)).catch(() => {});
+      }
   }
 
   private initAudioContext() {
@@ -418,7 +487,10 @@ export class AudioService {
                 clone.playbackRate = 0.8 + (Math.random() * 0.4); // Randomizes pitch/speed between 80% and 120%
                 clone.preservesPitch = false;
             }
-            clone.play().catch(e => console.log('SFX play prevented', e));
+            // Track live clones so backgrounding can stop them too.
+            this.liveSfx.add(clone);
+            clone.addEventListener('ended', () => this.liveSfx.delete(clone));
+            clone.play().catch(() => this.liveSfx.delete(clone));
         }
     }
   }
