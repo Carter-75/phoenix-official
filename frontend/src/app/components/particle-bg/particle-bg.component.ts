@@ -7,9 +7,9 @@ import { buildEntityGeometry } from './entity-builder';
 import { PhoenixState, ParticleEntity, DyingBurst } from './phoenix-state';
 import { Rgb3, PhoenixSkin, PHOENIX_SKINS, HOSTILE_SKIN, phoenixSkinById, phoenixSkinForWorld } from './phoenix-skins';
 import { pointInGlyph } from './phoenix-glyph';
-import { makeBackdropTexture, silColor, themePainters } from './theme-painters';
+import { makeBackdropTexture, makeScrollBackdropTexture, silColor, themePainters, wallPainters } from './theme-painters';
 import { EntitySync } from './entity-sync';
-import { BirdPhysics } from './bird-physics';
+import { BirdPhysics, BASE_SPEED_STAT } from './bird-physics';
 import { getPhoenixFrames, ensureAshFrames } from './phoenix-sprite';
 import { bossDefFor } from '../../data/boss-rig';
 export { phoenixSkinForWorld } from './phoenix-skins';
@@ -71,6 +71,39 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
   // gameplay-facing is occluded.
   private backdropMesh: THREE.Mesh | null = null;
   private backdropTex: THREE.CanvasTexture | null = null;
+  // World scroll (World 1 Finish): when the selected world's
+  // scroll record is enabled, the composited backdrop scrolls
+  // downward during a run and themed side walls scroll with it,
+  // so the phoenix reads as flying up through the world forever.
+  // One accumulated distance drives both textures (scrollScreens,
+  // in screen heights), which makes wall and background sync
+  // exact by construction. The rate derives from the cruise law:
+  // cruise speed over the visible height at the flight plane,
+  // scaled by the same speed multiplier the bird flies with and
+  // by the world's data speedFactor. Walls: two narrow strips at
+  // z = -20 between the backdrop and the flight plane; their
+  // inner face sits at WALL_FACE_NDC of the half-width, and
+  // wallInsetX (the BirdPhysicsHost clamp) keeps the bird's
+  // flight out of the wall zone. boundX itself never changes.
+  private static readonly WALL_Z = -20;
+  private static readonly WALL_FACE_FRACTION = 0.09; // of the screen width, per side
+  private static readonly WALL_CANVAS_W = 256;
+  private static readonly WALL_CANVAS_H = 1024;
+  // The wall canvas spans this many screen widths from the face
+  // line outward (the rock profile lives at about 30 percent of
+  // it; the rest is rock mass running past the screen edge).
+  private static readonly WALL_SPAN_FRACTION = 0.12;
+  private scrollEnabled = false;
+  private scrollFrozen = false; // harness-only, via the debug hook (frame-diff censuses need a still backdrop)
+  private scrollScreens = 0;
+  private scrollRateNow = 0; // screen heights per second, last computed
+  public wallInsetX = 0;
+  private wallGroup: THREE.Group | null = null;
+  private wallTexLeft: THREE.CanvasTexture | null = null;
+  private wallTexRight: THREE.CanvasTexture | null = null;
+  private wallMeshLeft: THREE.Mesh | null = null;
+  private wallMeshRight: THREE.Mesh | null = null;
+  private wallCanvas: HTMLCanvasElement | null = null;
   private blobTexture: THREE.Texture | null = null;
   private themedWorldIndex = -1;
   private themeTime = 0;
@@ -206,6 +239,11 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       if (window.localStorage.getItem('phoenix_debug_hooks') === '1') {
         (window as any).__phoenixBg = {
           sceneStats: () => this.sceneStats(),
+          scrollState: () => this.scrollState(),
+          setScrollScreens: (v: number) => { this.scrollScreens = v; },
+          setScrollFrozen: (v: boolean) => { this.scrollFrozen = !!v; },
+          backdropImage: () => (this.backdropTex?.image as HTMLCanvasElement | undefined)?.toDataURL() ?? null,
+          wallImage: () => this.wallCanvas?.toDataURL() ?? null,
         };
       }
     } catch { /* storage unavailable: no hook, no effect on play */ }
@@ -335,7 +373,13 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
         this.scene.add(this.backdropMesh);
       }
       this.backdropTex?.dispose();
-      this.backdropTex = makeBackdropTexture(painters, td);
+      // A scroll-enabled world gets the vertically tileable
+      // crossfade texture on the same composited plane; every
+      // other world keeps the static texture exactly as before.
+      this.scrollEnabled = !!td.scroll?.enabled;
+      this.backdropTex = this.scrollEnabled
+        ? makeScrollBackdropTexture(painters, td)
+        : makeBackdropTexture(painters, td);
       this.backdropTex.repeat.x = 2;
       const mat = this.backdropMesh.material as THREE.MeshBasicMaterial;
       mat.map = this.backdropTex; mat.needsUpdate = true;
@@ -344,7 +388,66 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     } else {
       if (this.backdropMesh) this.backdropMesh.visible = false;
       this.bgGlow.visible = true;
+      this.scrollEnabled = false;
     }
+
+    // Side walls (World 1 Finish): built from the world's wall
+    // theme key when its scroll record is enabled and a painter
+    // exists for the key. One canvas, two textures (the left
+    // strip mirrors the canvas so its face edge lands on the
+    // channel side), two narrow planes at WALL_Z. The material
+    // uses an alphaTest cutout instead of blending: the strip's
+    // channel side of the rock profile is genuinely empty, the
+    // cutout keeps the walls in the opaque pass (no blend cost;
+    // a blended transparent strip measured a real frame-time
+    // cost under the software renderer), and every gameplay
+    // entity sits closer to the camera, so entities, the boss,
+    // projectiles, pickups, and both birds always render above
+    // the walls.
+    const wallPainter = painters && td && this.scrollEnabled && td.scroll?.wall
+      ? wallPainters(worldIndex) : null;
+    if (wallPainter && td) {
+      const canvas = document.createElement('canvas');
+      canvas.width = ParticleBgComponent.WALL_CANVAS_W;
+      canvas.height = ParticleBgComponent.WALL_CANVAS_H;
+      const wctx = canvas.getContext('2d')!;
+      wallPainter(wctx, canvas.width, canvas.height, td);
+      this.wallCanvas = canvas;
+      if (!this.wallGroup) {
+        this.wallGroup = new THREE.Group();
+        const mkMat = () => new THREE.MeshBasicMaterial({ alphaTest: 0.5, side: THREE.DoubleSide });
+        this.wallMeshLeft = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mkMat());
+        this.wallMeshRight = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mkMat());
+        this.wallGroup.add(this.wallMeshLeft, this.wallMeshRight);
+        this.scene.add(this.wallGroup);
+      }
+      this.wallTexLeft?.dispose();
+      this.wallTexRight?.dispose();
+      // No mipmaps on the wall strips: they render at one fixed
+      // scale per viewport, and the trilinear fetch was a
+      // measurable slice of their software-renderer cost.
+      this.wallTexLeft = new THREE.CanvasTexture(canvas);
+      this.wallTexLeft.wrapS = THREE.RepeatWrapping;
+      this.wallTexLeft.wrapT = THREE.RepeatWrapping;
+      this.wallTexLeft.generateMipmaps = false;
+      this.wallTexLeft.minFilter = THREE.LinearFilter;
+      this.wallTexLeft.repeat.x = -1; // face edge on the channel side
+      this.wallTexLeft.repeat.y = 2; // one tile per visible height (layoutWalls)
+      this.wallTexRight = new THREE.CanvasTexture(canvas);
+      this.wallTexRight.wrapS = THREE.RepeatWrapping;
+      this.wallTexRight.wrapT = THREE.RepeatWrapping;
+      this.wallTexRight.generateMipmaps = false;
+      this.wallTexRight.minFilter = THREE.LinearFilter;
+      this.wallTexRight.repeat.y = 2;
+      (this.wallMeshLeft!.material as THREE.MeshBasicMaterial).map = this.wallTexLeft;
+      (this.wallMeshLeft!.material as THREE.MeshBasicMaterial).needsUpdate = true;
+      (this.wallMeshRight!.material as THREE.MeshBasicMaterial).map = this.wallTexRight;
+      (this.wallMeshRight!.material as THREE.MeshBasicMaterial).needsUpdate = true;
+      this.wallGroup.visible = true;
+    } else if (this.wallGroup) {
+      this.wallGroup.visible = false;
+    }
+    this.layoutWalls();
 
     // Atmosphere behavior from the sheet; unthemed worlds keep the
     // shipped falling drift at the moderate anchor and full budget.
@@ -666,6 +769,70 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
   // crossing time.
   private nominalBirdSpeed(): number {
     return (this.boundX * 2) / ParticleBgComponent.BIRD_CROSSING_SECONDS;
+  }
+
+  // World scroll rate in screen heights per second: the bird's
+  // cruise speed (the same crossing law nominalBirdSpeed encodes,
+  // times the same speed multiplier the player bird flies with,
+  // mirrored from bird-physics) expressed against the visible
+  // height at the flight plane, times the world's data factor.
+  private scrollScreenRate(): number {
+    if (!this.scrollEnabled) return 0;
+    const gs = this.gameState;
+    let mult: number;
+    if (gs.currentGameMode() === 'ai_vs_ai') {
+      mult = gs.ai2PhoenixSpeed() / BASE_SPEED_STAT;
+    } else {
+      mult = gs.currentStats().speed / BASE_SPEED_STAT;
+      if (Date.now() < gs.speedBoostUntil) mult *= 2.0;
+      if (gs.isDrilling()) {
+        const modifiers = gs.currentStats().unlockedAbilities['drill_attack']?.modifiers;
+        if (modifiers && modifiers['speed']) mult *= modifiers['speed'];
+      }
+    }
+    const factor = WORLDS[this.themedWorldIndex]?.themeData?.scroll?.speedFactor ?? 1;
+    return (this.nominalBirdSpeed() * mult / (2 * this.boundY)) * factor;
+  }
+
+  // Positions the wall strips for the current bounds and sets the
+  // bird's wall clamp (wallInsetX). Called on world change and on
+  // resize. The strip plane is two visible heights tall at WALL_Z
+  // with texture repeat.y = 2, so one texture tile spans exactly
+  // one visible height and the strip's offset advances in the
+  // same accumulated screen heights as the backdrop's.
+  private layoutWalls() {
+    const active = !!this.wallGroup && this.wallGroup.visible;
+    this.wallInsetX = active
+      ? 2 * ParticleBgComponent.WALL_FACE_FRACTION * this.boundX : 0;
+    if (!this.wallGroup || !this.wallMeshLeft || !this.wallMeshRight || !this.camera) return;
+    const distRatio = (this.camera.position.z - ParticleBgComponent.WALL_Z) / 20;
+    const visH = 2 * this.boundY * distRatio;
+    const visW = 2 * this.boundX * distRatio;
+    const faceX = (1 - 2 * ParticleBgComponent.WALL_FACE_FRACTION) * (visW / 2);
+    const stripW = ParticleBgComponent.WALL_SPAN_FRACTION * visW;
+    const stripH = visH * 2;
+    this.wallMeshLeft.scale.set(stripW, stripH, 1);
+    this.wallMeshLeft.position.set(-(faceX + stripW / 2), 0, ParticleBgComponent.WALL_Z);
+    this.wallMeshRight.scale.set(stripW, stripH, 1);
+    this.wallMeshRight.position.set(faceX + stripW / 2, 0, ParticleBgComponent.WALL_Z);
+  }
+
+  // Harness-facing scroll state (debug gate only, like sceneStats).
+  private scrollState() {
+    const visHb = 2 * this.boundY * (49 / 20); // visible height at the backdrop plane
+    return {
+      enabled: this.scrollEnabled,
+      worldIndex: this.themedWorldIndex,
+      screens: Math.round(this.scrollScreens * 1000) / 1000,
+      rateScreensPerSec: Math.round(this.scrollRateNow * 1000) / 1000,
+      backdropOffsetY: this.backdropTex ? Math.round(this.backdropTex.offset.y * 10000) / 10000 : -1,
+      backdropVisibleFraction: Math.round((visHb / 130) * 10000) / 10000,
+      wallEnabled: !!this.wallGroup && this.wallGroup.visible,
+      wallOffsetY: this.wallTexRight ? Math.round(this.wallTexRight.offset.y * 10000) / 10000 : -1,
+      wallInsetX: Math.round(this.wallInsetX * 100) / 100,
+      boundX: Math.round(this.boundX * 100) / 100,
+      faceScreenFraction: ParticleBgComponent.WALL_FACE_FRACTION,
+    };
   }
 
   private createGlowTexture(): THREE.Texture {
@@ -1196,6 +1363,27 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
           this.backdropMesh.position.x = -this.bird.position.x * 0.08 * 2 * (49 / 20);
         }
 
+        // World scroll (World 1 Finish): during a run the backdrop
+        // and the side walls stream downward together, so the
+        // phoenix reads as flying up. One accumulated distance in
+        // screen heights drives both texture offsets, converted
+        // per texture: the backdrop's offset moves by the visible
+        // fraction of its plane per screen height scrolled, the
+        // wall strip's by exactly one tile per screen height (its
+        // tile spans one visible height by construction). The
+        // phase holds still on the menu and while paused.
+        if (this.scrollEnabled && this.backdropTex) {
+          const inRun = this.gameState.activeScreen() === 'game'
+            && !this.gameState.isPaused() && !this.gameState.isDeadMenuOpen();
+          this.scrollRateNow = this.scrollScreenRate();
+          if (inRun && !this.scrollFrozen) this.scrollScreens += this.scrollRateNow * dt;
+          const visFrac = (2 * this.boundY * (49 / 20)) / 130;
+          this.backdropTex.offset.y = (this.scrollScreens * visFrac) % 1;
+          const wallOff = this.scrollScreens % 1;
+          if (this.wallTexLeft) this.wallTexLeft.offset.y = wallOff;
+          if (this.wallTexRight) this.wallTexRight.offset.y = wallOff;
+        }
+
         // Stage 8 set pieces. Blood Moon: the moon follows the
         // BGM clock (updateMoon repaints only on a lit-step
         // change, so the per-frame cost is two getters).
@@ -1452,5 +1640,6 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.updateBounds();
+    this.layoutWalls();
   }
 }

@@ -53,6 +53,12 @@ export interface BirdPhysicsHost {
   birdScale: number;
   boundX: number;
   boundY: number;
+  // World scroll walls (World 1 Finish): how far inside boundX
+  // the bird's flight clamps when the selected world has side
+  // walls, in flight-plane world units. 0 = no walls, no clamp.
+  // boundX itself never changes; the wall face sits at
+  // boundX - wallInsetX and the bird parks at that line.
+  wallInsetX: number;
   camera: THREE.PerspectiveCamera;
   celestialShieldMesh: THREE.Points;
   cosmicTrailMesh: THREE.Points;
@@ -177,6 +183,12 @@ updateBirdPhysics(bird: PhoenixState, targetWaypoint: THREE.Vector3, baseSpeed: 
               // Frame-rate independent waypoint smoothing: the old fixed
               // 0.1 lerp per frame converged twice as fast at 120 Hz.
               bird.targetWaypoint.lerp(targetWaypoint, 1 - Math.pow(0.9, frameScale));
+              // Side walls: the steering target never enters the
+              // wall zone, so arrivals park at the wall face.
+              if (this.host.wallInsetX > 0) {
+                  const maxX = this.host.boundX - this.host.wallInsetX;
+                  bird.targetWaypoint.x = Math.max(-maxX, Math.min(maxX, bird.targetWaypoint.x));
+              }
 
               const toTarget = bird.targetWaypoint.clone().sub(bird.position);
               toTarget.z = 0;
@@ -356,6 +368,14 @@ updateBirdPhysics(bird: PhoenixState, targetWaypoint: THREE.Vector3, baseSpeed: 
               // crossing time identical on every screen and refresh rate.
               bird.position.add(bird.velocity.clone().multiplyScalar(dt));
               bird.position.z = -15;
+              // Side walls: hard stop at the wall face, whatever
+              // the velocity (a singularity pull or a dash can
+              // still shove the bird, never through the wall).
+              if (this.host.wallInsetX > 0) {
+                  const maxX = this.host.boundX - this.host.wallInsetX;
+                  if (bird.position.x > maxX) bird.position.x = maxX;
+                  else if (bird.position.x < -maxX) bird.position.x = -maxX;
+              }
           }
         }
 
