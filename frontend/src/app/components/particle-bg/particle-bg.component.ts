@@ -616,7 +616,17 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     if (event.touches.length > 0) {
       // Prevent the WebView from scrolling / rubber-banding while the finger drives the Phoenix,
       // but only during gameplay so menu UI (buttons, scroll) still works.
-      if (this.gameState.activeScreen() === 'game' && event.cancelable) event.preventDefault();
+      // Fix Round 1, Part 4: this handler is also bound to
+      // touchstart, and preventDefault on a touchstart suppresses
+      // the browser's synthesized click, which made every DOM
+      // button on the game screen untappable by touch (the pause
+      // button on Carter's phone). Only touches that land on the
+      // WebGL canvas itself (steering touches) are prevented;
+      // touches on DOM UI keep their default behavior so their
+      // click events fire. Steering drags stay scroll-safe via the
+      // game component's own touchmove prevention.
+      const onCanvas = event.target === this.canvasRef?.nativeElement;
+      if (this.gameState.activeScreen() === 'game' && event.cancelable && onCanvas) event.preventDefault();
       this.updateMouseTarget(event.touches[0].clientX, event.touches[0].clientY, true);
     }
   }
