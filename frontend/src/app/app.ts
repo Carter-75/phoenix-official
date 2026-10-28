@@ -4,6 +4,8 @@ import { ParticleBgComponent } from './components/particle-bg/particle-bg.compon
 import { AdBubbleComponent } from './components/ad-bubble/ad-bubble.component';
 import { GameStateService } from './services/game-state.service';
 import { AuthService } from './services/auth.service';
+import { environment } from '../environments/environment';
+import { startCloudTestScenario } from './cloudtest/cloudtest-scenario';
 
 @Component({
   selector: 'app-root',
@@ -30,6 +32,14 @@ import { AuthService } from './services/auth.service';
 })
 export class App {
   constructor(public gameState: GameStateService, private auth: AuthService) {
+      // Cloud device test scenario: runs only in the dedicated
+      // cloudtest build configuration (environment.cloudTest), which
+      // only the cloud-test workflow produces. Inert in every build
+      // Carter installs; see cloudtest/cloudtest-scenario.ts.
+      if (environment.cloudTest) {
+          startCloudTestScenario(this.gameState);
+      }
+
       const urlParams = new URLSearchParams(window.location.search);
       const token = urlParams.get('token');
       if (token) {

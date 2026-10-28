@@ -2,6 +2,11 @@ import { Capacitor } from '@capacitor/core';
 
 export const environment = {
   production: true,
+  // Cloud device test scenario flag. False in every normal build;
+  // true only in the dedicated "cloudtest" build configuration (see
+  // environment.cloudtest.ts), which only the cloud-test workflow
+  // builds. Never set this true here.
+  cloudTest: false,
   // Simulated/local purchase grants are a developer tool only. In the
   // production environment this is false and must stay false: a
   // production build may only grant purchases the server has verified

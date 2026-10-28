@@ -2,6 +2,9 @@ import { Capacitor } from '@capacitor/core';
 
 export const environment = {
   production: false,
+  // Cloud device test scenario flag: off in development builds too.
+  // Only the dedicated "cloudtest" configuration turns it on.
+  cloudTest: false,
   // Development builds only: allow the simulated purchase flow and the
   // local grant fallback so purchases can be tested before Play billing
   // is configured. Never enable this in the production environment.
