@@ -49,8 +49,23 @@ export function makeBackdropCanvas(painters: any, td: any): HTMLCanvasElement {
     const bakeGlow = (cx: number, cy: number, r: number, rgb: any, alpha: number) => {
       const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
       const lin = (v: number) => Math.round(255 * Math.pow(Math.min(1, Math.max(0, v)), 2.2));
-      g.addColorStop(0, `rgba(${lin(rgb[0])},${lin(rgb[1])},${lin(rgb[2])},${alpha})`);
-      g.addColorStop(1, 'rgba(0,0,0,0)');
+      // Feathered falloff (Carter, Oct 28): the old two-stop
+      // linear ramp met the dark sky at a constant slope, so the
+      // disc's rim read as a hard ring wherever the scrolling
+      // backdrop wrapped it across a screen edge. The alpha now
+      // follows a smoothstep decay sampled into stops: same peak
+      // alpha, same midpoint, same total baked energy, but it
+      // approaches zero tangentially, so the disc reads as soft
+      // glow with no rim band at any scroll phase. Shared by
+      // every world's bake, with colors, placement, radius, and
+      // intensity untouched.
+      const col = `${lin(rgb[0])},${lin(rgb[1])},${lin(rgb[2])}`;
+      const STOPS = 10;
+      for (let i = 0; i <= STOPS; i++) {
+        const t = i / STOPS;
+        const s = t * t * (3 - 2 * t);
+        g.addColorStop(t, `rgba(${col},${+(alpha * (1 - s)).toFixed(4)})`);
+      }
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, W, H);
     };
@@ -428,15 +443,26 @@ function paintEmberFar(ctx: CanvasRenderingContext2D, w: number, h: number, td: 
 function paintEmberMid(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
     const rnd = themeRng(102);
     const fill = silColor(td.palette.deep, 0.45);
-    const rim = silColor(td.palette.bright, 1.0, 0.30);
     tiled(ctx, w, () => {
       for (let k = 0; k < 12; k++) {
         const cx = rnd() * w, cy = h * (0.68 + rnd() * 0.26);
         const rx = 16 + rnd() * 26, ry = rx * (0.45 + rnd() * 0.2);
         ctx.fillStyle = fill;
         ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = rim; ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke();
+        // Rim light, feathered (Carter, Oct 28): the single hard
+        // 3 px stroke read as a stray gold ring segment once the
+        // scrolling backdrop magnified a boulder across the
+        // screen (the arc in the texture analysis,
+        // backdrop-boulder-rims-hard.png). The same bottom arc
+        // is now laid in three passes, wide and faint to narrow
+        // and strongest, so the light diffuses off the rim like
+        // glow instead of ending at a drawn line. Same arc, same
+        // bright palette color, softer edge.
+        for (const pass of [[10, 0.08], [6, 0.14], [3, 0.22]] as const) {
+          ctx.strokeStyle = silColor(td.palette.bright, 1.0, pass[1]);
+          ctx.lineWidth = pass[0];
+          ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke();
+        }
       }
     });
   }
