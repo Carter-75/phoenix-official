@@ -406,6 +406,41 @@ updateBirdPhysics(bird: PhoenixState, targetWaypoint: THREE.Vector3, baseSpeed: 
             bird.historyPos.pop(); bird.historyQuat.pop();
         }
 
+        // Formation sampling is ARC-LENGTH based (Fix Round 1,
+        // Part 1). The old code sampled history by time divided by
+        // the current speed (trailT = scaledBaseZ / speedNow, index
+        // trailT / dt): whenever the speed collapsed (hover arrival,
+        // Feather Brake, dash end, reversal spool) trailT exploded
+        // past the designed 0.45 s trail window and body and tail
+        // points pinned to positions seconds old, so the formation
+        // smeared along the flight path and sat apart from the glyph
+        // sprite, reading as a second bird, and particles appeared
+        // to fly off and glitch on device. Sampling by distance
+        // travelled instead keeps every point at a fixed arc offset
+        // behind the head: when the bird is parked the recorded path
+        // has near-zero length, so all points gather at the bird.
+        //
+        // Teleport flush: if the newest history step is a
+        // discontinuity (run start copies the bird to its entry
+        // waypoint, menu and game positions differ), refill the
+        // history with the current pose so no streak is drawn from
+        // the old position. Legit per-substep travel tops out near
+        // 2.8 world units (dash plus boost at the widest cruise);
+        // the 4.0 threshold sits safely above that.
+        if (bird.historyPos.length > 1) {
+            const jump = bird.historyPos[0].distanceTo(bird.historyPos[1]);
+            if (jump > 4.0) {
+                for (let h = 1; h < bird.historyPos.length; h++) {
+                    bird.historyPos[h].copy(bird.historyPos[0]);
+                    bird.historyQuat[h].copy(bird.historyQuat[0]);
+                }
+            }
+        }
+        const histCum = new Float32Array(bird.historyPos.length);
+        for (let h = 1; h < bird.historyPos.length; h++) {
+            histCum[h] = histCum[h - 1] + bird.historyPos[h].distanceTo(bird.historyPos[h - 1]);
+        }
+
         // Silhouette core sprite: rides the head history entry with the
         // same orientation as the particles, sized to about 0.85 times
         // wingspan (spec 2.1), blinking in sync with the particle layers.
@@ -480,27 +515,32 @@ updateBirdPhysics(bird: PhoenixState, targetWaypoint: THREE.Vector3, baseSpeed: 
               const scaledBaseY = baseY * this.host.birdScale;
               const scaledBaseZ = baseZ * this.host.birdScale;
 
-              // History sampling in seconds of flight history (spec
-              // 2.3): the body region keeps the historical distance
-              // mapping, and the tail region is remapped so the whole
-              // visible trail spans TRAIL_SECONDS (0.45 s) at any speed
-              // and any refresh rate, instead of stretching with the
-              // frame cadence. The drill dash compresses the ribbon
-              // spacing to 0.7 so the bird reads as a tightening
-              // corkscrew (spec 2.2).
-              let trailT: number;
+              // Arc-length history sampling (spec 2.3 as amended by
+              // Fix Round 1, Part 1): body points sit at their base
+              // distance behind the head along the recorded path;
+              // tail points remap onto a trail whose length is
+              // speedNow * TRAIL_SECONDS of travel, so at cruise the
+              // visible trail still spans 0.45 s of flight, while at
+              // low speed the trail compresses onto the bird instead
+              // of reaching seconds back in time. The drill dash
+              // compresses the ribbon spacing to 0.7 so the bird
+              // reads as a tightening corkscrew (spec 2.2).
+              let distBack: number;
               if (scaledBaseZ <= bodySpanWorld) {
-                  trailT = scaledBaseZ / speedNow;
+                  distBack = scaledBaseZ;
               } else {
-                  const tailSeconds = Math.max(0.05, TRAIL_SECONDS - bodySpanWorld / speedNow);
-                  trailT = bodySpanWorld / speedNow + ((scaledBaseZ - bodySpanWorld) / tailSpanWorld) * tailSeconds;
+                  const trailLen = Math.max(bodySpanWorld, speedNow * TRAIL_SECONDS);
+                  distBack = bodySpanWorld + ((scaledBaseZ - bodySpanWorld) / tailSpanWorld) * (trailLen - bodySpanWorld);
               }
-              if (drillingNow) trailT *= 0.7;
-              let histIdx = Math.floor(trailT / Math.max(dt, 0.0001));
-              histIdx = Math.max(0, Math.min(bird.historyPos.length - 1, histIdx));
+              if (drillingNow) distBack *= 0.7;
+              let lo = 0, hi = histCum.length - 1;
+              while (lo < hi) {
+                  const mid = (lo + hi + 1) >> 1;
+                  if (histCum[mid] <= distBack) lo = mid; else hi = mid - 1;
+              }
 
-              const hPos = bird.historyPos[histIdx];
-              const hQuat = bird.historyQuat[histIdx];
+              const hPos = bird.historyPos[lo];
+              const hQuat = bird.historyQuat[lo];
 
               let flapAmount = Math.abs(scaledBaseX) * 0.5;
               // Bank compression (spec 2.2): the inside wing's flap

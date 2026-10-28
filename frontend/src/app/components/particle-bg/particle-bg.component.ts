@@ -951,7 +951,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvasRef.nativeElement, alpha: true, antialias: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 3));
     this.camera.position.z = 5;
     
     // Atmospheric Core Glow
@@ -1102,7 +1102,8 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
        trailCol[i*3+2] *= fade;
     }
     
-    const trailMat = new THREE.PointsMaterial({ size: 0.25, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending });
+    if (!this.glowTexture) this.glowTexture = this.createGlowTexture();
+    const trailMat = new THREE.PointsMaterial({ size: 0.25, map: this.glowTexture, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
     this.cosmicTrailMesh = new THREE.Points(trailGeo, trailMat);
     this.cosmicTrailMesh.visible = false;
     this.scene.add(this.cosmicTrailMesh);
@@ -1228,14 +1229,20 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(mainPos, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(mainCol, 3));
-    const material = new THREE.PointsMaterial({ size: 0.3, vertexColors: true, transparent: true, opacity: 1.0, blending: THREE.AdditiveBlending });
+    // Soft-disc sprite map (Fix Round 1, Part 1): without a map,
+    // GL points are hard squares, which at phone resolutions read as
+    // giant pixel blocks. The radial glow texture makes each point a
+    // soft disc at any upscale. depthWrite off so a point's
+    // transparent corners cannot clip its neighbours into squares.
+    if (!this.glowTexture) this.glowTexture = this.createGlowTexture();
+    const material = new THREE.PointsMaterial({ size: 0.3, map: this.glowTexture, vertexColors: true, transparent: true, opacity: 1.0, blending: THREE.AdditiveBlending, depthWrite: false });
     bird.particles = new THREE.Points(geometry, material);
     bird.particles.frustumCulled = false;
     bird.particles.renderOrder = 2;
     const fillGeometry = new THREE.BufferGeometry();
     fillGeometry.setAttribute('position', new THREE.BufferAttribute(fillPos, 3));
     fillGeometry.setAttribute('color', new THREE.BufferAttribute(fillCol, 3));
-    const fillMaterial = new THREE.PointsMaterial({ size: 0.34, vertexColors: true, transparent: true, opacity: 1.0, blending: THREE.AdditiveBlending });
+    const fillMaterial = new THREE.PointsMaterial({ size: 0.34, map: this.glowTexture, vertexColors: true, transparent: true, opacity: 1.0, blending: THREE.AdditiveBlending, depthWrite: false });
     bird.fillParticles = new THREE.Points(fillGeometry, fillMaterial);
     bird.fillParticles.frustumCulled = false;
     bird.fillParticles.renderOrder = 2;
@@ -1404,8 +1411,11 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
 
         // Dynamic pixel-ratio step-down (spec Section 1.4): while
         // the rolling frame time stays over 20 ms, step the ratio
-        // down (2, 1.75, 1.5, 1.25) before any gameplay visual is
-        // touched. Steps only ever go down within a session.
+        // down (3, 2.5, 2, 1.75, 1.5, 1.25) before any gameplay
+        // visual is touched. Steps only ever go down within a
+        // session. The ladder starts at the device ratio (capped at
+        // 3, Fix Round 1 Part 1) so a DPR-3 phone renders natively
+        // instead of upscaling a capped buffer.
         this.frameEmaMs = this.frameEmaMs * 0.96 + dt * 1000 * 0.04;
         if (nowMs - this.lastPrEvalMs > 2000) {
           this.lastPrEvalMs = nowMs;
@@ -1414,8 +1424,8 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
           // already at or below a rung, that rung is skipped (an
           // earlier draft stepped a DPR-1 client UP to 1.75 before
           // coming back down, making slow frames slower).
-          const initialPr = Math.min(window.devicePixelRatio || 1, 2);
-          const prSteps = [2, 1.75, 1.5, 1.25, 1].filter(s => s <= initialPr + 0.001);
+          const initialPr = Math.min(window.devicePixelRatio || 1, 3);
+          const prSteps = [3, 2.5, 2, 1.75, 1.5, 1.25, 1].filter(s => s <= initialPr + 0.001);
           if (prSteps.length === 0 || prSteps[0] !== initialPr) prSteps.unshift(initialPr);
           if (this.frameEmaMs > 20 && this.pixelRatioStep < prSteps.length - 1) {
             this.pixelRatioStep++;
