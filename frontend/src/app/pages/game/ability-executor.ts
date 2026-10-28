@@ -272,7 +272,7 @@ triggerFireBreath(sourceBody: Matter.Body, targetX: number, targetY: number, sta
               const angle = fireAngle + spreadAngle;
               const fireDir = { x: Math.cos(angle), y: Math.sin(angle) };
               const proj = Matter.Bodies.circle(sourceBody.position.x, sourceBody.position.y, 15, {
-                  isSensor: true, label: 'projectile',
+                  isSensor: true, label: 'projectile', frictionAir: 0,
                   // S2 root fix: pellets now carry owner alongside
                   // ownerId (the aura convention). Without owner, the
                   // collision branches could not skip the caster, so a
@@ -283,7 +283,39 @@ triggerFireBreath(sourceBody: Matter.Body, targetX: number, targetY: number, sta
               });
               Matter.Body.setVelocity(proj, Matter.Vector.mult(fireDir, range));
               Matter.Composite.add(this.host.engine.world, proj);
-              setTimeout(() => { if (proj.parent) Matter.Composite.remove(this.host.engine.world, proj) }, 500);
+              // Range fix: pellets used to be removed by a 500 ms
+              // wall-clock timeout, which capped their reach near
+              // 180 px at speed 6 (about 30 steps of flight)
+              // against the documented 500 px cast range above, so
+              // most of the cone could never connect. A pellet now
+              // lives until it has actually flown the documented
+              // range from its spawn point, measured on engine
+              // steps so the reach is the same at any frame rate;
+              // frictionAir 0 (set on the body above) keeps the
+              // pellet speed from decaying in flight, so the reach
+              // per step is exact. The range modifier scales the
+              // reach exactly as it scales the pellet speed, so
+              // the flight time is unchanged at every build. The
+              // long wall-clock timeout remains only as a leak
+              // backstop for a stalled engine. Damage, pellet
+              // count, spread, and cooldown are untouched, and a
+              // point-blank cast is unchanged: every pellet still
+              // connects on its first steps.
+              const spawnX = proj.position.x;
+              const spawnY = proj.position.y;
+              const maxReach = 500 * this.host.speedScale * (mods['range'] || 1.0);
+              const engine = this.host.engine;
+              const expirePellet = () => {
+                  if (!proj.parent) { Matter.Events.off(engine, 'afterUpdate', expirePellet); return; }
+                  const dx = proj.position.x - spawnX;
+                  const dy = proj.position.y - spawnY;
+                  if (dx * dx + dy * dy >= maxReach * maxReach) {
+                      Matter.Composite.remove(engine.world, proj);
+                      Matter.Events.off(engine, 'afterUpdate', expirePellet);
+                  }
+              };
+              Matter.Events.on(engine, 'afterUpdate', expirePellet);
+              setTimeout(() => { Matter.Events.off(engine, 'afterUpdate', expirePellet); if (proj.parent) Matter.Composite.remove(engine.world, proj); }, 20000);
           }, i * fireIntervalMs);
       }
       return cd;
