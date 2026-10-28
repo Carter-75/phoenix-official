@@ -904,9 +904,13 @@ const DEFS: Record<string, EntityVisualDef> = {
           out.cr = variant.body[0] * s; out.cg = variant.body[1] * s; out.cb = variant.body[2] * s;
           out.layer = 0;
         } else {
-          // Dark crimson body, scaled to the bat's stacking (see the
-          // wing note below): about 1/30 of the target read.
-          out.cr = 0.03 + Math.random() * 0.015; out.cg = 0.0; out.cb = 0.002;
+          // Dark body, scaled to the bat's stacking (see the wing
+          // note below): about 1/30 of the target read at the old
+          // sprite size. The final sweep's smaller bat sprites
+          // (0.08, in entity-sync) thin the stack, and the body
+          // takes a whisper of violet with it so the whole bird
+          // sits in the wing's family.
+          out.cr = 0.03 + Math.random() * 0.015; out.cg = 0.0; out.cb = 0.010;
           out.layer = 0;
         }
       } else {
@@ -918,21 +922,30 @@ const DEFS: Record<string, EntityVisualDef> = {
         out.y = swoop + (Math.random() - 0.5) * 0.2 * r;
         out.z = depth - (span * 0.2); // Wings angle slightly back
         const edge = span / (r * 2.5);
-        // Crimson wings; the purple gradient is not representable at
-        // game scale. The bat's physics radius is only about 6 px
-        // (size 15 at the game's screen scale), so its 800 points
-        // compress into a roughly 50 px silhouette of 0.15-unit
-        // sprites and additive stacking runs 30 to 60 deep along the
-        // wing band. Red clamps at full long before blue does, so
-        // any blue above a whisper keeps summing after red has
-        // pinned, and the wing walks to the hostile magenta that
-        // rule 1.2.6 reserves for projectiles and telegraphs
-        // (measured in four harness passes at blue bases 0.30, 0.12,
-        // 0.09 and 0.010: rendered blue reached 0.62 of red). Blue
-        // is therefore held at 0.003 maximum, where even the deepest
-        // stack stays crimson (blue about 0.18 of red). The purple
-        // edge gradient from the design sheet remains a documented
-        // deviation in STAGE-2.md, pending a per-type sprite size.
+        // Wing color history: at the shipped 0.15-unit sprites the
+        // bat's 800 points compress into a roughly 50 px silhouette
+        // and additive stacking runs 30 to 60 deep along the wing
+        // band, so red clamped at full long before blue finished
+        // summing and any blue above a whisper walked the wing to
+        // the hostile magenta rule 1.2.6 reserves (Stage 2 measured
+        // rendered blue at 0.62 of red from a 0.010 base); the wings
+        // shipped crimson with blue held at 0.003. The final sweep
+        // took the route STAGE-2.md recorded: the bat now renders
+        // at a per-type 0.08 sprite size (entity-sync), cutting the
+        // wing stack to roughly 9 to 17 deep. The first sweep pass
+        // at that size kept a red-leaning gradient (root red base
+        // 0.045, blue 0.020) and the harness screenshot showed the
+        // wing reading pink, because at a 9 to 17 stack red still
+        // led blue about 2 to 1. The shipped gradient therefore
+        // puts blue at roughly twice red along the whole wing:
+        // root (0.020, 0.004, 0.045) opening to edge
+        // (0.014, 0.005, 0.062), rendering around (0.25, 0.05,
+        // 0.55) at the root and (0.2, 0.07, 0.85) at the edge:
+        // violet at every depth, with red never above about 0.35,
+        // so it cannot read as the bright hostile magenta-red
+        // (1.0, 0.18, 0.42) either. Variant wings below keep their
+        // whisper bases; their palettes were tuned per world and
+        // are out of this change's scope.
         if (variant) {
           // Variant wings: the variant body color deepening toward
           // the edge, with the accent lit at the wingtips (Deepwing
@@ -946,7 +959,7 @@ const DEFS: Record<string, EntityVisualDef> = {
           out.cg = variant.body[1] * (1 + edge) + variant.accent[1] * tip;
           out.cb = variant.body[2] * (1 + edge) + variant.accent[2] * tip;
         } else {
-          out.cr = 0.03 + edge * 0.03; out.cg = 0.0; out.cb = 0.001 + edge * 0.002;
+          out.cr = 0.020 - edge * 0.006; out.cg = 0.004 + edge * 0.001; out.cb = 0.045 + edge * 0.017;
         }
         out.layer = 0;
       }
@@ -2033,6 +2046,57 @@ const DEFS: Record<string, EntityVisualDef> = {
       out.y = Math.sin(angle) * r;
       out.z = (Math.random() - 0.5) * 0.5;
       flatColor(out, ctx.ownerId === 'ai1' ? AI_ABILITY_RED : [0.024, 0.714, 0.831]); // 0x06b6d4
+    },
+  },
+
+  // Flame Tornado zone (final sweep; systems spec Sections 3.3 and
+  // 4.5): a filled disc wound into a spiral, so the standing zone
+  // reads as a vortex once the renderer spins the mesh. Player zones
+  // are warm flame (bright core, orange body, bright rim) so a
+  // friendly zone never reads as danger; an enemy cast takes the
+  // hostile ramp, because for the player it IS a danger zone. The
+  // disc is large and the points sparse (stacking depth under 1),
+  // so colors are written at full strength like the pickups, not in
+  // the stacking-tuned enemy scale.
+  flame_tornado: {
+    count: 600,
+    animated: false,
+    sample: (i, count, r, ctx, out) => {
+      const frac = Math.sqrt(Math.random());
+      const angle = Math.random() * Math.PI * 2 + frac * 5.0;
+      out.x = Math.cos(angle) * frac * r;
+      out.y = Math.sin(angle) * frac * r;
+      out.z = (Math.random() - 0.5) * 0.1 * r;
+      const isPlayer = ctx.owner === 'player' || ctx.ownerId === 'player';
+      if (isPlayer) {
+        if (frac < 0.3) { flatColor(out, [1.0, 0.85, 0.45]); out.layer = 1; }
+        else if (frac > 0.85) { flatColor(out, [1.0, 0.75, 0.25]); }
+        else { flatColor(out, [0.95, 0.45, 0.08]); }
+      } else {
+        if (frac < 0.3) { flatColor(out, [1.0, 0.35, 0.55]); out.layer = 1; }
+        else if (frac > 0.85) { flatColor(out, [1.0, 0.18, 0.42]); }
+        else { flatColor(out, [0.85, 0.15, 0.38]); }
+      }
+    },
+  },
+
+  // Solar Bomb orb (final sweep; systems spec Section 3.3): a slow
+  // bright sphere with a white-hot core. Player casts burn gold;
+  // an enemy cast takes the hostile shell, since the landing zone
+  // is a threat the player must leave.
+  solar_bomb: {
+    count: 300,
+    animated: false,
+    sample: (i, count, r, ctx, out) => {
+      const isPlayer = ctx.owner === 'player' || ctx.ownerId === 'player';
+      if (i < count * 0.3) {
+        sphereVertex(out, r * 0.5);
+        flatColor(out, isPlayer ? [1.0, 0.95, 0.7] : [1.0, 0.6, 0.7]);
+        out.layer = 1;
+      } else {
+        sphereVertex(out, r);
+        flatColor(out, isPlayer ? [1.0, 0.75, 0.15] : [0.95, 0.25, 0.45]);
+      }
     },
   },
 

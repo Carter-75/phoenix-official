@@ -177,6 +177,12 @@ export const ABILITIES: Record<string, { id: string, type: 'tap' | 'double' | 'h
   'phoenix_talon': { id: 'phoenix_talon', type: 'double', name: 'Phoenix Talon', desc: 'Fan of three slashing talons', icon: '🦅', unlockCost: 700, upgradeCost: 300, baseCooldown: 7 },
   'spark_storm': { id: 'spark_storm', type: 'double', name: 'Spark Storm', desc: 'Six sparks that hunt separate targets', icon: '⚡', unlockCost: 700, upgradeCost: 300, baseCooldown: 9 },
   'fire_lance': { id: 'fire_lance', type: 'double', name: 'Fire Lance', desc: 'Piercing lance that spears a whole line', icon: '🔱', unlockCost: 700, upgradeCost: 300, baseCooldown: 8 },
+  // Final sweep (completeness clause): the last two playable moves
+  // from the spec Section 3.3 double family, catalog triple_3 and
+  // triple_5. Costs follow Section 3.4: double family unlocks at
+  // 700 coins, upgrade base 300, like their three family mates.
+  'flame_tornado': { id: 'flame_tornado', type: 'double', name: 'Flame Tornado', desc: 'Standing vortex that burns everything inside', icon: '🌩️', unlockCost: 700, upgradeCost: 300, baseCooldown: 12 },
+  'solar_bomb': { id: 'solar_bomb', type: 'double', name: 'Solar Bomb', desc: 'Slow orb that swells, then bursts hard', icon: '☀️', unlockCost: 700, upgradeCost: 300, baseCooldown: 9 },
 
   'phoenix_turret': { id: 'phoenix_turret', type: 'hold', name: 'Phoenix Turret', desc: 'Drop an egg that hatches a turret', icon: '🥚', unlockCost: 800, upgradeCost: 300, baseCooldown: 14 },
   'phoenix_inferno': { id: 'phoenix_inferno', type: 'hold', name: 'Phoenix Inferno', desc: 'Channel a burning beam while braked', icon: '🔆', unlockCost: 900, upgradeCost: 400, baseCooldown: 14 },
@@ -207,7 +213,7 @@ export const GADGETS: Record<string, { id: string, name: string, desc: string, i
 };
 
 export const REALM_ABILITIES: Record<number, string[]> = {
-  0: ['drill_attack', 'fire_breath', 'burst', 'fire_dart', 'meteor_rush', 'phoenix_talon', 'spark_storm', 'fire_lance', 'phoenix_turret', 'phoenix_inferno', 'inferno_wave', 'rebirth', 'aura', 'phoenix_nova', 'supernova', 'divine_wrath', 'phoenix_singularity']
+  0: ['drill_attack', 'fire_breath', 'burst', 'fire_dart', 'meteor_rush', 'phoenix_talon', 'spark_storm', 'fire_lance', 'flame_tornado', 'solar_bomb', 'phoenix_turret', 'phoenix_inferno', 'inferno_wave', 'rebirth', 'aura', 'phoenix_nova', 'supernova', 'divine_wrath', 'phoenix_singularity']
 };
 
 export const ABILITY_UPGRADE_TARGETS: Record<string, { targetLevel: number, stats: Record<string, number> }> = {
@@ -225,6 +231,8 @@ export const ABILITY_UPGRADE_TARGETS: Record<string, { targetLevel: number, stat
   phoenix_talon: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },
   spark_storm: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },
   fire_lance: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },
+  flame_tornado: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },
+  solar_bomb: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },
   // S3 hold moves: the same Section 3.5 default shape as S2.
   phoenix_inferno: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },
   inferno_wave: { targetLevel: 30, stats: { cooldown: 0.25, damage: 5.0 } },

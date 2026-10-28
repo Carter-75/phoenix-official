@@ -10,6 +10,7 @@ import { WorldStats, PhysicsEntity, World, AbilityData } from '../models/game.mo
 import { WORLDS, ABILITIES, REALM_ABILITIES, BASE_STATS, WORLD_0_STATS, deterministicAbilityModifiers } from '../constants/game.constants';
 import { MULTIPLIER_CAPS, PASSIVE_BY_STAT } from '../data/balance.constants';
 import { ModeRecords, sanitizeModeRecords, mergeModeRecords } from '../data/mode-records';
+import { sanitizeGuestSave, sanitizeWorldUpgrades } from '../data/guest-save';
 
 // Systems S1 (spec Sections 2.5 and 3.5): save version for the
 // deterministic ability-modifier migration. Stored modifiers are
@@ -229,6 +230,18 @@ export class GameStateService {
   public aiMousePos = signal<{x: number, y: number}>({ x: window.innerWidth / 2, y: 100 });
   public ai2MousePos = signal<{x: number, y: number}>({ x: window.innerWidth / 2, y: window.innerHeight - 100 });
 
+  // Phoenix Singularity pulls on the renderer-owned birds (final
+  // sweep; S4's later-AI-pass flag). The birds' positions are
+  // steering-integrated by the renderer, so the executor's velocity
+  // blend can never drag them; the executor instead publishes the
+  // active pull here (screen-space center and radius, ms expiry),
+  // and bird-physics blends the affected bird's steering target
+  // toward the vortex while it lasts. enemySingularityPull is an
+  // enemy cast dragging the player bird; playerSingularityPull is
+  // a player cast dragging the rival bird. Run-local, never saved.
+  public enemySingularityPull = signal<{ x: number, y: number, radius: number, until: number } | null>(null);
+  public playerSingularityPull = signal<{ x: number, y: number, radius: number, until: number } | null>(null);
+
   public isPaused = signal<boolean>(false);
   public isRebirthing = signal<boolean>(false);
   public isDrilling = signal<boolean>(false);
@@ -277,17 +290,28 @@ export class GameStateService {
       const localData = this.storage.getItem('phoenix_guest_data');
       if (localData) {
           try {
-              const data = JSON.parse(localData);
+              const parsed = JSON.parse(localData);
               // Deterministic-modifier migration (spec Sections 3.5
               // and 7.3): before anything reads this save, keep a
               // one-time backup of the untouched pre-migration bytes
               // under a separate key, then recompute stored modifiers
               // from stored levels if the version flag is absent.
-              const guestHasVersion = typeof data.modifiersVersion === 'number' && data.modifiersVersion >= MODIFIERS_VERSION;
-              if (!guestHasVersion && data.worldUpgrades) {
+              const guestHasVersion = typeof parsed.modifiersVersion === 'number' && parsed.modifiersVersion >= MODIFIERS_VERSION;
+              if (!guestHasVersion && parsed.worldUpgrades) {
                   if (!this.storage.getItem(GUEST_SAVE_BACKUP_KEY)) {
                       this.storage.setItem(GUEST_SAVE_BACKUP_KEY, localData);
                   }
+              }
+              // Final sweep hardening (playtest round 2, low): the
+              // restore used to read the stored fields on trust, so
+              // one wrong-typed value could throw inside this block
+              // and silently wedge the whole save, or flow into the
+              // signals as a string or NaN. Every field is now
+              // type-cleaned independently first (data/guest-save.ts,
+              // the modeRecords discipline): what survives is safe
+              // to read, and what does not falls back to defaults.
+              const data = sanitizeGuestSave(parsed);
+              if (!guestHasVersion && data.worldUpgrades) {
                   this.migrateAbilityModifiers(data.worldUpgrades, false);
               }
               // selectedSkinId was added one stage ago and never
@@ -330,26 +354,15 @@ export class GameStateService {
               if (data.toggleCelestialShield !== undefined) this.toggleCelestialShield.set(data.toggleCelestialShield);
               if (data.unlockedEnemies !== undefined) this.unlockedEnemies.set(data.unlockedEnemies);
 
-              // Restore world upgrades (with legacy migrations)
+              // Restore world upgrades. The sanitizer has already
+              // rebuilt every world's record against BASE_STATS
+              // (finite stats, shipped abilities only, modifiers
+              // present and finite, equip slots naming owned moves
+              // only), and the migration above recomputed modifiers
+              // for unversioned saves, so the old per-field legacy
+              // fills and NaN heals that used to run here are
+              // covered before this point.
               if (data.worldUpgrades) {
-                  Object.keys(data.worldUpgrades).forEach(key => {
-                      const upgrades = data.worldUpgrades[key as unknown as number];
-                      Object.keys(upgrades).forEach(statKey => {
-                          if (statKey === 'unlockedAbilities') {
-                              const abilities = (upgrades as any)[statKey] as Record<string, any>;
-                              Object.keys(abilities).forEach(abKey => {
-                                  const ability = abilities[abKey];
-                                  if (ability && typeof ability.level === 'number' && !ability.modifiers) {
-                                      ability.modifiers = {
-                                          cooldown: 1.0, speed: 1.0, duration: 1.0, damage: 1.0, radius: 1.0, range: 1.0, ammo: 1.0
-                                      };
-                                  }
-                              });
-                          } else if (typeof upgrades[statKey as keyof WorldStats] === 'number' && isNaN(upgrades[statKey as keyof WorldStats] as number)) {
-                              (upgrades as any)[statKey] = (BASE_STATS as any)[statKey];
-                          }
-                      });
-                  });
                   this.worldUpgrades.set(data.worldUpgrades);
               }
           } catch (e) {}
@@ -629,7 +642,12 @@ export class GameStateService {
           this.beatenWorlds.set(this.unlockedWorlds().filter(w => w > 0).map(w => w - 1));
       }
       if (user.worldUpgrades && Object.keys(user.worldUpgrades).length > 0) {
-          const upgrades = user.worldUpgrades;
+          // Final sweep: the same field-type hardening as the guest
+          // loader runs on the server record before the defaulting
+          // below, so a wrong-typed world record cannot reach the
+          // signals from this path either. The legacy defaulting
+          // and migration that follow are unchanged.
+          const upgrades = sanitizeWorldUpgrades(user.worldUpgrades);
           // Migration for old saves
           Object.keys(upgrades).forEach(key => {
               if (!upgrades[key as any]) upgrades[key as any] = { ...BASE_STATS };

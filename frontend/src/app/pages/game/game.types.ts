@@ -6,7 +6,7 @@ import { BossFightState } from '../../data/boss-rig';
 
 export interface EnemyData {
   id: string;
-  type: 'bat' | 'slime' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite' | 'sentry_shard' | 'seedmother' | 'rift_mine' | 'shieldback' | 'pyre_moth' | 'phantom' | 'wraith' | 'chanter' | 'serpent' | 'darter' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'spark_cell' | 'overcharge' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance' | 'nova';
+  type: 'bat' | 'slime' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite' | 'sentry_shard' | 'seedmother' | 'rift_mine' | 'shieldback' | 'pyre_moth' | 'phantom' | 'wraith' | 'chanter' | 'serpent' | 'darter' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'spark_cell' | 'overcharge' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance' | 'nova' | 'flame_tornado' | 'solar_bomb';
   health: number;
   maxHealth: number;
   lastAttackTime?: number;
@@ -40,6 +40,7 @@ export interface EnemyData {
   motherId?: string;
   sparkUntil?: number;
   infernoUntil?: number;
+  wrathLockUntil?: number;
   // Stage 5 behavior fields (mirror models/game.models.ts).
   buffUntil?: number;
   lastPulseAt?: number;

@@ -2115,7 +2115,15 @@ export class GameComponent implements OnInit, OnDestroy {
             // spend when a ray predicts a hit, and rolls only in the
             // annihilation phase.
             const aiMove = this.gameState.aiMovement;
-            aiMove.braking = minDist < 320 * this.speedScale;
+            // Final sweep (S3/S4 later-AI-pass flag, closed): the
+            // rival is force-braked during its own Phoenix Inferno
+            // channel and its Divine Wrath cast lock, the same
+            // commitment the player pays through playerInfernoUntil.
+            // Both timestamps already live on its body data; this is
+            // the reader they were missing.
+            aiMove.braking = minDist < 320 * this.speedScale
+                || Date.now() < (data.infernoUntil || 0)
+                || Date.now() < (data.wrathLockUntil || 0);
             if (threatBody && minDist < 260 * this.speedScale) {
                 const tv = Matter.Body.getVelocity(threatBody);
                 const toBird = Matter.Vector.sub(enemy.position, threatBody.position);

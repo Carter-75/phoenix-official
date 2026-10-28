@@ -26,6 +26,40 @@ export interface EntitySyncHost {
   heartBeatScale(timeOffset: number): number;
 }
 
+// Player uniquely brightest (visual spec rule 1, final sweep; the
+// S6 readability audit's open item): at the two larger viewports a
+// max-brightness foe disc could tie the player (246 vs 247 at
+// 412x915, 250 vs 252 at 1280x800), because several foe palettes
+// carry near-white cores whose perceived luminance reaches the
+// player bird's peak. Enemy-family geometry is therefore clamped
+// at build: any vertex color whose perceived luminance exceeds
+// the cap is scaled down proportionally, so hues survive intact
+// and only the white-hot cores come down. The cap started at
+// 0.85 against the S6 tie measurements; the sweep's first
+// readability pass moved the foe disc peaks only about a tenth,
+// inside the sandbox's sampling noise, so the cap was tightened
+// to 0.70, where the brightest authored foe cores (luminance
+// about 0.93 to 0.97) scale by roughly 0.72 to 0.75 and the
+// margin stands clear of the noise (before and after disc
+// medians are recorded in FINAL-SWEEP.md). Pickups
+// are exempt (their identity read IS their vivid color), as are
+// the player's own turret and its egg. Projectiles, zones, and
+// effect blobs never exceed the cap in their shipped palettes, so
+// applying the clamp to every non-exempt build is a no-op for
+// them; per-frame writers (hit flash, charge glows) are transient
+// feedback and stay outside this steady-state rule.
+export const FOE_LUMINANCE_CAP = 0.70;
+const FOE_CLAMP_EXEMPT = new Set(['coin', 'heart', 'gem', 'xp_orb', 'spark_cell', 'overcharge', 'turret', 'egg', 'crate']);
+export function clampFoeLuminance(colors: Float32Array): void {
+  for (let i = 0; i + 2 < colors.length; i += 3) {
+    const lum = 0.2126 * colors[i] + 0.7152 * colors[i + 1] + 0.0722 * colors[i + 2];
+    if (lum > FOE_LUMINANCE_CAP) {
+      const s = FOE_LUMINANCE_CAP / lum;
+      colors[i] *= s; colors[i + 1] *= s; colors[i + 2] *= s;
+    }
+  }
+}
+
 export class EntitySync {
   constructor(private host: EntitySyncHost) {}
 
@@ -130,6 +164,11 @@ syncEntities() {
       // Rotate for visual effect
       if (data.type === 'coin') {
         entity.mesh.rotation.y += 0.1;
+      } else if (data.type === 'flame_tornado') {
+        // The vortex spin (final sweep): the builder lays the zone's
+        // points on a spiral, and rotating the mesh in the screen
+        // plane is what makes it read as turning.
+        entity.mesh.rotation.z -= 0.12;
       } else if (data.type === 'heart') {
         const beat = 1 + Math.sin(Date.now() * 0.01) * 0.2;
         entity.mesh.scale.set(beat, beat, beat);
@@ -923,11 +962,31 @@ createEntityMesh(data: PhysicsEntity): ParticleEntity {
       });
     }
 
+    // The foe luminance clamp runs last (after the World 10 elite
+    // wash, which pushes toward white-gold) so the cap is the final
+    // word on every enemy build, forms included. baseColors below
+    // copies the clamped array, so the per-frame writers inherit it.
+    if (!FOE_CLAMP_EXEMPT.has(data.type)) {
+      clampFoeLuminance(built.colors);
+      if (formGeos) for (const g of formGeos) clampFoeLuminance(g.colors);
+    }
+
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(built.positions, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(built.colors, 3));
 
-    const material = new THREE.PointsMaterial({ size: 0.15, vertexColors: true, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending });
+    // Per-type sprite size (final sweep; the route STAGE-2.md
+    // recorded for the Gloomwing): every type renders at the
+    // shipped 0.15 except the bat, whose 0.08 sprites cut its
+    // additive stacking depth along the wing band from 30 to 60
+    // deep to roughly 9 to 17 deep. At that depth the wing's red
+    // base (0.045 maximum) tops out around 0.77 and never pins, so
+    // the design sheet's purple wing gradient survives rendering
+    // instead of walking to the hostile magenta (see the bat
+    // sampler in entity-builder.ts). Recorded change: bat sprite
+    // size 0.15 -> 0.08; the builder wing bases rose with it.
+    const spriteSize = data.type === 'bat' ? 0.08 : 0.15;
+    const material = new THREE.PointsMaterial({ size: spriteSize, vertexColors: true, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending });
     const mesh = new THREE.Points(geo, material);
     mesh.frustumCulled = false;
 

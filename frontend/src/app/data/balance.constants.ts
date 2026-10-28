@@ -32,8 +32,18 @@ export const ENEMY_HP_WORLD_GROWTH = 1.5;
 
 export const AUTO_FIRE = {
   damageAtBaseStats: 10,
+  // Final sweep documentation correction (no behavior change): the
+  // spec's anchor said a 1500 ms interval, but the shipped game has
+  // fired every 1000 ms (10 DPS at base stats) since the seed
+  // commit, measured again in S2 (6 shots in 6 s). The 1500 / 6.67
+  // pair is retained BY DEFINITION as the PI anchor (PI_RULES
+  // below), so every PI figure in the project stays comparable
+  // across stages; measured against the shipped auto-fire instead,
+  // each PI figure would be the printed value divided by 1.5. The
+  // shipped truth is the 1000 ms interval; nothing in the game
+  // reads this record to time its shots.
   intervalMsAtBaseStats: 1500,
-  dpsAtBaseStats: 6.67, // 10 damage per 1.5 s; PI 1.0 is defined against this
+  dpsAtBaseStats: 6.67, // the PI anchor: 10 damage per 1.5 s by definition; shipped auto-fire is 10 per 1.0 s (see note above)
 };
 
 export const PLAYER_ANCHORS = {
@@ -237,6 +247,9 @@ export const SURVIVABILITY_HIT_BUDGET = {
 // ---------------------------------------------------------------------------
 // Section 1.6 power index rules. PI = (expected damage per cast against the
 // intended target profile, divided by cooldown in seconds) / 6.67.
+// The 6.67 divisor is the defined anchor, not the shipped auto-fire
+// rate (1000 ms, 10 DPS; see the AUTO_FIRE note above). PI figures
+// in this file and in the spec are anchor-relative by design.
 // ---------------------------------------------------------------------------
 
 export const PI_RULES = {
@@ -415,14 +428,14 @@ export const MOVE_PI_DATA: MovePiData[] = [
   // TAP family
   { id: 'fire_dart', name: 'Fire Dart', family: 'tap', catalogId: 'double_1', damage: '1.5 SU single projectile', damageSuTotal: 1.5, cooldownSeconds: 2, intendedTargets: 'single target', pi: 1.1, piNote: 'Pays for its low cooldown with single-target-only and no homing.' },
   { id: 'drill_attack', name: 'Drill Attack', family: 'tap', catalogId: null, damage: 'contact 6 SU per enemy crossed', damageSuTotal: null, cooldownSeconds: 20, intendedTargets: 'path (enemies crossed)', pi: 1.0, piNote: 'About 1.0 plus defensive value. Numbers unchanged from the shipped move.' },
-  { id: 'burst', name: 'Burst', family: 'tap', catalogId: null, damage: 'radial ring of 8 projectiles, 0.8 SU each (6.4 SU total)', damageSuTotal: 6.4, cooldownSeconds: 6, intendedTargets: '2.5 targets (large ring)', pi: 1.07, piNote: 'PI 0.27 against a single target. Pays for true area with per-hit damage (0.8 vs the old fan 1.5) and +1 s cooldown; the fan identity moved to Phoenix Talon.' },
+  { id: 'burst', name: 'Burst', family: 'tap', catalogId: null, damage: 'radial ring of 8 projectiles, 0.8 SU each (6.4 SU total)', damageSuTotal: 6.4, cooldownSeconds: 6, intendedTargets: '2.5 targets (large ring)', pi: 1.07, piNote: 'PI 0.27 against a single target. Pays for true area with per-hit damage (0.8 vs the old fan 1.5) and +1 s cooldown; the fan identity moved to Phoenix Talon. Final sweep correction: the spec printed PI figures (1.07 at 2.5 targets, 0.27 single) do not reproduce from the row damage numbers under the Section 1.6 formula (STAGE-S2 finding): at the measured 8 damage per bolt they are 0.20 single, 0.50 at 2.5 targets, 0.80 at the rule 1.6.1 four-target large profile, and 1.60 for a full ring into a swarm (in band). The roster numbers stand; only the printed PI was wrong.' },
   { id: 'fire_breath', name: 'Fire Breath', family: 'tap', catalogId: null, damage: '20 pellets x 0.5 SU over 1 s', damageSuTotal: 10, cooldownSeconds: 8, intendedTargets: 'single target, short-range cone', pi: 1.9, piNote: 'PI 1.9 point-blank, about 1.1 at a realistic 60 percent pellet land rate. Numbers unchanged; pays with a 1 s committed channel.' },
   { id: 'meteor_rush', name: 'Meteor Rush', family: 'tap', catalogId: 'double_6', damage: '3 SU to each enemy crossed', damageSuTotal: null, cooldownSeconds: 10, intendedTargets: '2 enemies crossed', pi: 0.9, piNote: 'Pays versus Drill with half the per-enemy damage and no damage reduction during the rush.' },
   // DOUBLE family
   { id: 'phoenix_talon', name: 'Phoenix Talon', family: 'double', catalogId: 'double_7', damage: '3 slashes x 1.5 SU fan', damageSuTotal: 4.5, cooldownSeconds: 7, intendedTargets: 'fan (multi-target)', pi: 0.96, piNote: 'Inherits the old Burst fan at double-family scale; pays for reach with the triple-tap input.' },
   { id: 'spark_storm', name: 'Spark Storm', family: 'double', catalogId: 'double_4', damage: '6 homing sparks x 0.8 SU', damageSuTotal: 4.8, cooldownSeconds: 9, intendedTargets: 'up to 6 separate targets', pi: 0.8, piNote: 'Pays for homing with the joint-lowest per-hit damage in the roster.' },
   { id: 'fire_lance', name: 'Fire Lance', family: 'double', catalogId: 'double_3', damage: '3.5 SU piercing line', damageSuTotal: 3.5, cooldownSeconds: 8, intendedTargets: '2 targets (line)', pi: 1.3, piNote: 'PI 0.66 against a single target. Pays for pierce with a narrow line and no tracking.' },
-  { id: 'flame_tornado', name: 'Flame Tornado', family: 'double', catalogId: 'triple_3', damage: 'zone 3 s: 0.5 SU per 0.5 s tick per enemy inside (3 SU per enemy at full duration)', damageSuTotal: 3, cooldownSeconds: 12, intendedTargets: 'single target at realistic 50 percent uptime', pi: 1.25, piNote: 'Pays for area denial with zero burst and a stationary zone enemies can walk out of.' },
+  { id: 'flame_tornado', name: 'Flame Tornado', family: 'double', catalogId: 'triple_3', damage: 'zone 3 s: 0.5 SU per 0.5 s tick per enemy inside (3 SU per enemy at full duration)', damageSuTotal: 3, cooldownSeconds: 12, intendedTargets: 'single target at realistic 50 percent uptime', pi: 1.25, piNote: 'Pays for area denial with zero burst and a stationary zone enemies can walk out of. Final sweep correction: the sheet figure 1.25 does not reproduce from the row numbers (the Burst defect again). Measured in the sweep harness at the shipped numbers: PI 0.37 single target full duration (the area trade rule 1.6.1 allows), 0.75 at 2 targets, 1.12 at 3 targets and 1.87 at 5 (in band at the lane profile). The roster numbers stand.' },
   { id: 'solar_bomb', name: 'Solar Bomb', family: 'double', catalogId: 'triple_5', damage: '5 SU', damageSuTotal: 5, cooldownSeconds: 9, intendedTargets: 'medium area', pi: 0.83, piNote: 'Pays for the biggest non-ultimate single hit with a 0.4 s fuse after it lands.' },
   // HOLD family (all also pay the 1.5 s planted charge of spec Section 3.2)
   { id: 'phoenix_turret', name: 'Phoenix Turret', family: 'hold', catalogId: null, damage: 'baby phoenix fire plus return explosion of 5 x base damage', damageSuTotal: null, cooldownSeconds: 14, intendedTargets: 'single seeker target', pi: 1.5, piNote: 'Costed as a deployable, about 1.5 sustained while active. Cooldown rose from 12 to 14 as the charge payment; hatch delay is part of its risk.' },

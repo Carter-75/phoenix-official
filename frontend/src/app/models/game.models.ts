@@ -147,7 +147,7 @@ export interface World {
 
 export interface EnemyData {
   id: string;
-  type: 'bat' | 'slime' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite' | 'sentry_shard' | 'seedmother' | 'rift_mine' | 'shieldback' | 'pyre_moth' | 'phantom' | 'wraith' | 'chanter' | 'serpent' | 'darter' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'spark_cell' | 'overcharge' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance' | 'nova';
+  type: 'bat' | 'slime' | 'golem' | 'imp' | 'wisp' | 'pod' | 'mite' | 'sentry_shard' | 'seedmother' | 'rift_mine' | 'shieldback' | 'pyre_moth' | 'phantom' | 'wraith' | 'chanter' | 'serpent' | 'darter' | 'boss' | 'projectile_player' | 'projectile_enemy' | 'aura' | 'coin' | 'gem' | 'heart' | 'xp_orb' | 'spark_cell' | 'overcharge' | 'drill' | 'fire' | 'turret' | 'egg' | 'crate' | 'annihilation_fire' | 'enemy_phoenix' | 'dart' | 'talon' | 'spark' | 'lance' | 'nova' | 'flame_tornado' | 'solar_bomb';
   health: number;
   maxHealth: number;
   lastAttackTime?: number;
@@ -194,6 +194,7 @@ export interface EnemyData {
   motherId?: string; // rift_mine: id of the Seedmother that laid it (the 4-mine field cap counts these)
   sparkUntil?: number; // shieldback: ms timestamp the spark-off rim flash ends
   infernoUntil?: number; // enemy_phoenix: ms timestamp an active Phoenix Inferno channel ends
+  wrathLockUntil?: number; // enemy_phoenix: ms timestamp a Divine Wrath cast lock (forced brake) ends; mirrors the player's playerInfernoUntil lock
   // Stage 5 behavior fields (roster batch C).
   buffUntil?: number; // any enemy: War Chanter buff expiry (ms); steering scales speed by 1.25 while active
   lastPulseAt?: number; // chanter: ms timestamp of its most recent buff pulse

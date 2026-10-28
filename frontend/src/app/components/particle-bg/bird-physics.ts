@@ -66,6 +66,31 @@ updateBirdPhysics(bird: PhoenixState, targetWaypoint: THREE.Vector3, baseSpeed: 
               targetWaypoint = this.host.camera.position.clone().add(vec.multiplyScalar(dist));
           }
 
+          // Final sweep: a Phoenix Singularity pull bends this
+          // bird's steering target toward the vortex while the bird
+          // is inside the pull radius (the executor publishes the
+          // active pull in screen space; an enemy cast targets the
+          // player bird, a player cast the rival bird). The pull
+          // only ever rewrites the target: every steering safety
+          // below (turn caps, spool, bounds) still applies, and a
+          // bird steered hard away can still escape, which is the
+          // move's documented risk made real for birds too.
+          const singularityPull = isAi ? this.host.gameState.playerSingularityPull() : this.host.gameState.enemySingularityPull();
+          if (singularityPull && Date.now() < singularityPull.until && this.host.gameState.activeScreen() === 'game') {
+              const toWorld = (sx: number, sy: number) => {
+                  const v = new THREE.Vector3((sx / window.innerWidth) * 2 - 1, -(sy / window.innerHeight) * 2 + 1, 0.5);
+                  v.unproject(this.host.camera);
+                  v.sub(this.host.camera.position).normalize();
+                  const d = (-15 - this.host.camera.position.z) / v.z;
+                  return this.host.camera.position.clone().add(v.multiplyScalar(d));
+              };
+              const centerW = toWorld(singularityPull.x, singularityPull.y);
+              const radiusW = centerW.distanceTo(toWorld(singularityPull.x + singularityPull.radius, singularityPull.y));
+              if (bird.position.distanceTo(centerW) <= radiusW) {
+                  targetWaypoint = targetWaypoint.clone().lerp(centerW, 0.45);
+              }
+          }
+
           const isRebirthingNow = this.host.gameState.isRebirthing() && !isAi;
 
           const mat = bird.particles.material as THREE.PointsMaterial;

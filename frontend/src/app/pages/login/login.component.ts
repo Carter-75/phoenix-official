@@ -107,10 +107,19 @@ export class LoginComponent implements OnInit {
         }
         
         this.authService.login({ email: this.email, password: this.password }).subscribe({
-            next: (user: User) => {
+            next: async (user: User) => {
                 if (user.isTemp) {
                     this.mode.set('set-username');
                 } else {
+                    // Final sweep (playtest round 2 product gap):
+                    // an existing-account email login used to skip
+                    // the guest migration every other path runs
+                    // (Google login, auto-register, complete-signup),
+                    // so progress earned as a guest on this device
+                    // was stranded when signing into an existing
+                    // account by email. It now migrates first, in
+                    // the same order as the Google path.
+                    await this.gameState.migrateGuestData();
                     this.gameState.syncWithUser(user);
                     this.goBack();
                 }

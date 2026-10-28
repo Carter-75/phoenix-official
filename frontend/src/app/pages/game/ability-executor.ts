@@ -165,6 +165,8 @@ triggerAbility(ability: string, sourceBody: Matter.Body, targetX: number, target
       else if (ability === 'phoenix_talon') return this.triggerPhoenixTalon(sourceBody, targetX, targetY, stats, ownerId);
       else if (ability === 'spark_storm') return this.triggerSparkStorm(sourceBody, targetX, targetY, stats, ownerId);
       else if (ability === 'fire_lance') return this.triggerFireLance(sourceBody, targetX, targetY, stats, ownerId);
+      else if (ability === 'flame_tornado') return this.triggerFlameTornado(sourceBody, targetX, targetY, stats, ownerId);
+      else if (ability === 'solar_bomb') return this.triggerSolarBomb(sourceBody, targetX, targetY, stats, ownerId);
       else if (ability === 'fire_breath') return this.triggerFireBreath(sourceBody, targetX, targetY, stats, ownerId);
       else if (ability === 'phoenix_turret') return this.triggerPhoenixTurret(sourceBody, targetX, targetY, stats, ownerId);
       else if (ability === 'phoenix_inferno') return this.triggerPhoenixInferno(sourceBody, targetX, targetY, stats, ownerId);
@@ -672,6 +674,153 @@ triggerFireLance(sourceBody: Matter.Body, targetX: number, targetY: number, stat
       return cd;
   }
 
+triggerFlameTornado(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
+      const abilityData = stats.unlockedAbilities['flame_tornado'];
+      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
+      const baseCooldown = ABILITIES['flame_tornado']?.baseCooldown || 12;
+      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
+      // Section 3.3 (catalog triple_3), final sweep: a stationary
+      // zone at the aim point for 3 s, ticking 0.5 SU every 0.5 s to
+      // every enemy inside (3 SU per enemy at full duration). Range
+      // class Mid: the zone center is clamped to half the min
+      // dimension from the caster. Area class Medium: radius
+      // 0.30 x min dimension. Zero burst by design: the payment for
+      // area denial is that enemies can walk out of it. Built like
+      // Aura (a burstDamage 0 sensor body plus an explicit tick
+      // clock, so the damage never depends on physics contact
+      // timing), except the zone stands where it was cast instead
+      // of following the caster. The vortex visual is the
+      // 'flame_tornado' builder type, spun by the renderer.
+      const radius = 0.30 * this.host.logicalUnit;
+      const maxRange = 0.5 * this.host.logicalUnit;
+      let cx = targetX, cy = targetY;
+      const dx = cx - sourceBody.position.x, dy = cy - sourceBody.position.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > maxRange) {
+          cx = sourceBody.position.x + dx / dist * maxRange;
+          cy = sourceBody.position.y + dy / dist * maxRange;
+      }
+      const tickDamage = (stats.damage || 10) * 0.5 * (mods['damage'] ?? 1.0);
+      const duration = 3000;
+      const zone = Matter.Bodies.circle(cx, cy, radius, {
+          isSensor: true,
+          label: 'projectile',
+          plugin: { data: { id: Math.random().toString(), type: 'flame_tornado', owner: ownerId, ownerId: ownerId, burstDamage: 0, health: 1, maxHealth: 1 } as EnemyData }
+      });
+      Matter.Composite.add(this.host.engine.world, zone);
+      this.host.audioService.playSFX('shoot');
+
+      const tickInterval = setInterval(() => {
+          if (!zone.parent || this.host.gameEnded()) {
+              clearInterval(tickInterval);
+              return;
+          }
+          if (ownerId === 'player') {
+              // Snapshot the list: damageEnemy can remove bodies
+              // and spawn splits while the loop runs (Aura's rule).
+              for (const e of [...this.host.enemies]) {
+                  if (e === sourceBody) continue;
+                  const d = Math.hypot(e.position.x - cx, e.position.y - cy);
+                  if (d < radius) this.host.damageEnemy(e, tickDamage, { x: cx, y: cy });
+              }
+          } else {
+              const d = Math.hypot(this.host.playerBody.position.x - cx, this.host.playerBody.position.y - cy);
+              if (d < radius && !this.host.isDead()) this.host.takeDamage(tickDamage);
+          }
+      }, 500);
+
+      setTimeout(() => {
+          clearInterval(tickInterval);
+          if (zone.parent) Matter.Composite.remove(this.host.engine.world, zone);
+      }, duration);
+
+      return cd;
+  }
+
+triggerSolarBomb(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
+      const abilityData = stats.unlockedAbilities['solar_bomb'];
+      const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
+      const baseCooldown = ABILITIES['solar_bomb']?.baseCooldown || 9;
+      const cd = baseCooldown * (mods['cooldown'] ?? 1.0);
+      // Section 3.3 (catalog triple_5), final sweep: the roster's
+      // biggest non-ultimate single hit, 5 SU, paid for with a
+      // 0.4 s fuse after the orb lands (dodgeable by fast enemies,
+      // and by players in Battle). The orb travels slowly (3.5 per
+      // step, Dart-class is 12 to 13) from the caster to the aim
+      // point, swells through the fuse as growing fire blobs (the
+      // Supernova telegraph construction), then bursts over
+      // Medium radius (0.30 x min dimension) with the shared impact
+      // effect (Section 4.2 Medium tier: burst plus one ring).
+      // The orb body carries burstDamage 0, so no collision branch
+      // interacts with it; the detonation is an explicit area
+      // packet, applied once, like Supernova's.
+      const damage = (stats.damage || 10) * 5 * (mods['damage'] ?? 1.0);
+      const radius = 0.30 * this.host.logicalUnit;
+      const orb = Matter.Bodies.circle(sourceBody.position.x, sourceBody.position.y, 14 * this.host.speedScale, {
+          isSensor: true,
+          label: 'projectile',
+          plugin: { data: { id: Math.random().toString(), type: 'solar_bomb', owner: ownerId, ownerId: ownerId, burstDamage: 0, health: 1, maxHealth: 1 } as EnemyData }
+      });
+      Matter.Composite.add(this.host.engine.world, orb);
+      this.host.audioService.playSFX('shoot');
+
+      const speedPerSec = this.host.scaledSpeed(3.5) * 60;
+      let fused = false;
+      const detonate = () => {
+          if (!orb.parent) return;
+          Matter.Composite.remove(this.host.engine.world, orb);
+          if (this.host.gameEnded()) return;
+          if (ownerId === 'player') {
+              for (const e of [...this.host.enemies]) {
+                  if (e === sourceBody) continue;
+                  const d = e.plugin['data'] as EnemyData;
+                  if (!d) continue;
+                  if (Math.hypot(e.position.x - targetX, e.position.y - targetY) <= radius) {
+                      this.host.damageEnemy(e, damage, { x: targetX, y: targetY });
+                  }
+              }
+          } else if (!this.host.isDead() && Math.hypot(this.host.playerBody.position.x - targetX, this.host.playerBody.position.y - targetY) <= radius) {
+              this.host.takeDamage(damage);
+          }
+          this.host.triggerImpactEffect(targetX, targetY, true);
+          this.host.audioService.playSFX('explosion');
+      };
+      const travel = setInterval(() => {
+          if (!orb.parent || this.host.gameEnded()) { clearInterval(travel); return; }
+          const dx = targetX - orb.position.x, dy = targetY - orb.position.y;
+          const d = Math.hypot(dx, dy);
+          const step = speedPerSec * 0.04;
+          if (d <= Math.max(step, 6)) {
+              clearInterval(travel);
+              if (fused) return;
+              fused = true;
+              Matter.Body.setPosition(orb, { x: targetX, y: targetY });
+              // The 0.4 s fuse: two swelling fire blobs on a
+              // stagger, the Supernova telegraph read at fuse scale.
+              for (let i = 0; i < 2; i++) {
+                  setTimeout(() => {
+                      if (this.host.gameEnded()) return;
+                      const blob = Matter.Bodies.circle(targetX, targetY, (12 + i * 10) * this.host.speedScale, {
+                          label: 'projectile', isSensor: true,
+                          plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: 0, owner: ownerId === 'player' ? 'player' : 'enemy', ownerId } as EnemyData }
+                      });
+                      Matter.Composite.add(this.host.engine.world, blob);
+                      setTimeout(() => { if (blob.parent) Matter.Composite.remove(this.host.engine.world, blob); }, 420 - i * 200);
+                  }, i * 200);
+              }
+              setTimeout(detonate, 400);
+          } else {
+              Matter.Body.setPosition(orb, { x: orb.position.x + dx / d * step, y: orb.position.y + dy / d * step });
+          }
+      }, 40);
+      // Hard lifetime guard: an orb whose target became unreachable
+      // (caster died mid-flight in a mode that clears bodies) never
+      // lingers past 6 s.
+      setTimeout(() => { clearInterval(travel); if (orb.parent) Matter.Composite.remove(this.host.engine.world, orb); }, 6000);
+
+      return cd;
+  }
+
 triggerMeteorRush(sourceBody: Matter.Body, targetX: number, targetY: number, stats: WorldStats, ownerId: string): number {
       const abilityData = stats.unlockedAbilities['meteor_rush'];
       const mods = abilityData?.modifiers || { cooldown: 1.0, damage: 1.0 };
@@ -980,6 +1129,14 @@ triggerDivineWrath(sourceBody: Matter.Body, targetX: number, targetY: number, st
           .slice(0, 5);
       if (ownerId === 'player') {
           this.host.playerInfernoUntil = Math.max(this.host.playerInfernoUntil, Date.now() + 500);
+      } else {
+          // Final sweep (S4's later-AI-pass flag): an enemy caster
+          // takes the same 0.5 s cast lock the player takes, as a
+          // forced brake on its body data; the rival steering loop
+          // honors wrathLockUntil exactly like the Inferno channel's
+          // infernoUntil.
+          const d = sourceBody.plugin['data'] as EnemyData;
+          if (d) d.wrathLockUntil = Math.max(d.wrathLockUntil || 0, Date.now() + 500);
       }
       for (let s = 0; s < 5; s++) {
           setTimeout(() => {
@@ -1023,16 +1180,26 @@ triggerPhoenixSingularity(sourceBody: Matter.Body, targetX: number, targetY: num
       // dimension) toward it for 2 s, then detonates for 15 SU
       // inside the same radius. The pull blends velocities toward
       // the point every 50 ms; the detonation is the packet the
-      // cast clamp caps. An enemy cast cannot drag the player body
-      // (it is position-slaved to the renderer), so against the
-      // player the detonation is the threat, as with Supernova.
+      // cast clamp caps. The birds are position-steered by the
+      // renderer, so the pull reaches them through the published
+      // pull signal below, not through this blend.
       const damage = (stats.damage || 10) * 15 * (mods['damage'] ?? 1.0);
       const castId = this.host.registerUltCast(ownerId);
       const radius = 0.30 * this.host.logicalUnit;
+      // Final sweep: the velocity blend below drags Matter enemies,
+      // but the two birds are renderer-owned and position-steered,
+      // so an enemy cast never pulled the player (S4's flag). The
+      // pull is now also published on the game state, and
+      // bird-physics blends the target bird's steering target
+      // toward the vortex for the same 2 s. Symmetric by caster:
+      // an enemy cast drags the player bird, a player cast drags
+      // the rival bird.
+      const pullSignal = ownerId === 'player' ? this.host.gameState.playerSingularityPull : this.host.gameState.enemySingularityPull;
+      pullSignal.set({ x: targetX, y: targetY, radius, until: Date.now() + 2000 });
       const pullStart = Date.now();
       let tick = 0;
       const swirl = setInterval(() => {
-          if (this.host.gameEnded()) { clearInterval(swirl); return; }
+          if (this.host.gameEnded()) { clearInterval(swirl); pullSignal.set(null); return; }
           tick++;
           for (const e of this.host.enemies) {
               if (e === sourceBody) continue;
@@ -1057,6 +1224,7 @@ triggerPhoenixSingularity(sourceBody: Matter.Body, targetX: number, targetY: num
           }
           if (Date.now() - pullStart >= 2000) {
               clearInterval(swirl);
+              pullSignal.set(null);
               if (this.host.isDead()) return;
               for (const e of [...this.host.enemies]) {
                   if (e === sourceBody) continue;
