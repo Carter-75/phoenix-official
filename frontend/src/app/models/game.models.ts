@@ -124,6 +124,18 @@ export interface WorldTheme {
   };
   enemyVariants: EnemyVariantDef[];
   uiAccent: string; // the world's one UI accent: the existing gradient class
+  // World scroll (World 1 Finish): during a run the composited
+  // backdrop scrolls downward at a rate derived from the bird's
+  // cruise law, and themed side walls scroll with it, so the
+  // phoenix reads as flying up through the world forever. Data
+  // only: the mechanism lives in the particle background. A
+  // world scrolls only when enabled, and its walls render only
+  // when a wall painter exists for the wall key.
+  scroll: {
+    enabled: boolean;
+    speedFactor: number; // multiplier on the cruise-derived rate; 1 = cruise itself
+    wall: string | null; // wall theme key ('ember', 'reef', ...); null = no walls
+  };
 }
 
 export interface World {

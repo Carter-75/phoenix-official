@@ -31,6 +31,7 @@ export const WORLDS: World[] = [
       ground: { band: 'lava glow line', description: 'A lava glow line with slow pulses traveling along it.' },
       enemyVariants: [],
       uiAccent: 'from-orange-400 to-red-600',
+      scroll: { enabled: true, speedFactor: 1, wall: 'ember' },
     } },
   { id: 1, name: 'Cerulean Depths', theme: 'blue', textColorClass: 'from-blue-400 to-cyan-600', bossName: 'Shadow Lord', bossTheme: 'Dark', skinId: 'frost',
     themeData: {
@@ -46,6 +47,7 @@ export const WORLDS: World[] = [
         { baseType: 'Bastion Golem', name: 'Reef Golem', tweak: 'Rocks darker, core teal.' },
       ],
       uiAccent: 'from-blue-400 to-cyan-600',
+      scroll: { enabled: false, speedFactor: 1, wall: 'reef' },
     } },
   { id: 2, name: 'Amethyst Void', theme: 'purple', textColorClass: 'from-purple-400 to-fuchsia-600', bossName: 'Crystal Titan', bossTheme: 'Crystal', skinId: 'eclipse',
     themeData: {
@@ -60,6 +62,7 @@ export const WORLDS: World[] = [
         { baseType: 'Glob', name: 'Crystal Glob', tweak: 'Membrane amethyst, core a hard bright geode center.' },
       ],
       uiAccent: 'from-purple-400 to-fuchsia-600',
+      scroll: { enabled: false, speedFactor: 1, wall: 'shards' },
     } },
   { id: 3, name: 'Verdant Canopy', theme: 'green', textColorClass: 'from-green-400 to-emerald-600', bossName: 'Storm Wyvern', bossTheme: 'Lightning', skinId: 'verdant',
     themeData: {
@@ -76,6 +79,7 @@ export const WORLDS: World[] = [
         { baseType: 'Cinder Imp', name: 'Storm Sprite', tweak: 'Guest appearance; palette shifted electric green-white.' },
       ],
       uiAccent: 'from-green-400 to-emerald-600',
+      scroll: { enabled: false, speedFactor: 1, wall: 'roots' },
     } },
   { id: 4, name: 'Ashen Peaks', theme: 'gray', textColorClass: 'from-gray-300 to-gray-600', bossName: 'Void Reaper', bossTheme: 'Void', skinId: 'eclipse',
     themeData: {
@@ -90,6 +94,7 @@ export const WORLDS: World[] = [
         { baseType: 'Gloomwing', name: 'Ashwing', tweak: 'Gray body, ember eye.' },
       ],
       uiAccent: 'from-gray-300 to-gray-600',
+      scroll: { enabled: false, speedFactor: 1, wall: 'crags' },
     } },
   { id: 5, name: 'Crystal Caverns', theme: 'cyan', textColorClass: 'from-cyan-300 to-blue-500', bossName: 'Phoenix King', bossTheme: 'Holy Fire', skinId: 'solar',
     themeData: {
@@ -105,6 +110,7 @@ export const WORLDS: World[] = [
         { baseType: 'Brood Pod', name: 'Geode Pod', tweak: 'Rocky shell, crystal cells.' },
       ],
       uiAccent: 'from-cyan-300 to-blue-500',
+      scroll: { enabled: false, speedFactor: 1, wall: 'crystal' },
     } },
   { id: 6, name: 'Neon Nebula', theme: 'magenta', textColorClass: 'from-fuchsia-400 to-pink-600', bossName: 'Ice Empress', bossTheme: 'Ice', skinId: 'celestial',
     themeData: {
@@ -120,6 +126,7 @@ export const WORLDS: World[] = [
         { baseType: 'Pyre Moth', name: 'Rime Moth', tweak: 'Ice blue-white body; detonation ring is icicle shards.' },
       ],
       uiAccent: 'from-fuchsia-400 to-pink-600',
+      scroll: { enabled: false, speedFactor: 1, wall: 'ice' },
     } },
   { id: 7, name: 'Golden Sands', theme: 'yellow', textColorClass: 'from-yellow-300 to-amber-600', bossName: 'Dragon Emperor', bossTheme: 'Ancient', skinId: 'solar',
     themeData: {
@@ -135,6 +142,7 @@ export const WORLDS: World[] = [
         { baseType: 'Bastion Golem', name: 'Sandstone Golem', tweak: 'Rocks tan, core amber.' },
       ],
       uiAccent: 'from-yellow-300 to-amber-600',
+      scroll: { enabled: false, speedFactor: 1, wall: 'ruins' },
     } },
   { id: 8, name: 'Blood Moon', theme: 'crimson', textColorClass: 'from-red-500 to-rose-800', bossName: 'Chaos Demon', bossTheme: 'Chaos', skinId: 'eclipse',
     themeData: {
@@ -151,6 +159,7 @@ export const WORLDS: World[] = [
         { baseType: 'Brood Pod', name: 'Heart Pod', tweak: 'The cells visibly beat.' },
       ],
       uiAccent: 'from-red-500 to-rose-800',
+      scroll: { enabled: false, speedFactor: 1, wall: 'thorns' },
     } },
   { id: 9, name: 'Abyssal Rift', theme: 'void', textColorClass: 'from-slate-700 to-black', bossName: 'Eternal Phoenix', bossTheme: 'Divine', skinId: 'celestial',
     themeData: {
@@ -164,6 +173,7 @@ export const WORLDS: World[] = [
         { baseType: 'all roster types', name: 'Rift-touched', tweak: 'Deep palette shifted toward black with white accents, cores at full brightness. Elite-tinted Sturdy and Armored classes appear with 1.5 times HP (a content multiplier on the type, not a new scaling law).' },
       ],
       uiAccent: 'from-slate-700 to-black',
+      scroll: { enabled: false, speedFactor: 1, wall: 'riftshards' },
     } },
 ];
 
