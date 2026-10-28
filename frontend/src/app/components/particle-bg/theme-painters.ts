@@ -31,7 +31,7 @@ export function makeLayerCanvas(w: number, h: number, paint: (ctx: CanvasRenderi
   // ground strip drawn at the v-band whose projection matches the
   // shipped ground line (its top edge about 85 percent down the
   // field; the strip keeps its own painted gradient and features).
-export function makeBackdropTexture(painters: any, td: any): THREE.CanvasTexture {
+export function makeBackdropCanvas(painters: any, td: any): HTMLCanvasElement {
     const W = 1024, H = 512;
     const farC = makeLayerCanvas(W, H, (c, w, h) => painters.far(c, w, h, td));
     const midC = makeLayerCanvas(W, H, (c, w, h) => painters.mid(c, w, h, td));
@@ -77,7 +77,11 @@ export function makeBackdropTexture(painters: any, td: any): THREE.CanvasTexture
     ctx.drawImage(farC, 0, 0);
     ctx.drawImage(midC, 0, 0);
     ctx.drawImage(gndC, 0, H * 0.59, W, H * 0.13);
-    const tex = new THREE.CanvasTexture(canvas);
+    return canvas;
+  }
+
+export function makeBackdropTexture(painters: any, td: any): THREE.CanvasTexture {
+    const canvas = makeBackdropCanvas(painters, td);
     // No sRGB texture format here on purpose: the harness's
     // software renderer pays a per-texel decode for sRGB sampling
     // (measured about +20 ms per frame), while real GPUs decode in
@@ -85,9 +89,254 @@ export function makeBackdropTexture(painters: any, td: any): THREE.CanvasTexture
     // silColor and bakeGlow instead, which produces the same image
     // through the default (linear) texture path every other canvas
     // texture in the game already uses.
+    const tex = new THREE.CanvasTexture(canvas);
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.ClampToEdgeWrapping;
     return tex;
+  }
+
+  // The scrolling variant (World 1 Finish): the authored backdrop
+  // does not tile vertically (silhouettes anchor at the bottom, the
+  // upper field is smooth sky), so a plain repeat would show a hard
+  // junction where the image's bottom row meets its top row. This
+  // builder shifts the composited canvas down by half a tile, which
+  // moves that junction to the middle of the texture, then
+  // crossfades a band around it toward the unshifted image, whose
+  // rows there are the backdrop's own smooth mid field. The result
+  // is periodic by construction: its top and bottom rows are
+  // adjacent rows of the original, and the only remaining junction
+  // sits inside the crossfade band, dissolved. Same texture path
+  // and the same single composited plane as the static variant;
+  // only wrapT changes to Repeat so the component can scroll it.
+export function makeScrollBackdropTexture(painters: any, td: any): THREE.CanvasTexture {
+    const img = makeBackdropCanvas(painters, td);
+    const W = img.width, H = img.height, HALF = H / 2, BAND = 56;
+    const out = document.createElement('canvas');
+    out.width = W; out.height = H;
+    const ctx = out.getContext('2d')!;
+    ctx.drawImage(img, 0, HALF);
+    ctx.drawImage(img, 0, HALF - H);
+    // The crossfade strip: the unshifted image's rows across the
+    // seam, masked by a tent gradient (transparent at the band
+    // edges, opaque at the seam) so the blend itself is invisible.
+    const strip = document.createElement('canvas');
+    strip.width = W; strip.height = BAND * 2;
+    const sctx = strip.getContext('2d')!;
+    sctx.drawImage(img, 0, HALF - BAND, W, BAND * 2, 0, 0, W, BAND * 2);
+    sctx.globalCompositeOperation = 'destination-in';
+    const mask = sctx.createLinearGradient(0, 0, 0, BAND * 2);
+    mask.addColorStop(0, 'rgba(0,0,0,0)');
+    mask.addColorStop(0.5, 'rgba(0,0,0,1)');
+    mask.addColorStop(1, 'rgba(0,0,0,0)');
+    sctx.fillStyle = mask;
+    sctx.fillRect(0, 0, W, BAND * 2);
+    ctx.drawImage(strip, 0, HALF - BAND);
+    const tex = new THREE.CanvasTexture(out);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    return tex;
+  }
+
+  // Side wall painters (World 1 Finish), dispatched by the wall
+  // key in the world's scroll record. A wall painter draws one
+  // vertical strip: canvas x = 0 is the wall face line (the
+  // innermost extent of the art, where the bird's flight clamps),
+  // x = w is the outer edge past the screen edge. Everything is
+  // drawn with vertical wrap copies, so the strip tiles in Y by
+  // construction. Only World 1 has a painter in this pass; the
+  // other worlds' keys are reserved in their data records.
+export function wallPainters(worldIndex: number) {
+    switch (worldIndex) {
+      case 0: return paintEmberWall;
+      default: return null;
+    }
+  }
+
+  // Draws the same shapes at y offsets -h, 0, +h so a wall strip
+  // wraps seamlessly in the vertical direction.
+function vtiled(ctx: CanvasRenderingContext2D, h: number, draw: () => void) {
+    for (const oy of [-h, 0, h]) {
+      ctx.save();
+      ctx.translate(0, oy);
+      draw();
+      ctx.restore();
+    }
+  }
+
+  // World 1 wall, Ember Wastes: basalt rock and spike formations.
+  // The rock mass runs from a jagged profile (about 30 percent
+  // across the strip) to the outer edge; basalt spikes jut from
+  // the profile toward the face line, their tips just reaching
+  // it, so no art ever extends past the line the bird clamps at.
+  // Rim light in the palette's bright orange traces the profile
+  // and the spike edges; lava cracks glow inside the rock mass.
+export function paintEmberWall(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const rnd = themeRng(1501);
+    const P = td.palette;
+    // Rock mass base: dark basalt, slightly lighter near the
+    // face where the world's glow catches it, darker outward.
+    const base = ctx.createLinearGradient(0, 0, w, 0);
+    base.addColorStop(0, silColor(P.deep, 0.72));
+    base.addColorStop(0.3, silColor(P.deep, 0.58));
+    base.addColorStop(1, silColor(P.deep, 0.34));
+    ctx.fillStyle = base;
+    ctx.fillRect(0, 0, w, h);
+    // The jagged profile: a sum of whole-period sines, so the
+    // profile (and everything anchored to it: the cut, the rim,
+    // the wash, the spikes) is periodic in y by construction and
+    // the strip wraps with no jump at the seam. The rim and the
+    // spike anchors all share this one shape.
+    const ph1 = rnd() * Math.PI * 2, ph2 = rnd() * Math.PI * 2, ph3 = rnd() * Math.PI * 2;
+    const profileX = (y: number) => w * 0.31
+      + Math.sin((y / h) * Math.PI * 2 * 2 + ph1) * w * 0.045
+      + Math.sin((y / h) * Math.PI * 2 * 3 + ph2) * w * 0.030
+      + Math.sin((y / h) * Math.PI * 2 * 5 + ph3) * w * 0.018;
+    // Cut the channel side of the profile back to transparent:
+    // the wall plane is transparent there, so the scrolling
+    // backdrop shows through between the spike tips.
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.beginPath();
+    ctx.moveTo(0, -4);
+    for (let y = -4; y <= h + 4; y += 16) ctx.lineTo(profileX(y), y);
+    ctx.lineTo(0, h + 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    // Clip the interior details to the rock side of the profile
+    // so nothing floats in the transparent channel zone.
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(w + 4, -4);
+    for (let y = -4; y <= h + 4; y += 16) ctx.lineTo(profileX(y), y);
+    ctx.lineTo(w + 4, h + 4);
+    ctx.closePath();
+    ctx.clip();
+    // The feature lists are generated ONCE and drawn identically
+    // at every vertical wrap offset: a wrap copy that re-rolled
+    // its own random features would not be a copy, and the strip
+    // would jump at the seam wherever a feature crosses it.
+    // Fractured basalt facets: angular plates in varied deep
+    // shades, so the mass reads as broken rock, not a flat fill.
+    const facets: { fx: number; fy: number; fw: number; fh: number; shade: number; j: number[] }[] = [];
+    for (let i = 0; i < 26; i++) {
+      facets.push({
+        fx: w * (0.30 + rnd() * 0.68), fy: rnd() * h,
+        fw: w * (0.08 + rnd() * 0.20), fh: 26 + rnd() * 74,
+        shade: 0.30 + rnd() * 0.38,
+        j: [(rnd() - 0.5) * 8, 0.2 + rnd() * 0.3, 0.5 + rnd() * 0.4, 0.1 + rnd() * 0.3, 0.6 + rnd() * 0.3]
+      });
+    }
+    // Inset boulders with a lit lower rim.
+    const boulders: { bx: number; by: number; bw: number; bh: number }[] = [];
+    for (let i = 0; i < 7; i++) {
+      boulders.push({ bx: w * (0.38 + rnd() * 0.55), by: rnd() * h, bw: w * (0.10 + rnd() * 0.16), bh: 14 + rnd() * 30 });
+    }
+    // Lava cracks: short jagged segments inside the rock, thin
+    // and sparse, each a brief split with a faint glow, never a
+    // continuous river.
+    const cracks: { pts: [number, number][] }[] = [];
+    for (let i = 0; i < 9; i++) {
+      let cxp = w * (0.42 + rnd() * 0.50), cyp = rnd() * h;
+      const segs = 3 + Math.floor(rnd() * 3);
+      const pts: [number, number][] = [[cxp, cyp]];
+      for (let s = 0; s < segs; s++) {
+        cxp += (rnd() - 0.5) * w * 0.10;
+        cyp += 18 + rnd() * 30;
+        pts.push([cxp, cyp]);
+      }
+      cracks.push({ pts });
+    }
+    vtiled(ctx, h, () => {
+      for (const f of facets) {
+        ctx.fillStyle = silColor(P.deep, f.shade, 0.85);
+        ctx.beginPath();
+        ctx.moveTo(f.fx + f.j[0], f.fy);
+        ctx.lineTo(f.fx + f.fw, f.fy + f.fh * f.j[1]);
+        ctx.lineTo(f.fx + f.fw * f.j[2], f.fy + f.fh);
+        ctx.lineTo(f.fx - f.fw * f.j[3], f.fy + f.fh * f.j[4]);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = silColor(P.bright, 0.5, 0.16);
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+      for (const b of boulders) {
+        ctx.fillStyle = silColor(P.deep, 0.30, 0.55);
+        ctx.beginPath();
+        ctx.ellipse(b.bx, b.by, b.bw, b.bh, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = silColor(P.bright, 0.55, 0.35);
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(b.bx, b.by, b.bw, b.bh, 0, Math.PI * 0.15, Math.PI * 0.85);
+        ctx.stroke();
+      }
+      ctx.save();
+      ctx.shadowColor = silColor(P.mid, 1.0);
+      ctx.shadowBlur = 5;
+      ctx.strokeStyle = silColor(P.mid, 0.9, 0.7);
+      ctx.lineWidth = 1.6;
+      for (const c of cracks) {
+        ctx.beginPath();
+        ctx.moveTo(c.pts[0][0], c.pts[0][1]);
+        for (let s = 1; s < c.pts.length; s++) ctx.lineTo(c.pts[s][0], c.pts[s][1]);
+        ctx.stroke();
+      }
+      ctx.restore();
+    });
+    // A soft wash of the world's glow along the profile, inside
+    // the rock, so the face reads lit rather than cut out.
+    ctx.save();
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = silColor(P.mid, 0.8);
+    ctx.beginPath();
+    ctx.moveTo(w + 4, -4);
+    for (let y = -4; y <= h + 4; y += 16) ctx.lineTo(profileX(y), y);
+    for (let y = h + 4; y >= -4; y -= 16) ctx.lineTo(profileX(y) + w * 0.16, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    ctx.restore(); // the rock-side clip
+    // Spikes: basalt shards anchored on the profile, tips toward
+    // the face line. Drawn after the cut so their bases sit in
+    // the rock; a spike never crosses x = 2. Same
+    // generate-once rule as the interior features.
+    const spikes: { sy: number; anchor: number; len: number; halfBase: number; tipDy: number }[] = [];
+    for (let i = 0; i < 6; i++) {
+      const sy = rnd() * h;
+      const anchor = profileX(sy);
+      spikes.push({ sy, anchor, len: anchor - 4 - rnd() * w * 0.06, halfBase: 9 + rnd() * 13, tipDy: (rnd() - 0.5) * 8 });
+    }
+    vtiled(ctx, h, () => {
+      for (const s of spikes) {
+        ctx.fillStyle = silColor(P.deep, 0.62);
+        ctx.beginPath();
+        ctx.moveTo(s.anchor + w * 0.05, s.sy - s.halfBase);
+        ctx.lineTo(s.anchor - s.len, s.sy + s.tipDy);
+        ctx.lineTo(s.anchor + w * 0.05, s.sy + s.halfBase);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = silColor(P.bright, 0.85, 0.55);
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(s.anchor + w * 0.05, s.sy - s.halfBase);
+        ctx.lineTo(s.anchor - s.len, s.sy);
+        ctx.stroke();
+      }
+    });
+    // The rim light along the profile itself.
+    ctx.strokeStyle = silColor(P.bright, 0.9, 0.6);
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (let y = -4; y <= h + 4; y += 16) {
+      const x = profileX(y);
+      if (y === -4) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.strokeStyle = silColor(P.mid, 0.9, 0.30);
+    ctx.lineWidth = 8;
+    ctx.stroke();
   }
 
   // Deterministic per-layer random source, so a world's silhouettes
