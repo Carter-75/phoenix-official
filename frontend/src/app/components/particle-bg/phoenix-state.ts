@@ -1,25 +1,34 @@
-// Render-side state records for the particle phoenix and its pooled
+// Render-side state records for the drawn phoenix and its pooled
 // entities. Pure types: no behavior lives here. Moved out of
 // particle-bg.component.ts in the code organization pass (Oct 27,
 // 2026); field meanings are documented at each declaration.
+//
+// Bird Rebuild Round (Oct 28, 2026): the bird is a drawn sprite rig
+// (phoenix-sprite.ts), not a particle formation. The 4000-point
+// silhouette SAMPLING survives only as data (basePositions and the
+// routing arrays): the turret companion and the codex enemy_phoenix
+// builders copy that data, and entity-sync animates them from it.
+// Nothing renders the player's or rival's points any more.
 import * as THREE from 'three';
 
 export interface PhoenixState {
   theme: string;
   group: THREE.Group;
-  particles: THREE.Points;
-  fillParticles: THREE.Points | null;
-  core: THREE.Mesh | null;
+  // The drawn bird: main plane, ash plane (death and rebirth
+  // crossfade), and the fading ghost ribbon of recent positions.
+  sprite: THREE.Mesh | null;
+  ashSprite: THREE.Mesh | null;
+  ghostSprites: THREE.Mesh[];
   glow: THREE.Sprite | null;
   basePositions: Float32Array;
-  // Per-point routing into the two particle buffers (main ribbon and
-  // fringe in `particles`, inner body fill in `fillParticles`) plus the
-  // sampling region (0 ribbon, 1 inner fill, 2 outer fringe).
+  // Per-point routing from the silhouette sampling (0 ribbon, 1
+  // inner fill, 2 outer fringe) plus the Celestial sparkle subset.
+  // Data only now: colorForPoint reads them for the entity builders
+  // that copy the bird's construction.
   inFill: Uint8Array;
   bufferIndex: Uint16Array;
   pointRegion: Uint8Array;
   sparkle: Uint8Array;
-  ashVec: Float32Array;
   skinId: string;
   flapRate: number;
   climbTime: number;
@@ -36,7 +45,20 @@ export interface PhoenixState {
   phoenixCount: number;
   currentBank: number;
   flapTime: number;
-  
+  // Bird Rebuild render state: the sprite is oriented in screen
+  // space (its up is the heading), so heading is a smoothed angle,
+  // not a quaternion. drillSpin accumulates the in-plane corkscrew
+  // while drilling. The render* fields are the per-substep base
+  // material state the physics writes; the component's visual-state
+  // machine (flash, death, rebirth) composes over them.
+  headingAngle: number;
+  drillSpin: number;
+  trailFade: number; // ghost ribbon strength from live speed (0 parked, 1 at pace)
+  renderOpacity: number;
+  renderTint: THREE.Color;
+  renderAshMix: number;
+  hovering: boolean;
+
   position: THREE.Vector3;
   velocity: THREE.Vector3;
   previousVelocity: THREE.Vector3;

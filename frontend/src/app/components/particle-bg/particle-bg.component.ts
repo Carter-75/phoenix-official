@@ -6,10 +6,11 @@ import { PhysicsEntity, WorldTheme } from '../../models/game.models';
 import { buildEntityGeometry } from './entity-builder';
 import { PhoenixState, ParticleEntity, DyingBurst } from './phoenix-state';
 import { Rgb3, PhoenixSkin, PHOENIX_SKINS, HOSTILE_SKIN, phoenixSkinById, phoenixSkinForWorld } from './phoenix-skins';
-import { GLYPH_OUTLINE, pointInGlyph } from './phoenix-glyph';
+import { pointInGlyph } from './phoenix-glyph';
 import { makeBackdropTexture, silColor, themePainters } from './theme-painters';
 import { EntitySync } from './entity-sync';
 import { BirdPhysics } from './bird-physics';
+import { getPhoenixFrames, ensureAshFrames } from './phoenix-sprite';
 import { bossDefFor } from '../../data/boss-rig';
 export { phoenixSkinForWorld } from './phoenix-skins';
 import * as THREE from 'three';
@@ -149,7 +150,6 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
   public dyingBursts: DyingBurst[] = [];
   public lastSyncMs = 0;
   public fullAnimIds = new Set<string>();
-  private glyphTextures = new Map<string, THREE.Texture>();
   private ringGlowTexture: THREE.Texture | null = null;
   private haloGlowTexture: THREE.Texture | null = null;
 
@@ -162,9 +162,10 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
   private prevDeadMenu = false;
   private prevRebirthing = false;
   private lastImmortalSeen = 0;
-  private ashStartPos = new Float32Array(4000 * 3);
-  private ashStartCol = new Float32Array(4000 * 3);
-  private rebirthTargetCol = new Float32Array(4000 * 3);
+  // Bird Rebuild: scale multiplier the rebirth reform ramp drives
+  // through the BirdPhysicsHost interface (1 outside the ramp).
+  public visScaleMul = 1;
+  private rebirthFromDeath = false;
 
 
   constructor(private ngZone: NgZone) {
@@ -188,11 +189,11 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     
     this.bird = this.createBirdState('orange');
     this.initHistory(this.bird);
-    this.createPhoenixMesh(this.bird, phoenixSkinForWorld(this.gameState.selectedWorldIndex()));
+    this.createBirdRig(this.bird, phoenixSkinForWorld(this.gameState.selectedWorldIndex()));
 
     this.aiBird = this.createBirdState('crimson'); // Different theme for AI
     this.initHistory(this.aiBird);
-    this.createPhoenixMesh(this.aiBird, HOSTILE_SKIN);
+    this.createBirdRig(this.aiBird, HOSTILE_SKIN);
     
     this.updateColors(WORLDS[this.gameState.selectedWorldIndex()].theme);
     this.applyThemeScene(this.gameState.selectedWorldIndex());
@@ -234,7 +235,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
   }
 
   private updateColors(theme: string) {
-    if (!this.particles || !this.bird || !this.bird.particles) return;
+    if (!this.particles || !this.bird) return;
 
     let p1 = [1.0, 0.8, 0.2]; let p2 = [1.0, 0.4, 0.0]; let p3 = [0.8, 0.1, 0.0]; 
     if (theme === 'blue') { p1 = [0.2, 0.8, 1.0]; p2 = [0.0, 0.4, 1.0]; p3 = [0.0, 0.1, 0.8]; }
@@ -271,11 +272,11 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     }
     this.particles.geometry.attributes['color'].needsUpdate = true;
 
-    // Player bird: colored by its skin, not the world (spec 2.4). While
-    // a death or rebirth sequence owns the color buffers, leave them.
-    if (this.visState === 'alive') this.applyBirdColors(this.bird, skin);
-    // AI bird: hostile palette, statically, as today.
-    if (this.aiBird && this.aiBird.particles) this.applyBirdColors(this.aiBird, HOSTILE_SKIN);
+    // Player and AI birds: colored by their skins, not the world
+    // (spec 2.4). Since the Bird Rebuild the skin colors are baked
+    // into the sprite textures per skin, so there is nothing to
+    // recolor here; the ambient hue-collision shift above is the
+    // part of this pass the birds still rely on.
 
 
     if (this.bgGlow) {
@@ -650,12 +651,13 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
 
   private createBirdState(theme: string): PhoenixState {
     return {
-      theme, group: new THREE.Group(), particles: new THREE.Points(), fillParticles: null, core: null, glow: null, basePositions: new Float32Array(0),
-      inFill: new Uint8Array(0), bufferIndex: new Uint16Array(0), pointRegion: new Uint8Array(0), sparkle: new Uint8Array(0), ashVec: new Float32Array(0),
+      theme, group: new THREE.Group(), sprite: null, ashSprite: null, ghostSprites: [], glow: null, basePositions: new Float32Array(0),
+      inFill: new Uint8Array(0), bufferIndex: new Uint16Array(0), pointRegion: new Uint8Array(0), sparkle: new Uint8Array(0),
       skinId: 'ember', flapRate: 1, climbTime: 0, spoolT: -1, wasDashing: false, wasDrilling: false, wasRushing: false, flashUntil: 0, reformUntil: 0, glowSpanFactor: 1.35,
       phoenixCount: 4000, currentBank: 0, flapTime: 0, position: new THREE.Vector3(0, -5, -15),
       velocity: new THREE.Vector3(0, 1, 0), previousVelocity: new THREE.Vector3(0, 1, 0),
-      targetWaypoint: new THREE.Vector3(), historyPos: [], historyQuat: []
+      targetWaypoint: new THREE.Vector3(), historyPos: [], historyQuat: [],
+      headingAngle: Math.PI / 2, drillSpin: 0, trailFade: 1, renderOpacity: 1, renderTint: new THREE.Color(1, 1, 1), renderAshMix: 0, hovering: false
     };
   }
 
@@ -718,41 +720,24 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     return c;
   }
 
-  private applyBirdColors(bird: PhoenixState, skin: PhoenixSkin) {
-    if (!bird || !bird.particles || !bird.inFill || bird.inFill.length === 0) return;
-    const mainCol = bird.particles.geometry.attributes['color'].array as Float32Array;
-    const fillCol = bird.fillParticles ? (bird.fillParticles.geometry.attributes['color'].array as Float32Array) : null;
-    for (let k = 0; k < bird.phoenixCount; k++) {
-      const c = this.colorForPoint(bird, skin, k);
-      const arr = bird.inFill[k] ? fillCol : mainCol;
-      if (!arr) continue;
-      const j = bird.bufferIndex[k] * 3;
-      arr[j] = c[0]; arr[j + 1] = c[1]; arr[j + 2] = c[2];
-    }
-    bird.particles.geometry.attributes['color'].needsUpdate = true;
-    if (bird.fillParticles) bird.fillParticles.geometry.attributes['color'].needsUpdate = true;
-  }
-
-  // One point's current display color, across the two buffers. Used by
-  // the turret construction, which copies the player bird's colors.
+  // One silhouette point's display color under the bird's current
+  // skin, computed from the sampling data (base positions and region
+  // routing) rather than a live buffer. Used by the turret
+  // construction, which copies the player bird's colors; since the
+  // Bird Rebuild the bird itself is a sprite, so the data path is
+  // the only path.
   public birdColorAt(bird: PhoenixState, k: number): Rgb3 {
-    const attr = bird.inFill[k] ? bird.fillParticles?.geometry.attributes['color'] : bird.particles.geometry.attributes['color'];
-    const arr = attr?.array as Float32Array | undefined;
-    if (!arr) return [1, 1, 1];
-    const j = bird.bufferIndex[k] * 3;
-    return [arr[j] || 0, arr[j + 1] || 0, arr[j + 2] || 0];
+    return this.colorForPoint(bird, phoenixSkinById(bird.skinId), k);
   }
 
   private applySkin(skin: PhoenixSkin) {
     const bird = this.bird;
-    if (!bird || !bird.particles) return;
+    if (!bird || !bird.sprite) return;
     bird.skinId = skin.id;
     bird.glowSpanFactor = skin.glowSpan;
-    this.applyBirdColors(bird, skin);
-    if (bird.core) {
-      (bird.core.material as THREE.MeshBasicMaterial).map = this.glyphTexture(skin);
-      (bird.core.material as THREE.MeshBasicMaterial).needsUpdate = true;
-    }
+    // The sprite's frame set follows bird.skinId in the physics
+    // render write each substep, so only the glow (tint and ring
+    // treatment) is swapped here.
     if (bird.glow) {
       const gm = bird.glow.material as THREE.SpriteMaterial;
       gm.color.setRGB(skin.bright[0], skin.bright[1], skin.bright[2]);
@@ -803,157 +788,6 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     ctx.fillRect(0, 0, size, size);
     this.haloGlowTexture = new THREE.CanvasTexture(canvas);
     return this.haloGlowTexture;
-  }
-
-  // The silhouette glyph (spec Section 2.1): one canvas-drawn phoenix
-  // silhouette per skin, cached. Drawn from the same normalized outline
-  // as the particle fill, in the skin's palette with a bright core
-  // gradient; the skin's edge treatment (angular, serrated, crest,
-  // dark heart, facets, sparkles) is applied here, inside the same
-  // bounding box for every skin. The canvas is 256 by 320, matching
-  // the core plane's 1 by 1.25 aspect, so a normalized unit covers the
-  // same pixels on both axes and the drawn glyph lands exactly on the
-  // sampled fill. The beak gets an explicit bright wedge and the head
-  // a pair of eyes on top of the fill, so the front of the bird reads
-  // as a head even where path smoothing rounds the outline's beak
-  // spike (addendum: the bird must read as an actual phoenix).
-  private glyphTexture(skin: PhoenixSkin): THREE.Texture {
-    const cached = this.glyphTextures.get(skin.id);
-    if (cached) return cached;
-    const S = 256;
-    const H = 320;
-    const canvas = document.createElement('canvas');
-    canvas.width = S; canvas.height = H;
-    const ctx = canvas.getContext('2d')!;
-    const px = (nx: number) => S / 2 + nx * (S * 0.46);
-    const py = (nz: number) => 10 + nz * (H - 20);
-    // Canvas-space outline; broad-winged skins (Solar) drop the wingtip
-    // line lower inside the same box.
-    const outline = GLYPH_OUTLINE.map(([nx, nz]): [number, number] => {
-      let x = nx, z = nz;
-      if (skin.glyph.broadWings && Math.abs(nx) > 0.55 && nz > 0.1 && nz < 0.5) z += 0.05 * Math.sin(((Math.abs(nx) - 0.55) / 0.45) * Math.PI);
-      if (skin.glyph.serrated && nz > 0.3 && nz < 0.5 && Math.abs(nx) > 0.3) z += (Math.round(Math.abs(nx) * 10) % 2 === 0 ? 0.018 : -0.018);
-      return [px(x), py(z)];
-    });
-    const path = new Path2D();
-    if (skin.glyph.angular) {
-      outline.forEach(([x, y], i) => { if (i === 0) path.moveTo(x, y); else path.lineTo(x, y); });
-      path.closePath();
-    } else {
-      // Smooth curve through the outline points (midpoint quadratics).
-      const n = outline.length;
-      path.moveTo((outline[0][0] + outline[n - 1][0]) / 2, (outline[0][1] + outline[n - 1][1]) / 2);
-      for (let i = 0; i < n; i++) {
-        const [x, y] = outline[i];
-        const [mx, my] = outline[(i + 1) % n];
-        path.quadraticCurveTo(x, y, (x + mx) / 2, (y + my) / 2);
-      }
-      path.closePath();
-    }
-    // Mid-dominant fill with a bright core (spec 2.1): the deep band is
-    // only the rim, so the silhouette never reads dark against the sky.
-    const grad = ctx.createRadialGradient(S / 2, py(0.30), 6, S / 2, py(0.36), H * 0.52);
-    grad.addColorStop(0, `rgb(${Math.round(skin.bright[0] * 255)},${Math.round(skin.bright[1] * 255)},${Math.round(skin.bright[2] * 255)})`);
-    grad.addColorStop(0.38, `rgb(${Math.round(skin.mid[0] * 255)},${Math.round(skin.mid[1] * 255)},${Math.round(skin.mid[2] * 255)})`);
-    grad.addColorStop(1, `rgb(${Math.round(skin.deep[0] * 255)},${Math.round(skin.deep[1] * 255)},${Math.round(skin.deep[2] * 255)})`);
-    ctx.save();
-    ctx.shadowColor = `rgba(${Math.round(skin.mid[0] * 255)},${Math.round(skin.mid[1] * 255)},${Math.round(skin.mid[2] * 255)},0.8)`;
-    ctx.shadowBlur = 10;
-    ctx.fillStyle = grad;
-    ctx.fill(path);
-    ctx.restore();
-    ctx.save();
-    ctx.clip(path);
-    // Head bead: a soft bright highlight centred on the head, so the
-    // front of the bird carries a distinct bright bead the eye can
-    // lock onto as a head (the fill gradient centres lower, on the
-    // body). Without it the head, the smallest part of the outline,
-    // disappears into the wing dome at gameplay size.
-    const hg = ctx.createRadialGradient(px(0), py(0.10), 2, px(0), py(0.10), 30);
-    hg.addColorStop(0, 'rgba(255,255,255,0.50)');
-    hg.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = hg;
-    ctx.fillRect(0, 0, S, H);
-    if (skin.glyph.darkHeart) {
-      // Eclipse: a dark heart under a bright rim and core (spec 2.4).
-      const dg = ctx.createRadialGradient(S / 2, py(0.32), 4, S / 2, py(0.32), S * 0.30);
-      dg.addColorStop(0, 'rgba(10,4,24,0.88)');
-      dg.addColorStop(1, 'rgba(10,4,24,0)');
-      ctx.fillStyle = dg;
-      ctx.fillRect(0, 0, S, H);
-      ctx.fillStyle = `rgba(${Math.round(skin.bright[0] * 255)},${Math.round(skin.bright[1] * 255)},${Math.round(skin.bright[2] * 255)},0.95)`;
-      ctx.beginPath(); ctx.arc(S / 2, py(0.25), 5, 0, Math.PI * 2); ctx.fill();
-    }
-    if (skin.glyph.facets) {
-      // Frost: faint facet lines, like light through ice.
-      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-      ctx.lineWidth = 1.5;
-      for (let i = 0; i < 7; i++) {
-        ctx.beginPath();
-        ctx.moveTo(S * (0.15 + i * 0.11), H * 0.06);
-        ctx.lineTo(S * (0.30 + i * 0.09), H * 0.44);
-        ctx.stroke();
-      }
-    }
-    if (skin.glyph.sparkles) {
-      // Celestial: a sparse star-sparkle subset inside the fill.
-      ctx.fillStyle = 'rgba(255,255,255,0.9)';
-      let seed = 42;
-      const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
-      for (let i = 0; i < 26; i++) {
-        const x = S * (0.2 + rnd() * 0.6), y = H * (0.08 + rnd() * 0.84), r = 1 + rnd() * 1.8;
-        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-      }
-    }
-    ctx.restore();
-    // Bright rim, strongest on Eclipse (its readability carrier).
-    ctx.strokeStyle = `rgba(${Math.round(skin.bright[0] * 255)},${Math.round(skin.bright[1] * 255)},${Math.round(skin.bright[2] * 255)},${skin.glyph.darkHeart ? 0.95 : 0.45})`;
-    ctx.lineWidth = skin.glyph.darkHeart ? 3 : 1.5;
-    ctx.stroke(path);
-    const brightCss = `rgb(${Math.round(skin.bright[0] * 255)},${Math.round(skin.bright[1] * 255)},${Math.round(skin.bright[2] * 255)})`;
-    // The beak: a bright wedge at the outline's spike, drawn over the
-    // fill so the head ends in a visible point, not a rounded blob.
-    ctx.fillStyle = brightCss;
-    ctx.beginPath();
-    ctx.moveTo(px(-0.058), py(0.050)); ctx.lineTo(px(0), py(-0.012)); ctx.lineTo(px(0.058), py(0.050));
-    ctx.closePath(); ctx.fill();
-    // Eyes: a dark pair on the head (bright on Eclipse, whose head is
-    // the dark heart), small in flight and clear in the large capture.
-    ctx.fillStyle = skin.glyph.darkHeart ? 'rgba(240,235,255,0.92)' : 'rgba(26,10,6,0.82)';
-    for (const side of [-1, 1]) {
-      ctx.beginPath(); ctx.arc(px(0.055 * side), py(0.095), 3.1, 0, Math.PI * 2); ctx.fill();
-    }
-    // Crest treatment on the head: a fan of slim spikes sweeping back
-    // over the neck (toward the tail), per skin style. Only Celestial's
-    // crown stands forward off the head, as a crown should.
-    ctx.fillStyle = brightCss;
-    const hx = S / 2, hy = py(0.095);
-    const spike = (dx: number, len: number, w: number, splay: number) => {
-      ctx.beginPath();
-      ctx.moveTo(hx + dx - w, hy - 2); ctx.lineTo(hx + dx + splay, hy + len); ctx.lineTo(hx + dx + w, hy - 2);
-      ctx.closePath(); ctx.fill();
-    };
-    const crownTri = (dx: number, h: number, w: number) => {
-      ctx.beginPath();
-      ctx.moveTo(hx + dx - w, hy + 2); ctx.lineTo(hx + dx, hy - h); ctx.lineTo(hx + dx + w, hy + 2);
-      ctx.closePath(); ctx.fill();
-    };
-    if (skin.glyph.crest === 'tuft') {
-      ctx.beginPath(); ctx.arc(hx, hy - 3, 4.5, 0, Math.PI * 2); ctx.fill();
-      spike(-6, 11, 3.5, -3); spike(6, 11, 3.5, 3);
-    } else if (skin.glyph.crest === 'spikes') { spike(-8, 20, 3, -5); spike(0, 24, 3, 0); spike(8, 20, 3, 5); }
-    else if (skin.glyph.crest === 'rays') { for (let i = -2; i <= 2; i++) spike(i * 7, 23 - Math.abs(i) * 3, 2.6, i * 4); }
-    else if (skin.glyph.crest === 'crown') { crownTri(-8, 13, 4); crownTri(0, 18, 4); crownTri(8, 13, 4); }
-    else if (skin.glyph.crest === 'swept') {
-      spike(0, 15, 3, 0);
-      ctx.beginPath(); ctx.moveTo(hx - 2, hy - 2); ctx.lineTo(hx - 27, hy + 19); ctx.lineTo(hx - 5, hy + 6); ctx.closePath(); ctx.fill();
-      ctx.beginPath(); ctx.moveTo(hx + 2, hy - 2); ctx.lineTo(hx + 27, hy + 19); ctx.lineTo(hx + 5, hy + 6); ctx.closePath(); ctx.fill();
-    } else if (skin.glyph.crest === 'leaf') {
-      ctx.beginPath(); ctx.ellipse(hx, hy + 9, 4.5, 11, 0.15, 0, Math.PI * 2); ctx.fill();
-    }
-    const tex = new THREE.CanvasTexture(canvas);
-    this.glyphTextures.set(skin.id, tex);
-    return tex;
   }
 
   private initThree() {
@@ -1143,16 +977,15 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     this.mouseTarget.copy(startPos);
   }
 
-  private createPhoenixMesh(bird: PhoenixState, skin: PhoenixSkin) {
-    // Layered hybrid construction (spec Section 2.1): the particle body
-    // is rebalanced so the inner body reads filled rather than a sparse
-    // outline: about 45 percent inner body fill (sampled evenly from
-    // the glyph silhouette), 35 percent wings and tail ribbon (the
-    // historical distribution), 20 percent outer fringe with the most
-    // flicker. The sampling change is only in how base positions are
-    // chosen; the animation code that consumes them is unchanged in
-    // structure. Fill points live in a second Points object at size
-    // 0.34 (spec 2.1); the rest keep the round 1 size 0.30, opacity 1.0.
+  private createBirdRig(bird: PhoenixState, skin: PhoenixSkin) {
+    // Silhouette sampling (spec Section 2.1 distribution: about 45
+    // percent inner body fill sampled from the glyph silhouette, 35
+    // percent wings and tail ribbon, 20 percent outer fringe). Since
+    // the Bird Rebuild this is DATA only: the turret companion and
+    // the codex enemy_phoenix builders copy the bird's construction
+    // from these arrays (entity-sync animates them per frame), and
+    // colorForPoint colors them. The player and rival birds are
+    // drawn sprites now (phoenix-sprite.ts), never these points.
     const FILL_COUNT = 1800;
     const count = bird.phoenixCount;
     bird.basePositions = new Float32Array(count * 3);
@@ -1160,11 +993,6 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     bird.bufferIndex = new Uint16Array(count);
     bird.pointRegion = new Uint8Array(count);
     bird.sparkle = new Uint8Array(count);
-    bird.ashVec = new Float32Array(count * 3);
-    const mainPos = new Float32Array((count - FILL_COUNT) * 3);
-    const mainCol = new Float32Array((count - FILL_COUNT) * 3);
-    const fillPos = new Float32Array(FILL_COUNT * 3);
-    const fillCol = new Float32Array(FILL_COUNT * 3);
     let mainNext = 0, fillNext = 0;
     const wingPoint = (): [number, number, number] => {
       const x = (Math.random() - 0.5) * 20;
@@ -1221,68 +1049,42 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       z += (Math.random() - 0.5) * 0.5; if (z < 0) z = 0; const scale = 0.4;
       bird.basePositions[idx] = x * scale; bird.basePositions[idx + 1] = y * scale; bird.basePositions[idx + 2] = z * scale;
       bird.pointRegion[i] = region;
-      // Death drift per point (Section 2.2 death state): a sideways
-      // scatter and a downward fall amount, fixed at build time.
-      bird.ashVec[idx] = (Math.random() - 0.5) * 1.2;
-      bird.ashVec[idx + 1] = 0.6 + Math.random() * 1.6;
-      bird.ashVec[idx + 2] = (Math.random() - 0.5) * 1.2;
-      if (region === 1) {
-        bird.inFill[i] = 1; bird.bufferIndex[i] = fillNext++;
-        const j = bird.bufferIndex[i] * 3;
-        fillPos[j] = x; fillPos[j + 1] = y; fillPos[j + 2] = z;
-      } else {
-        bird.inFill[i] = 0; bird.bufferIndex[i] = mainNext++;
-        const j = bird.bufferIndex[i] * 3;
-        mainPos[j] = x; mainPos[j + 1] = y; mainPos[j + 2] = z;
-      }
+      if (region === 1) { bird.inFill[i] = 1; bird.bufferIndex[i] = fillNext++; }
+      else { bird.inFill[i] = 0; bird.bufferIndex[i] = mainNext++; }
     }
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(mainPos, 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(mainCol, 3));
-    // Soft-disc sprite map (Fix Round 1, Part 1): without a map,
-    // GL points are hard squares, which at phone resolutions read as
-    // giant pixel blocks. The radial glow texture makes each point a
-    // soft disc at any upscale. depthWrite off so a point's
-    // transparent corners cannot clip its neighbours into squares.
-    if (!this.glowTexture) this.glowTexture = this.createGlowTexture();
-    const material = new THREE.PointsMaterial({ size: 0.3, map: this.glowTexture, vertexColors: true, transparent: true, opacity: 1.0, blending: THREE.AdditiveBlending, depthWrite: false });
-    bird.particles = new THREE.Points(geometry, material);
-    bird.particles.frustumCulled = false;
-    bird.particles.renderOrder = 2;
-    const fillGeometry = new THREE.BufferGeometry();
-    fillGeometry.setAttribute('position', new THREE.BufferAttribute(fillPos, 3));
-    fillGeometry.setAttribute('color', new THREE.BufferAttribute(fillCol, 3));
-    const fillMaterial = new THREE.PointsMaterial({ size: 0.34, map: this.glowTexture, vertexColors: true, transparent: true, opacity: 1.0, blending: THREE.AdditiveBlending, depthWrite: false });
-    bird.fillParticles = new THREE.Points(fillGeometry, fillMaterial);
-    bird.fillParticles.frustumCulled = false;
-    bird.fillParticles.renderOrder = 2;
+    // The drawn bird rig: one shared plane geometry (1 by 1.25, the
+    // bird's own aspect) for the main plane, the ash plane, and the
+    // ghost ribbon, textured from the skin's pre-rendered flap
+    // frames and oriented in screen space by the physics render
+    // write. The group carries the planes so the battle visibility
+    // toggle covers the whole rig at once.
+    const frames = getPhoenixFrames(skin);
+    const geo = new THREE.PlaneGeometry(1, 1.25);
+    const makePlane = (renderOrder: number): THREE.Mesh => {
+      const mat = new THREE.MeshBasicMaterial({
+        map: frames.frames[0], transparent: true, opacity: 0.95,
+        depthWrite: false, depthTest: false, side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.renderOrder = renderOrder;
+      mesh.frustumCulled = false;
+      mesh.position.copy(bird.position);
+      return mesh;
+    };
+    bird.sprite = makePlane(3);
+    bird.ashSprite = makePlane(3);
+    bird.ashSprite.visible = false;
+    bird.ghostSprites = [];
+    for (let gi = 0; gi < 8; gi++) {
+      const g = makePlane(2);
+      g.visible = false;
+      bird.ghostSprites.push(g);
+    }
     bird.group = new THREE.Group();
-    bird.group.add(bird.particles);
-    bird.group.add(bird.fillParticles);
+    bird.group.add(bird.ashSprite);
+    for (const g of bird.ghostSprites) bird.group.add(g);
+    bird.group.add(bird.sprite);
     this.scene.add(bird.group);
-
-    // Silhouette core sprite layer (spec Section 2.1, layer 2): a
-    // canvas-drawn phoenix glyph at about 0.85 times wingspan, between
-    // the glow (behind in the spec's layering; round 1 keeps the glow
-    // sprite on top in this build, renderOrder 999) and the particle
-    // body (renderOrder 2). The plane is rotated so its texture up maps
-    // to the bird's local forward (+Z after the history quaternion's
-    // half-turn), its width to the wing axis. The plane is 1 by 1.25,
-    // the bird's own aspect (20 units wide, 25 long), so the glyph is
-    // not compressed head-to-tail against the particle fill that
-    // samples the same outline. Oriented per frame from the head
-    // history quaternion, like the particles.
-    const coreGeo = new THREE.PlaneGeometry(1, 1.25);
-    coreGeo.rotateX(Math.PI / 2);
-    const coreMat = new THREE.MeshBasicMaterial({
-      map: this.glyphTexture(skin), transparent: true, opacity: 0.9,
-      depthWrite: false, depthTest: false, side: THREE.DoubleSide,
-    });
-    bird.core = new THREE.Mesh(coreGeo, coreMat);
-    bird.core.renderOrder = 1;
-    bird.core.frustumCulled = false;
-    bird.core.position.copy(bird.position);
-    this.scene.add(bird.core);
     bird.skinId = skin.id;
     bird.glowSpanFactor = skin.glowSpan;
 
@@ -1466,7 +1268,6 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
         // Hide AI Bird if not in battle mode or not playing
         const isBattle = (this.gameState.currentGameMode() === 'battle' || this.gameState.currentGameMode() === 'ai_vs_ai') && this.gameState.activeScreen() === 'game';
         this.aiBird.group.visible = isBattle;
-        if (this.aiBird.core) this.aiBird.core.visible = isBattle;
         if (this.aiBird.glow) this.aiBird.glow.visible = isBattle;
         let aiTarget3D: THREE.Vector3 | null = null;
         if (isBattle) {
@@ -1508,23 +1309,28 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     });
   }
 
-  // Section 2.2 animation states that the per-frame bird physics does
-  // not own: hit flash, the death sequence (cool to ash), and the
-  // rebirth sequence (implode, flare, reform). Driven entirely by
-  // signals the game state already exposes; no gameplay timing changes.
+  // Section 2.2 animation states that the per-frame bird physics
+  // does not own: hit flash, the death sequence (cool to ash), and
+  // the rebirth sequence (reform, flare). Driven entirely by signals
+  // the game state already exposes; no gameplay timing changes.
   // Runs after the bird physics substeps, before the render.
+  //
+  // Bird Rebuild: the sequences crossfade the drawn sprite to its
+  // ash copy instead of scattering point buffers. Timings are the
+  // shipped ones: an 800 ms death cool, a 0.4 s reform ramp, a
+  // flare window to 0.52 s, then the 450 ms reform flap burst.
   private updatePlayerVisualStates(dt: number, nowMs: number) {
     const bird = this.bird;
-    if (!bird || !bird.particles || !bird.fillParticles) return;
+    if (!bird || !bird.sprite || !bird.ashSprite) return;
     const deadMenu = this.gameState.isDeadMenuOpen();
     const rebirthing = this.gameState.isRebirthing();
     const onGame = this.gameState.activeScreen() === 'game';
 
-    // Death begins: capture the bird exactly as it died.
+    // Death begins: the sequence owns the sprite from here.
     if (deadMenu && !this.prevDeadMenu && onGame && this.visState === 'alive') {
       this.visState = 'dying';
       this.visT0 = nowMs;
-      this.captureBirdBuffers(bird, this.ashStartPos, this.ashStartCol);
+      ensureAshFrames(phoenixSkinById(bird.skinId));
     }
     // Revive (dead menu closes, run continues): rebirth sequence.
     if (!deadMenu && this.prevDeadMenu) {
@@ -1532,12 +1338,10 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
         this.beginRebirth(bird, nowMs, true);
       } else {
         this.visState = 'alive';
-        this.applyBirdColors(bird, phoenixSkinById(bird.skinId));
       }
     }
     // The Rebirth ability's ash state ends: flare and reform.
     if (!rebirthing && this.prevRebirthing && onGame && this.visState === 'alive') {
-      this.captureBirdBuffers(bird, this.ashStartPos, this.ashStartCol);
       this.beginRebirth(bird, nowMs, false);
     }
     this.prevDeadMenu = deadMenu;
@@ -1552,33 +1356,33 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     }
     this.lastImmortalSeen = iu;
 
+    const mainMat = bird.sprite.material as THREE.MeshBasicMaterial;
+    const ashMat = bird.ashSprite.material as THREE.MeshBasicMaterial;
+
     if (this.visState === 'dying' || this.visState === 'dead') {
       const p = Math.min(1, (nowMs - this.visT0) / 800);
-      if (this.visState === 'dying') {
-        const e = p * p;
-        this.writeBirdPoints(bird, (k, j, arr) => {
-          arr[j] = this.ashStartPos[k * 3] + bird.ashVec[k * 3] * e * this.birdScale;
-          arr[j + 1] = this.ashStartPos[k * 3 + 1] - bird.ashVec[k * 3 + 1] * e * this.birdScale * 2.2;
-          arr[j + 2] = this.ashStartPos[k * 3 + 2] + bird.ashVec[k * 3 + 2] * e * this.birdScale;
-        });
-        this.writeBirdColors(bird, (k, j, arr) => {
-          arr[j] = this.ashStartCol[k * 3] + (0.32 - this.ashStartCol[k * 3]) * p;
-          arr[j + 1] = this.ashStartCol[k * 3 + 1] + (0.32 - this.ashStartCol[k * 3 + 1]) * p;
-          arr[j + 2] = this.ashStartCol[k * 3 + 2] + (0.34 - this.ashStartCol[k * 3 + 2]) * p;
-        });
-        if (p >= 1) this.visState = 'dead';
-      }
-      // Core fades out, glow shrinks to an ember (spec 2.2 death).
-      if (bird.core) {
-        const cm = bird.core.material as THREE.MeshBasicMaterial;
-        cm.opacity = 0.9 * (1 - p);
-        bird.core.visible = p < 1;
-      }
+      if (this.visState === 'dying' && p >= 1) this.visState = 'dead';
+      // The living sprite fades as the ash copy takes over, sinking
+      // and shrinking slightly; the glow shrinks to an ember (the
+      // shipped death read). Physics is parked while the death menu
+      // is open, so the ash pose composes from the frozen sprite.
+      const sink = p * 1.3 * this.birdScale;
+      const s = bird.sprite.scale.x * (1 - 0.18 * p);
+      mainMat.opacity = 0.95 * (1 - p);
+      bird.sprite.visible = p < 1;
+      ashMat.opacity = 0.9 * p;
+      bird.ashSprite.visible = p > 0;
+      bird.ashSprite.position.copy(bird.sprite.position);
+      bird.ashSprite.position.y -= sink;
+      bird.ashSprite.rotation.copy(bird.sprite.rotation);
+      bird.ashSprite.scale.set(s, s, s);
+      for (const g of bird.ghostSprites) g.visible = false;
       if (bird.glow) {
         const span = 8 * this.birdScale * bird.glowSpanFactor * (1 - 0.75 * p);
         bird.glow.scale.set(span, span, 1);
         bird.glow.position.copy(bird.position);
         (bird.glow.material as THREE.SpriteMaterial).opacity = 0.5 * (1 - p) + 0.08;
+        bird.glow.visible = true;
       }
       return;
     }
@@ -1586,124 +1390,58 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     if (this.visState === 'rebirth') {
       const t = (nowMs - this.visT0) / 1000;
       if (t < 0.4) {
-        // Implode: rendered points gather from the ash positions into
-        // the live physics positions (which the physics loop just
-        // wrote), colors warming back from ash to the skin.
+        // Reform: the sprite scales and fades back in; from death,
+        // the ash copy dissolves over the same window.
         const e = 1 - Math.pow(1 - t / 0.4, 3);
-        const mainPos = bird.particles.geometry.attributes['position'].array as Float32Array;
-        const fillPos = bird.fillParticles.geometry.attributes['position'].array as Float32Array;
-        for (let k = 0; k < bird.phoenixCount; k++) {
-          const arr = bird.inFill[k] ? fillPos : mainPos;
-          const j = bird.bufferIndex[k] * 3;
-          arr[j] = this.ashStartPos[k * 3] + (arr[j] - this.ashStartPos[k * 3]) * e;
-          arr[j + 1] = this.ashStartPos[k * 3 + 1] + (arr[j + 1] - this.ashStartPos[k * 3 + 1]) * e;
-          arr[j + 2] = this.ashStartPos[k * 3 + 2] + (arr[j + 2] - this.ashStartPos[k * 3 + 2]) * e;
+        this.visScaleMul = 0.55 + 0.45 * e;
+        mainMat.opacity = 0.95 * (0.25 + 0.75 * e);
+        if (this.rebirthFromDeath) {
+          ashMat.opacity = 0.9 * (1 - e);
+          bird.ashSprite.visible = true;
+          bird.ashSprite.position.copy(bird.sprite.position);
+          bird.ashSprite.rotation.copy(bird.sprite.rotation);
+          const s = bird.sprite.scale.x;
+          bird.ashSprite.scale.set(s, s, s);
         }
-        bird.particles.geometry.attributes['position'].needsUpdate = true;
-        bird.fillParticles.geometry.attributes['position'].needsUpdate = true;
-        if (bird.core) (bird.core.material as THREE.MeshBasicMaterial).opacity = 0.9 * e;
-        this.writeBirdColors(bird, (k, j, arr) => {
-          arr[j] = this.ashStartCol[k * 3] + (this.rebirthTargetCol[k * 3] - this.ashStartCol[k * 3]) * e;
-          arr[j + 1] = this.ashStartCol[k * 3 + 1] + (this.rebirthTargetCol[k * 3 + 1] - this.ashStartCol[k * 3 + 1]) * e;
-          arr[j + 2] = this.ashStartCol[k * 3 + 2] + (this.rebirthTargetCol[k * 3 + 2] - this.ashStartCol[k * 3 + 2]) * e;
-        });
+        if (bird.glow) (bird.glow.material as THREE.SpriteMaterial).opacity = 0.5 * e;
       } else if (t < 0.52) {
-        // Flare: one bright frame window, glow at 2 times wingspan.
+        // Flare: one bright window, glow at 2 times wingspan.
+        this.visScaleMul = 1;
         if (bird.glow) {
           const span = 8 * this.birdScale * 2.0;
           bird.glow.scale.set(span, span, 1);
           (bird.glow.material as THREE.SpriteMaterial).opacity = 0.85;
         }
-        if (bird.core) (bird.core.material as THREE.MeshBasicMaterial).opacity = 1.0;
-        const pm = bird.particles.material as THREE.PointsMaterial;
-        pm.color.setRGB(1.7, 1.7, 1.7);
-        const fm = bird.fillParticles.material as THREE.PointsMaterial;
-        fm.color.setRGB(1.7, 1.7, 1.7);
+        mainMat.opacity = 0.95;
+        mainMat.color.setRGB(1.7, 1.7, 1.7);
+        if (this.rebirthFromDeath) bird.ashSprite.visible = false;
       } else {
         this.visState = 'alive';
+        this.visScaleMul = 1;
+        this.rebirthFromDeath = false;
         bird.reformUntil = nowMs + 450; // reform with a flap burst
-        this.applyBirdColors(bird, phoenixSkinById(bird.skinId));
-        if (bird.core) (bird.core.material as THREE.MeshBasicMaterial).opacity = 0.9;
+        mainMat.color.copy(bird.renderTint);
       }
+      return;
     }
 
-    // Hit flash overlay (80 ms): core sprite and inner fill flash white.
+    // Hit flash overlay (80 ms): the sprite flashes white-hot; the
+    // physics render write restores the base tint next substep, and
+    // this pass restores it on frames physics does not run.
     if (nowMs < bird.flashUntil && this.visState === 'alive') {
-      if (bird.core) {
-        const cm = bird.core.material as THREE.MeshBasicMaterial;
-        cm.color.setRGB(2.2, 2.2, 2.2);
-      }
-      const fm = bird.fillParticles.material as THREE.PointsMaterial;
-      fm.color.setRGB(1.9, 1.9, 1.9);
-    } else {
-      if (bird.core) {
-        const cm = bird.core.material as THREE.MeshBasicMaterial;
-        if (cm.color.r !== 1 || cm.color.g !== 1 || cm.color.b !== 1) cm.color.setRGB(1, 1, 1);
-      }
-      const fm = bird.fillParticles.material as THREE.PointsMaterial;
-      const pm = bird.particles.material as THREE.PointsMaterial;
-      if (fm.color.r !== pm.color.r || fm.color.g !== pm.color.g || fm.color.b !== pm.color.b) {
-        fm.color.copy(pm.color);
-      }
+      mainMat.color.setRGB(2.2, 2.2, 2.2);
+    } else if (mainMat.color.r !== bird.renderTint.r || mainMat.color.g !== bird.renderTint.g || mainMat.color.b !== bird.renderTint.b) {
+      mainMat.color.copy(bird.renderTint);
     }
   }
 
   private beginRebirth(bird: PhoenixState, nowMs: number, fromDeath: boolean) {
     this.visState = 'rebirth';
     this.visT0 = nowMs;
-    if (fromDeath) {
-      // Colors start from the cooled ash the death sequence left.
-      this.captureBirdColors(bird, this.ashStartCol);
-    }
-    const skin = phoenixSkinById(bird.skinId);
-    for (let k = 0; k < bird.phoenixCount; k++) {
-      const c = this.colorForPoint(bird, skin, k);
-      this.rebirthTargetCol[k * 3] = c[0];
-      this.rebirthTargetCol[k * 3 + 1] = c[1];
-      this.rebirthTargetCol[k * 3 + 2] = c[2];
-    }
-    if (bird.core) bird.core.visible = true;
-  }
-
-  private captureBirdBuffers(bird: PhoenixState, posOut: Float32Array, colOut: Float32Array) {
-    const mainPos = bird.particles.geometry.attributes['position'].array as Float32Array;
-    const fillPos = bird.fillParticles!.geometry.attributes['position'].array as Float32Array;
-    for (let k = 0; k < bird.phoenixCount; k++) {
-      const arr = bird.inFill[k] ? fillPos : mainPos;
-      const j = bird.bufferIndex[k] * 3;
-      posOut[k * 3] = arr[j]; posOut[k * 3 + 1] = arr[j + 1]; posOut[k * 3 + 2] = arr[j + 2];
-    }
-    this.captureBirdColors(bird, colOut);
-  }
-
-  private captureBirdColors(bird: PhoenixState, colOut: Float32Array) {
-    const mainCol = bird.particles.geometry.attributes['color'].array as Float32Array;
-    const fillCol = bird.fillParticles!.geometry.attributes['color'].array as Float32Array;
-    for (let k = 0; k < bird.phoenixCount; k++) {
-      const arr = bird.inFill[k] ? fillCol : mainCol;
-      const j = bird.bufferIndex[k] * 3;
-      colOut[k * 3] = arr[j]; colOut[k * 3 + 1] = arr[j + 1]; colOut[k * 3 + 2] = arr[j + 2];
-    }
-  }
-
-  private writeBirdPoints(bird: PhoenixState, fn: (k: number, j: number, arr: Float32Array) => void) {
-    const mainPos = bird.particles.geometry.attributes['position'].array as Float32Array;
-    const fillPos = bird.fillParticles!.geometry.attributes['position'].array as Float32Array;
-    for (let k = 0; k < bird.phoenixCount; k++) {
-      fn(k, bird.bufferIndex[k] * 3, bird.inFill[k] ? fillPos : mainPos);
-    }
-    bird.particles.geometry.attributes['position'].needsUpdate = true;
-    bird.fillParticles!.geometry.attributes['position'].needsUpdate = true;
-  }
-
-  private writeBirdColors(bird: PhoenixState, fn: (k: number, j: number, arr: Float32Array) => void) {
-    const mainCol = bird.particles.geometry.attributes['color'].array as Float32Array;
-    const fillCol = bird.fillParticles!.geometry.attributes['color'].array as Float32Array;
-    for (let k = 0; k < bird.phoenixCount; k++) {
-      fn(k, bird.bufferIndex[k] * 3, bird.inFill[k] ? fillCol : mainCol);
-    }
-    bird.particles.geometry.attributes['color'].needsUpdate = true;
-    bird.fillParticles!.geometry.attributes['color'].needsUpdate = true;
+    this.rebirthFromDeath = fromDeath;
+    this.visScaleMul = 0.55;
+    ensureAshFrames(phoenixSkinById(bird.skinId));
+    if (bird.sprite) bird.sprite.visible = true;
   }
 
   public wasGameScreen = false;
