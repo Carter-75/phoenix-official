@@ -48,20 +48,56 @@ import { FormsModule } from '@angular/forms';
             <input [(ngModel)]="email" type="email" placeholder="Email Address" class="w-full p-4 bg-black/40 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none focus:border-orange-500/50 transition">
             <input [(ngModel)]="password" type="password" placeholder="Password" class="w-full p-4 bg-black/40 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none focus:border-orange-500/50 transition">
           }
-          
+
           @if (mode() === 'set-username') {
             <p class="text-white/60 text-center mb-4">You successfully authenticated! Now pick a unique username for the leaderboard.</p>
             <input [(ngModel)]="username" type="text" placeholder="Username" class="w-full p-4 bg-black/40 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none focus:border-orange-500/50 transition">
           }
+
+          <!-- Agreement (Fix Round 1, Part 5): consent lives only in
+               this sign-up flow. Creating an account (email
+               auto-register or the username step after Google) is
+               blocked until the box is ticked; the tick is recorded
+               through the existing accept-policies endpoint when the
+               account is created. Signing in to an existing account
+               does not require it. -->
+          @if (mode() === 'email' || !agreedToPolicies()) {
+            <label class="flex items-start gap-3 p-4 bg-black/40 border border-white/10 rounded-xl cursor-pointer text-left">
+              <input type="checkbox" [checked]="agreedToPolicies()" (change)="agreedToPolicies.set($any($event.target).checked)" class="mt-1 w-5 h-5 shrink-0 accent-orange-500">
+              <span class="text-sm text-white/70 leading-relaxed">
+                I agree to the
+                <button type="button" (click)="$event.preventDefault(); showLegal('tos')" class="text-orange-300 underline underline-offset-2 font-bold">Terms of Service</button>,
+                <button type="button" (click)="$event.preventDefault(); showLegal('privacy')" class="text-orange-300 underline underline-offset-2 font-bold">Privacy Policy</button>, and
+                <button type="button" (click)="$event.preventDefault(); showLegal('refunds')" class="text-orange-300 underline underline-offset-2 font-bold">Refund Policy</button>
+                <span class="text-white/40"> (required to create an account)</span>
+              </span>
+            </label>
+          }
           
-          <button (click)="submit()" 
+          <button (click)="submit()"
                   class="w-full mt-4 p-4 bg-gradient-to-r from-orange-500 to-red-600 text-white rounded-xl font-bold hover:brightness-110 active:scale-95 transition-all shadow-lg shadow-orange-500/20 disabled:opacity-50 disabled:grayscale">
             {{ mode() === 'email' ? 'Continue' : 'Complete Signup' }}
           </button>
-          
+
 
         </div>
       </div>
+
+      <!-- Legal Document Reader (opened from the agreement links) -->
+      @if (activeLegalDoc) {
+          <div class="fixed inset-0 bg-black/95 flex flex-col items-center justify-center z-[600] px-4 backdrop-blur-md">
+             <div class="w-full max-w-2xl bg-zinc-900 border border-orange-500/40 rounded-3xl p-8 flex flex-col max-h-[80vh]">
+                 <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-white">{{ getLegalTitle() }}</h2>
+                    <button (click)="activeLegalDoc = null" class="text-white/50 hover:text-white text-3xl font-black">&times;</button>
+                 </div>
+                 <div class="overflow-y-auto text-white/80 text-sm md:text-base space-y-4 pr-4 leading-relaxed">
+                    {{ getLegalContent() }}
+                 </div>
+                 <button (click)="activeLegalDoc = null" class="mt-8 w-full py-4 bg-orange-600/20 border border-orange-500 hover:bg-orange-600/40 rounded-xl font-bold text-orange-200 transition text-xl">Understood</button>
+             </div>
+          </div>
+      }
     </div>
   `
 })
@@ -75,11 +111,43 @@ export class LoginComponent implements OnInit {
   // NG0100 in dev builds and wedges the view on the email form, making
   // the username step unreachable (playtest round 2, objective 4).
   mode = signal<'email' | 'set-username'>('email');
-  
+
+  // Agreement state for the sign-up flow (Fix Round 1, Part 5).
+  agreedToPolicies = signal(false);
+  activeLegalDoc: 'tos' | 'privacy' | 'refunds' | null = null;
+
   email = '';
   password = '';
   username = '';
   error = signal('');
+
+  showLegal(doc: 'tos' | 'privacy' | 'refunds') {
+      this.activeLegalDoc = doc;
+  }
+
+  getLegalTitle(): string {
+      if (this.activeLegalDoc === 'tos') return 'Terms of Service';
+      if (this.activeLegalDoc === 'privacy') return 'Privacy Policy';
+      return 'Refund Policy';
+  }
+
+  getLegalContent(): string {
+      if (this.activeLegalDoc === 'tos') {
+          return "By accessing or using Phoenix Fall, you agree to these Terms of Service. Do not cheat, hack, exploit bugs, interfere with the service, or use unauthorized third-party software to gain an unfair advantage. Virtual currency, items, upgrades, and other virtual content have no cash value and cannot be exchanged for money. We may suspend or close an account that seriously or repeatedly violates these terms, subject to applicable law. The game is provided as available, without warranties beyond those required by law.";
+      }
+      if (this.activeLegalDoc === 'privacy') {
+          return "If you create an account, we store your email address, username, a password hash or Google account identifier, gameplay progress, virtual currency balances, purchase entitlements, and leaderboard statistics. Guest progress is stored on your device unless you sign in. We do not sell personal data. We use account and gameplay data to operate, secure, sync, and support the game. Google AdMob may collect device and advertising identifiers and ad interaction data to provide and measure ads. Google Play processes purchases and payments. You can delete your account and associated server data from your profile. Contact hello@phoenixwebsites.ai with privacy questions.";
+      }
+      return "In-app purchases are processed by Google Play. Refund requests are handled under Google Play policies and applicable consumer law. Virtual currency and items have no cash value and cannot be exchanged for money. The Monthly Crate Pass renews through Google Play until cancelled in Google Play settings; cancelling stops future renewals. Contact Google Play for payment and refund support.";
+  }
+
+  // Record the sign-up consent on the account (the same
+  // accept-policies endpoint the old entry gate used) and flip the
+  // local flag so the guest save carries it too.
+  private recordConsent() {
+      this.gameState.acceptedLegalPolicies.set(true);
+      this.authService.acceptPolicies().subscribe({ error: () => {} });
+  }
 
   ngOnInit() {
       const urlParams = new URLSearchParams(window.location.search);
@@ -111,6 +179,11 @@ export class LoginComponent implements OnInit {
                 if (user.isTemp) {
                     this.mode.set('set-username');
                 } else {
+                    // A ticked agreement on a plain sign-in is recorded
+                    // too (keeps accounts created before the consent
+                    // step existed current); unticked sign-ins proceed
+                    // untouched.
+                    if (this.agreedToPolicies()) this.recordConsent();
                     // Final sweep (playtest round 2 product gap):
                     // an existing-account email login used to skip
                     // the guest migration every other path runs
@@ -126,12 +199,18 @@ export class LoginComponent implements OnInit {
             },
             error: (err) => {
                 if (err.error?.message === 'USER_NOT_FOUND') {
-                    // Auto-register
+                    // Auto-register is account creation: the agreement
+                    // must be ticked first (Fix Round 1, Part 5).
+                    if (!this.agreedToPolicies()) {
+                        this.error.set('To create your account, please tick the agreement to the Terms of Service, Privacy Policy, and Refund Policy first.');
+                        return;
+                    }
                     this.authService.register({ email: this.email, username: this.email.split('@')[0], password: this.password }).subscribe({
                         next: async (newUser: User) => {
                             if (newUser.isTemp) {
                                 this.mode.set('set-username');
                             } else {
+                                this.recordConsent();
                                 await this.gameState.migrateGuestData();
                                 this.gameState.syncWithUser(newUser);
                                 this.goBack();
@@ -147,8 +226,16 @@ export class LoginComponent implements OnInit {
             }
         });
     } else if (this.mode() === 'set-username') {
+        // Completing the username step completes account creation
+        // (email pending signups and Google sign-ups land here), so
+        // the agreement must be ticked before it runs.
+        if (!this.agreedToPolicies()) {
+            this.error.set('To finish creating your account, please tick the agreement to the Terms of Service, Privacy Policy, and Refund Policy first.');
+            return;
+        }
         this.authService.completeSignup(this.username).subscribe({
             next: async (user) => {
+                this.recordConsent();
                 await this.gameState.migrateGuestData();
                 this.gameState.syncWithUser(user);
                 this.goBack();
