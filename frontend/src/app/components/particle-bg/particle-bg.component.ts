@@ -244,6 +244,24 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
           setScrollFrozen: (v: boolean) => { this.scrollFrozen = !!v; },
           backdropImage: () => (this.backdropTex?.image as HTMLCanvasElement | undefined)?.toDataURL() ?? null,
           wallImage: () => this.wallCanvas?.toDataURL() ?? null,
+          // Flight lore proofs (Oct 28, 2026): the player bird's
+          // live orientation and flight state, read from the bird
+          // record itself. headingDeg is the sprite heading in
+          // screen terms (90 = straight up-screen).
+          birdState: () => {
+            const b = this.bird;
+            let deg = (b.headingAngle * 180 / Math.PI) % 360;
+            if (deg < 0) deg += 360;
+            return {
+              headingDeg: Math.round(deg * 10) / 10,
+              flapTime: Math.round(b.flapTime * 1000) / 1000,
+              hovering: b.hovering,
+              bankDeg: Math.round(b.currentBank * 180 / Math.PI * 10) / 10,
+              speedWorld: Math.round(b.velocity.length() * 100) / 100,
+              ashMix: Math.round(b.renderAshMix * 100) / 100,
+              downPhase: this.gameState.playerDownPhase(),
+            };
+          },
         };
       }
     } catch { /* storage unavailable: no hook, no effect on play */ }
@@ -1373,8 +1391,13 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
         // tile spans one visible height by construction). The
         // phase holds still on the menu and while paused.
         if (this.scrollEnabled && this.backdropTex) {
+          // The down state freezes the world (flight lore death
+          // flow): the scroll phase holds from the moment the bird
+          // starts falling until the revive blast lands, not only
+          // while the KO panel is open.
           const inRun = this.gameState.activeScreen() === 'game'
-            && !this.gameState.isPaused() && !this.gameState.isDeadMenuOpen();
+            && !this.gameState.isPaused() && !this.gameState.isDeadMenuOpen()
+            && this.gameState.playerDownPhase() === 'none';
           this.scrollRateNow = this.scrollScreenRate();
           if (inRun && !this.scrollFrozen) this.scrollScreens += this.scrollRateNow * dt;
           const visFrac = (2 * this.boundY * (49 / 20)) / 130;

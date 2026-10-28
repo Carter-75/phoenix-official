@@ -74,7 +74,41 @@ export class BirdPhysics {
   constructor(private host: BirdPhysicsHost) {}
 
 updateBirdPhysics(bird: PhoenixState, targetWaypoint: THREE.Vector3, baseSpeed: number, dt: number, frameScale: number, isAi: boolean) {
+      // Flight lore death flow (Oct 28, 2026): while the player bird
+      // is in the 'falling' down phase, the world is frozen and only
+      // the bird animates. It loses lift: lateral velocity bleeds
+      // away, gravity pulls it down-screen with a terminal speed, its
+      // wings slow to a weak flutter, and the ash mix ramps in (the
+      // wounded look). Steering, stamina verbs, and the movement kit
+      // are all skipped; the shared tail below (screen position,
+      // heading, history, sprite render) still runs, so the fall is
+      // drawn and phoenixScreenPos tracks it for the game component,
+      // which opens the KO panel only once the bird has fully left
+      // the screen.
+      const falling = !isAi && this.host.gameState.playerDownPhase() === 'falling';
+      if (falling) {
+          const terminal = baseSpeed * 2.1;
+          bird.velocity.x *= Math.exp(-2.4 * dt);
+          bird.velocity.y -= baseSpeed * 3.4 * dt;
+          if (bird.velocity.y < -terminal) bird.velocity.y = -terminal;
+          bird.velocity.z = 0;
+          bird.position.add(bird.velocity.clone().multiplyScalar(dt));
+          bird.position.z = -15;
+          bird.hovering = false;
+          bird.flapRate = 0.3;
+          bird.renderAshMix = Math.min(0.85, bird.renderAshMix + dt * 1.3);
+          bird.renderTint.setRGB(1, 1, 1);
+          bird.renderOpacity = 1.0;
+      }
+
+      // The tail of this method (screen position, heading, flap,
+      // sprite render) sits inside this gate, so the gate must stay
+      // open during the down state's fall: steering alone is
+      // suppressed while falling (the fall branch above owns the
+      // motion then), while pause and the death menu keep the
+      // shipped full freeze of the whole method.
       if (!this.host.gameState.isPaused() && !this.host.gameState.isDeadMenuOpen()) {
+      if (!falling) {
 
           if (!this.host.wasGameScreen && this.host.gameState.activeScreen() === 'game') {
               bird.position.copy(targetWaypoint);
@@ -378,6 +412,7 @@ updateBirdPhysics(bird: PhoenixState, targetWaypoint: THREE.Vector3, baseSpeed: 
               }
           }
         }
+      }
 
         // Output screen coords for syncing to physics engine
         const screenPos = bird.position.clone();
@@ -393,8 +428,14 @@ updateBirdPhysics(bird: PhoenixState, targetWaypoint: THREE.Vector3, baseSpeed: 
 
         // Heading and bank for the sprite (screen space: the drawn
         // bird's up is its heading). The heading turns smoothly
-        // toward the velocity direction and holds when parked, so a
-        // parked bird keeps facing its last direction of travel.
+        // toward the velocity direction while the bird is moving.
+        // Flight lore (Oct 28, 2026): the phoenix only flies up, so
+        // when it is parked (hovering at its target, pointer released
+        // or still) the heading settles back to straight up-screen
+        // and the bird glides there nose-up, even if it parked while
+        // banked from a hard sideways dodge. Banking stays a tilt
+        // away from the up heading while moving; there is no
+        // sustained sideways-facing pose.
         const velLen = bird.velocity.length();
         if (velLen > 0.6) {
             const targetAngle = Math.atan2(bird.velocity.y, bird.velocity.x);
@@ -402,6 +443,11 @@ updateBirdPhysics(bird: PhoenixState, targetWaypoint: THREE.Vector3, baseSpeed: 
             while (dA > Math.PI) dA -= Math.PI * 2;
             while (dA < -Math.PI) dA += Math.PI * 2;
             bird.headingAngle += dA * (1 - Math.pow(0.92, frameScale));
+        } else if (bird.hovering && this.host.gameState.playerDownPhase() === 'none') {
+            let dA = Math.PI / 2 - bird.headingAngle;
+            while (dA > Math.PI) dA -= Math.PI * 2;
+            while (dA < -Math.PI) dA += Math.PI * 2;
+            bird.headingAngle += dA * (1 - Math.pow(0.955, frameScale));
         }
         const headingVec = new THREE.Vector3(Math.cos(bird.headingAngle), Math.sin(bird.headingAngle), 0);
         const rightVec = new THREE.Vector3(headingVec.y, -headingVec.x, 0);

@@ -248,6 +248,19 @@ export class GameStateService {
   // S2: Meteor Rush state (mirrors isDrilling; visual flash reads it).
   public isMeteorRushing = signal<boolean>(false);
   public isDeadMenuOpen = signal<boolean>(false);
+  // Flight lore death flow (Oct 28, 2026): the player's down state
+  // in campaign and Endless. 'none' is normal play. On lethal damage
+  // (after the Rebirth and Phoenix Feather auto-revives decline) the
+  // run enters 'falling': the world is frozen and only the bird
+  // falls. When the bird has fully left the screen the phase becomes
+  // 'ko' and the KO panel opens (isDeadMenuOpen follows it). A chosen
+  // revive runs 'return' (the bird flies back up to mid-screen while
+  // the world stays frozen) and then 'blast' (the revive shockwave),
+  // after which the phase returns to 'none' and control resumes.
+  // The run itself only ends when the player taps Give Up. Runtime
+  // only: nothing here is persisted. Battle keeps its own defeat
+  // behavior and never sets this.
+  public playerDownPhase = signal<'none' | 'falling' | 'ko' | 'return' | 'blast'>('none');
   public activeEntities = signal<PhysicsEntity[]>([]);
 
   // AI vs AI Scoreboard
