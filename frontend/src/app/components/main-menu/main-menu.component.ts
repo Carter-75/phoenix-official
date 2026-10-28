@@ -117,10 +117,7 @@ import { AdsService } from '../../services/ads.service';
     </div>
 
     <div class="fixed inset-0 w-full h-[200vh] transition-transform duration-500 ease-in-out"
-         [style.transform]="activeMenuMode === 'campaign' ? 'translateY(0)' : 'translateY(-50%)'"
-         (touchstart)="onTouchStart($event)"
-         (touchend)="onTouchEnd($event)"
-         (wheel)="onWheel($event)">
+         [style.transform]="activeMenuMode === 'campaign' ? 'translateY(0)' : 'translateY(-50%)'">
          
       <!-- Campaign Screen (top 100vh) -->
       <div class="menu-screen w-full h-[100vh] relative flex flex-col items-center justify-center text-white pointer-events-none">
@@ -148,10 +145,11 @@ import { AdsService } from '../../services/ads.service';
             <button (click)="nextWorld()" class="text-white/50 hover:text-white transition text-2xl hover:translate-x-1">&rarr;</button>
           </div>
           
-          <!-- Mode Toggle (mode trio): the campaign screen plays the
-               selected realm in Normal (the campaign run) or Endless
-               (per-world escalating survival). Battle lives on its
-               own screen below, as before. -->
+          <!-- Mode Toggle (mode trio): ONE segmented control for
+               all three modes (Fix Round 1, Part 2: Battle is a
+               toggle segment like the others, not a swipe). Normal
+               and Endless play the selected realm from this screen;
+               Battle switches to the Battle screen below. -->
           <div class="flex items-center gap-2 mt-3 bg-black/40 backdrop-blur-md px-2 py-1.5 rounded-full border border-white/10">
             <button (click)="campaignPlayMode.set('campaign')"
                     class="px-4 py-1 rounded-full text-xs font-black tracking-widest uppercase transition"
@@ -162,6 +160,10 @@ import { AdsService } from '../../services/ads.service';
                     class="px-4 py-1 rounded-full text-xs font-black tracking-widest uppercase transition"
                     [ngClass]="campaignPlayMode() === 'endless' ? 'bg-cyan-500/80 text-white' : 'text-white/50 hover:text-white'">
               Endless
+            </button>
+            <button (click)="activeMenuMode = 'battle'"
+                    class="px-4 py-1 rounded-full text-xs font-black tracking-widest uppercase transition text-white/50 hover:text-white">
+              Battle
             </button>
           </div>
 
@@ -178,19 +180,10 @@ import { AdsService } from '../../services/ads.service';
           </button>
         </div>
 
-        <button (click)="activeMenuMode = 'battle'" class="menu-mode-toggle absolute bottom-24 animate-bounce pointer-events-auto text-white/50 hover:text-white transition group flex flex-col items-center z-10">
-           <span class="text-xs uppercase tracking-widest font-bold mb-1 group-hover:text-red-400 transition-colors">Battle Mode</span>
-           <span class="text-2xl group-hover:text-red-400 transition-colors">v</span>
-        </button>
       </div>
       
       <!-- Battle Screen (bottom 100vh) -->
       <div class="menu-screen w-full h-[100vh] relative flex flex-col items-center justify-center text-white pointer-events-none">
-         <button (click)="activeMenuMode = 'campaign'" class="absolute top-6 animate-bounce pointer-events-auto text-white/50 hover:text-white transition group flex flex-col items-center z-10">
-             <span class="text-2xl group-hover:text-orange-400 transition-colors">^</span>
-             <span class="text-xs uppercase tracking-widest font-bold mt-1 group-hover:text-orange-400 transition-colors">Campaign</span>
-         </button>
-
          <!-- Center Content for Battle Mode -->
          <div class="menu-center flex flex-col items-center gap-4 pointer-events-auto transform mt-24 md:-translate-y-8 md:mt-0">
           <h1 class="menu-title text-6xl md:text-9xl font-black tracking-tighter bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(255,0,0,0.5)] transition-all duration-500 bg-gradient-to-b text-center from-red-500 to-red-900">
@@ -213,6 +206,24 @@ import { AdsService } from '../../services/ads.service';
             <button (click)="nextBattleWorld()" class="text-red-500/50 hover:text-red-400 transition text-2xl hover:translate-x-1">&rarr;</button>
           </div>
           
+          <!-- Mode Toggle (same segmented control as the campaign
+               screen): Battle is the active segment here; Normal and
+               Endless switch back to the campaign screen with that
+               play mode selected. -->
+          <div class="flex items-center gap-2 mt-3 bg-black/40 backdrop-blur-md px-2 py-1.5 rounded-full border border-red-500/20">
+            <button (click)="campaignPlayMode.set('campaign'); activeMenuMode = 'campaign'"
+                    class="px-4 py-1 rounded-full text-xs font-black tracking-widest uppercase transition text-white/50 hover:text-white">
+              Normal
+            </button>
+            <button (click)="campaignPlayMode.set('endless'); activeMenuMode = 'campaign'"
+                    class="px-4 py-1 rounded-full text-xs font-black tracking-widest uppercase transition text-white/50 hover:text-white">
+              Endless
+            </button>
+            <button class="px-4 py-1 rounded-full text-xs font-black tracking-widest uppercase transition bg-red-500/80 text-white">
+              Battle
+            </button>
+          </div>
+
           <!-- Play Button -->
           <button (mousedown)="startBattleHold()" (mouseup)="endBattleHold()" (mouseleave)="endBattleHold()"
                   (touchstart)="startBattleHold()" (touchend)="endBattleHold()" (touchcancel)="endBattleHold()"
@@ -276,39 +287,13 @@ export class MainMenuComponent {
     return m === 'endless' ? 'campaign' : m;
   })();
   
-  private touchStartY = 0;
   private battleHoldTimer: any;
   private holdFired = false;
 
-  onTouchStart(event: TouchEvent) {
-    if (event.touches.length > 0) {
-      this.touchStartY = event.touches[0].clientY;
-    }
-  }
-
-  onTouchEnd(event: TouchEvent) {
-    if (event.changedTouches.length > 0) {
-      const touchEndY = event.changedTouches[0].clientY;
-      const diffY = this.touchStartY - touchEndY;
-      
-      // Swipe Up -> Battle Mode
-      if (diffY > 50 && this.activeMenuMode === 'campaign') {
-        this.activeMenuMode = 'battle';
-      }
-      // Swipe Down -> Campaign Mode
-      else if (diffY < -50 && this.activeMenuMode === 'battle') {
-        this.activeMenuMode = 'campaign';
-      }
-    }
-  }
-
-  onWheel(event: WheelEvent) {
-    if (event.deltaY > 50 && this.activeMenuMode === 'campaign') {
-      this.activeMenuMode = 'battle';
-    } else if (event.deltaY < -50 && this.activeMenuMode === 'battle') {
-      this.activeMenuMode = 'campaign';
-    }
-  }
+  // Mode switching is toggle-only (Fix Round 1, Part 2): the old
+  // swipe-up / swipe-down and mouse-wheel screen switching was
+  // removed; the segmented Normal / Endless / Battle control on
+  // both screens is the only way between them.
 
   nextWorld() {
     let idx = this.campaignWorldIndex() + 1;
