@@ -119,30 +119,34 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
            collided at phone widths and hid the level line behind
            the buttons. -->
       <div class="absolute bottom-0 inset-x-0 px-4 pb-4 flex flex-col gap-2 pointer-events-none">
-        <!-- HP row: bar, readout, level badge on one line. -->
-        <div class="flex items-center gap-3 pointer-events-auto">
-          @if (gameState.currentGameMode() === 'ai_vs_ai') {
-              <span class="text-white font-bold tracking-widest uppercase drop-shadow-md text-xs shrink-0">AI Phoenix</span>
-          }
-          <div class="flex-1 h-3.5 bg-black/50 border border-white/15 rounded-full overflow-hidden">
-             <div class="h-full bg-gradient-to-r from-red-600 to-orange-500 transition-all duration-300"
-                  [style.width]="(currentHealth() / maxHealth()) * 100 + '%'"></div>
+        <!-- HP row: bar, readout, and level badge form ONE cluster
+             that is positioned as a group, centered in the row so
+             its margins to the two screen edges are roughly equal
+             and no element is pinned to either edge. (Carter,
+             Oct 28: the earlier shortening only cut the flex-1 bar
+             in place and left the readout and badge right-anchored,
+             splitting the cluster across the row with a hole in the
+             middle. The bar keeps its shortened length here, about
+             38 percent of the screen width; only the placement
+             changed.) -->
+        <div class="flex items-center justify-center pointer-events-auto">
+          <div class="flex items-center gap-3">
+            @if (gameState.currentGameMode() === 'ai_vs_ai') {
+                <span class="text-white font-bold tracking-widest uppercase drop-shadow-md text-xs shrink-0">AI Phoenix</span>
+            }
+            <div class="h-3.5 bg-black/50 border border-white/15 rounded-full overflow-hidden shrink-0" style="width: 38vw">
+               <div class="h-full bg-gradient-to-r from-red-600 to-orange-500 transition-all duration-300"
+                    [style.width]="(currentHealth() / maxHealth()) * 100 + '%'"></div>
+            </div>
+            <span class="text-red-300 font-bold text-sm shrink-0">{{ currentHealth() }} / {{ maxHealth() }}</span>
+            <!-- Account level in the HUD (S6 level audit), a badge
+                 inside the HP cluster where it can never be covered.
+                 The max HP beside it already includes the level bonus
+                 in campaign. -->
+            @if (gameState.currentGameMode() === 'campaign' || gameState.currentGameMode() === 'endless') {
+              <span class="shrink-0 px-2 py-0.5 rounded-full bg-orange-500/15 border border-orange-500/40 text-orange-300 font-black text-[11px] tracking-widest">LV {{ gameState.level() }}</span>
+            }
           </div>
-          <!-- Bar length (Carter, Oct 28): the flex-1 bar spanned
-               nearly the whole row and crowded the rail. This
-               spacer takes a 0.64 share of the row's free space
-               against the bar's flex-1, leaving the bar at about
-               57 percent of its old span at any width, while the
-               readout and the LV badge stay right-anchored exactly
-               as before. -->
-          <div aria-hidden="true" class="pointer-events-none" style="flex: 0.64 1 0"></div>
-          <span class="text-red-300 font-bold text-sm shrink-0">{{ currentHealth() }} / {{ maxHealth() }}</span>
-          <!-- Account level in the HUD (S6 level audit), now a badge
-               on the HP row where it can never be covered. The max HP
-               beside it already includes the level bonus in campaign. -->
-          @if (gameState.currentGameMode() === 'campaign' || gameState.currentGameMode() === 'endless') {
-            <span class="shrink-0 px-2 py-0.5 rounded-full bg-orange-500/15 border border-orange-500/40 text-orange-300 font-black text-[11px] tracking-widest">LV {{ gameState.level() }}</span>
-          }
         </div>
         <!-- Status and abilities row: stamina and gadget status on
              the left, the four ability slots on the right. -->
