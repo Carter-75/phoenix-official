@@ -946,10 +946,64 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     return tex;
   }
 
+  // DIAGNOSTIC BUILD (temporary, revert after diagnosis): send one
+  // entry to the startup diagnostics panel installed by index.html.
+  // Diagnostics must never break the game, so every call is guarded.
+  private diagPush(section: string, text: string) {
+    try {
+      const w = window as any;
+      if (typeof w.__phoenixDiagPush === 'function') w.__phoenixDiagPush(section, text);
+    } catch { /* diagnostics only */ }
+  }
+
+  private diagFirstFrame = false;
+
+  // DIAGNOSTIC BUILD (temporary): after the first rendered frame,
+  // report the shader program status the renderer exposes.
+  private reportProgramDiagnostics() {
+    try {
+      const programs = (this.renderer.info as any)?.programs as Array<any> | undefined;
+      if (!programs || programs.length === 0) {
+        this.diagPush('SHADER STATUS', 'renderer.info.programs empty or unavailable after first frame');
+        return;
+      }
+      const lines: string[] = [programs.length + ' program(s) compiled after first frame'];
+      programs.forEach((p, i) => {
+        const d = p?.diagnostics;
+        if (d) {
+          lines.push('program ' + i + ': runnable=' + d.runnable +
+            (d.programLog ? ' programLog=' + String(d.programLog).slice(0, 300) : ''));
+        } else {
+          lines.push('program ' + i + ': no diagnostics exposed by this three.js build');
+        }
+      });
+      this.diagPush('SHADER STATUS', lines.join('\n'));
+    } catch (e) {
+      this.diagPush('SHADER STATUS', 'report threw: ' + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+
   private initThree() {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvasRef.nativeElement, alpha: true, antialias: true });
+    // DIAGNOSTIC BUILD (temporary): report the renderer creation
+    // result verbatim for the startup diagnostics panel. Behavior is
+    // unchanged: a creation failure still throws and aborts init,
+    // exactly as the shipped build behaves.
+    try {
+      this.renderer = new THREE.WebGLRenderer({ canvas: this.canvasRef.nativeElement, alpha: true, antialias: true });
+    } catch (e) {
+      this.diagPush('THREE RENDERER', 'CREATION FAILED: ' +
+        (e instanceof Error
+          ? e.message + '\n' + String(e.stack || '').split('\n').slice(1, 4).join('\n')
+          : String(e)));
+      throw e;
+    }
+    this.renderer.debug.checkShaderErrors = true;
+    try {
+      const gl = this.renderer.getContext();
+      this.diagPush('THREE RENDERER', 'created OK; getContextAttributes=' + JSON.stringify(gl.getContextAttributes()));
+    } catch { /* diagnostics only */ }
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.camera.position.z = 5;
@@ -1480,7 +1534,16 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
         this.entitySync.syncEntities();
 
         this.renderer.render(this.scene, this.camera);
-        
+
+        // DIAGNOSTIC BUILD (temporary): mark the first rendered
+        // frame for the startup diagnostics panel and report the
+        // shader program status once.
+        if (!this.diagFirstFrame) {
+          this.diagFirstFrame = true;
+          try { (window as any).__phoenixFirstFrame = true; } catch { /* diagnostics only */ }
+          this.reportProgramDiagnostics();
+        }
+
         this.wasGameScreen = this.gameState.activeScreen() === 'game';
         this.animationId = requestAnimationFrame(render);
       };

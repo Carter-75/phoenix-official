@@ -5,6 +5,150 @@
   <title>Phoenix-Fall</title>
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <!-- DIAGNOSTIC BUILD (temporary, revert after diagnosis): startup
+       diagnostics. This inline script runs before the app bundle. It
+       captures window errors and unhandled rejections, probes WebGL
+       on its own throwaway canvas, and renders a plain DOM panel
+       (independent of Angular) so a device screenshot shows exactly
+       what failed at startup. The game pushes its own renderer and
+       shader results in through window.__phoenixDiagPush. -->
+  <script>
+    (function () {
+      var t0 = Date.now();
+      var entries = [];
+      var complete = false;
+      window.__phoenixDiag = entries;
+      function ts() { return ((Date.now() - t0) / 1000).toFixed(2) + 's'; }
+      function push(section, text) {
+        if (entries.length > 400) return;
+        var line = '[' + ts() + '] ' + section + ': ' + String(text);
+        entries.push(line);
+        try { console.log('[PHOENIX-DIAG] ' + line); } catch (e) { /* ignore */ }
+        render();
+      }
+      window.__phoenixDiagPush = push;
+      window.onerror = function (msg, src, line, col, err) {
+        push('WINDOW ERROR', String(msg) + ' @ ' + String(src) + ':' + line + ':' + col +
+          (err && err.stack ? '\n' + String(err.stack).split('\n').slice(0, 4).join('\n') : ''));
+        return false;
+      };
+      window.addEventListener('unhandledrejection', function (ev) {
+        var r = ev.reason;
+        push('UNHANDLED REJECTION', (r && r.message ? String(r.message) : String(r)) +
+          (r && r.stack ? '\n' + String(r.stack).split('\n').slice(0, 4).join('\n') : ''));
+      });
+      var origError = console.error.bind(console);
+      console.error = function () {
+        try {
+          push('CONSOLE ERROR', Array.prototype.map.call(arguments, function (a) {
+            return a && a.stack ? String(a.message || a) : String(a);
+          }).join(' ').slice(0, 800));
+        } catch (e) { /* ignore */ }
+        return origError.apply(null, arguments);
+      };
+      var origWarn = console.warn.bind(console);
+      console.warn = function () {
+        try {
+          push('CONSOLE WARN', Array.prototype.map.call(arguments, function (a) {
+            return String(a);
+          }).join(' ').slice(0, 400));
+        } catch (e) { /* ignore */ }
+        return origWarn.apply(null, arguments);
+      };
+
+      push('ENV', 'userAgent=' + navigator.userAgent);
+      push('ENV', 'devicePixelRatio=' + window.devicePixelRatio +
+        ' screen=' + screen.width + 'x' + screen.height +
+        ' inner=' + window.innerWidth + 'x' + window.innerHeight +
+        ' hardwareConcurrency=' + (navigator.hardwareConcurrency || 'n/a'));
+
+      // WebGL probe on a throwaway canvas, with the same context
+      // attributes the game requests, released immediately after so
+      // it does not consume the game's context budget.
+      function probe(kind) {
+        var canvas = document.createElement('canvas');
+        var gl = null;
+        try {
+          gl = canvas.getContext(kind, { alpha: true, antialias: true });
+        } catch (e) {
+          push('WEBGL PROBE ' + kind, 'getContext THREW: ' + (e && e.message ? e.message : String(e)));
+          return;
+        }
+        if (!gl) {
+          push('WEBGL PROBE ' + kind, 'getContext returned NULL');
+          return;
+        }
+        try {
+          var lines = ['context obtained'];
+          lines.push('VERSION=' + gl.getParameter(gl.VERSION));
+          lines.push('SHADING_LANGUAGE_VERSION=' + gl.getParameter(gl.SHADING_LANGUAGE_VERSION));
+          lines.push('VENDOR=' + gl.getParameter(gl.VENDOR));
+          lines.push('RENDERER=' + gl.getParameter(gl.RENDERER));
+          var dbg = gl.getExtension('WEBGL_debug_renderer_info');
+          if (dbg) {
+            lines.push('UNMASKED_VENDOR=' + gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL));
+            lines.push('UNMASKED_RENDERER=' + gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL));
+          } else {
+            lines.push('WEBGL_debug_renderer_info not available');
+          }
+          lines.push('MAX_TEXTURE_SIZE=' + gl.getParameter(gl.MAX_TEXTURE_SIZE));
+          lines.push('getError after creation=' + gl.getError());
+          push('WEBGL PROBE ' + kind, lines.join('\n'));
+        } catch (e) {
+          push('WEBGL PROBE ' + kind, 'parameter read THREW: ' + (e && e.message ? e.message : String(e)));
+        }
+        try {
+          var lose = gl.getExtension('WEBGL_lose_context');
+          if (lose) lose.loseContext();
+        } catch (e) { /* ignore */ }
+      }
+      probe('webgl2');
+      probe('webgl');
+
+      var panel = null;
+      var pre = null;
+      function ensurePanel() {
+        if (panel || !document.body) return;
+        panel = document.createElement('div');
+        panel.id = 'phoenix-diag-panel';
+        panel.setAttribute('style', 'position:fixed;top:0;left:0;right:0;max-height:62%;overflow-y:auto;z-index:2147483647;background:#000000;color:#7cfc00;font:13px/1.45 monospace;padding:10px;border-bottom:3px solid #7cfc00;white-space:pre-wrap;word-break:break-word;');
+        var title = document.createElement('div');
+        title.textContent = 'Phoenix Fall startup diagnostics';
+        title.setAttribute('style', 'font-size:17px;font-weight:bold;color:#ffffff;margin-bottom:6px;');
+        pre = document.createElement('div');
+        panel.appendChild(title);
+        panel.appendChild(pre);
+        document.body.appendChild(panel);
+      }
+      function tfText() {
+        return window.__phoenixTfBackend !== undefined
+          ? String(window.__phoenixTfBackend)
+          : 'not initialized yet';
+      }
+      function render() {
+        ensurePanel();
+        if (!pre) return;
+        pre.textContent = entries.join('\n') +
+          '\nTF BACKEND (live): ' + tfText() +
+          (complete ? '\nPANEL COMPLETE' : '');
+      }
+      document.addEventListener('DOMContentLoaded', render);
+      setInterval(function () {
+        render();
+        if (!complete && (window.__phoenixFirstFrame || Date.now() - t0 > 10000)) {
+          complete = true;
+          push('STATUS', window.__phoenixFirstFrame
+            ? 'app rendered its first frame'
+            : 'no first frame within 10 seconds');
+          push('TF BACKEND', tfText());
+          try {
+            console.log('[PHOENIX-DIAG] ===== FULL REPORT =====\n' + entries.join('\n') + '\nPANEL COMPLETE');
+          } catch (e) { /* ignore */ }
+          render();
+        }
+      }, 500);
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
@@ -21,7 +165,7 @@
       }
     })();
   </script>
-  
+
 </head>
 <body class="bg-slate-50">
   <app-root></app-root>
