@@ -334,46 +334,61 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
       <div class="absolute inset-0 bg-red-600 transition-opacity duration-300 pointer-events-none"
            [style.opacity]="damageFlash() ? 0.3 : 0"></div>
 
-      <!-- Death / Tombstone Screen -->
-      @if (isDead()) {
+      <!-- Death / KO Screen. Campaign and Endless open this only
+           after the downed bird has fallen off the screen
+           (koPanelOpen); Battle and the annihilation phase keep
+           their immediate defeat panels. -->
+      @if (isDead() && (gameState.currentGameMode() === 'battle' || annihilationModeActive() || koPanelOpen())) {
         <div class="absolute inset-0 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto z-50 px-6">
-          <div class="w-28 h-36 bg-zinc-900 border-2 border-zinc-700 rounded-t-full flex flex-col items-center justify-center mb-6 shadow-[0_0_50px_rgba(0,0,0,1)]">
-            <span class="text-5xl text-zinc-500">✝</span>
-            <span class="text-zinc-500 mt-2 font-mono text-sm">R.I.P</span>
-          </div>
-
-          <h2 class="text-5xl font-black text-red-500 mb-2 drop-shadow-lg tracking-wide">YOU DIED</h2>
           @if (!annihilationModeActive() && gameState.currentGameMode() !== 'battle') {
-              <p class="text-white text-xl font-bold mb-8">Revive in: <span class="text-orange-400 font-mono">{{ reviveCountdown() }}s</span></p>
-              
+          <h2 class="text-5xl font-black text-red-500 mb-2 drop-shadow-lg tracking-wide">KNOCKED OUT</h2>
+          <p class="text-white/80 text-lg font-semibold mb-8 text-center max-w-md">Your phoenix is down. It only truly dies if you give up.</p>
+
               <div class="flex flex-col gap-4 w-full max-w-sm">
                 <button (click)="reviveWithGems()"
-                        [disabled]="gameState.gems() < getReviveCost()"
-                        [class.opacity-50]="gameState.gems() < getReviveCost()"
-                        [class.cursor-not-allowed]="gameState.gems() < getReviveCost()"
+                        [disabled]="adReviveInFlight || gameState.gems() < getReviveCost()"
+                        [class.opacity-50]="adReviveInFlight || gameState.gems() < getReviveCost()"
+                        [class.cursor-not-allowed]="adReviveInFlight || gameState.gems() < getReviveCost()"
                         class="w-full py-4 bg-gradient-to-r from-orange-500 to-red-600 hover:brightness-110 border border-orange-400/50 rounded-2xl flex justify-center items-center gap-3 transition shadow-lg shadow-orange-900/40">
                   <span class="text-white font-bold text-xl">Instant Revive</span>
                   <img src="assets/gem_icon.png" class="w-6 h-6"/>
                   <span class="text-white font-bold text-xl">{{ getReviveCost() }}</span>
                 </button>
                 @if (adRevivesUsed < maxAdRevivesPerRun) {
-                <button (click)="reviveWithAd()" class="w-full mt-2 py-4 bg-white/5 hover:bg-white/10 border border-white/25 rounded-2xl flex justify-center items-center gap-3 transition">
+                <button (click)="reviveWithAd()" [disabled]="adReviveInFlight" [class.opacity-50]="adReviveInFlight" class="w-full mt-2 py-4 bg-white/5 hover:bg-white/10 border border-white/25 rounded-2xl flex justify-center items-center gap-3 transition">
                   <span class="text-white font-bold text-xl">Watch Ad to Revive</span>
+                  <span class="text-white/60 font-semibold text-base">({{ maxAdRevivesPerRun - adRevivesUsed }} left)</span>
                   <span class="text-2xl">📺</span>
                 </button>
                 }
                 @if (gameState.reviveTokens() > 0) {
-                <button (click)="reviveWithToken()" class="w-full mt-2 py-4 bg-white/5 hover:bg-white/10 border border-orange-500/40 rounded-2xl flex justify-center items-center gap-3 transition">
+                <button (click)="reviveWithToken()" [disabled]="adReviveInFlight" [class.opacity-50]="adReviveInFlight" class="w-full mt-2 py-4 bg-white/5 hover:bg-white/10 border border-orange-500/40 rounded-2xl flex justify-center items-center gap-3 transition">
                   <span class="text-white font-bold text-xl">Use Revive Token</span>
                   <span class="text-white font-bold text-xl">({{ gameState.reviveTokens() }})</span>
                   <span class="text-2xl">🪶</span>
                 </button>
                 }
-                <button (click)="quitGame()" class="w-full mt-4 py-4 bg-transparent hover:bg-white/5 border border-transparent rounded-2xl text-red-300/70 hover:text-red-300 font-semibold transition">
+                @if (gameState.currentStats().activeHoldAbility === 'rebirth' && holdCooldown() > 0) {
+                <div class="w-full mt-2 py-3 bg-white/5 border border-white/10 rounded-2xl flex justify-center items-center gap-3 opacity-60">
+                  <span class="text-white font-semibold text-base">Rebirth recharging</span>
+                  <span class="text-orange-300 font-mono font-bold">{{ holdCooldown() }}s</span>
+                </div>
+                }
+                @if (gameState.currentStats().activeGadget === 'phoenix_feather' && featherUsedThisRun) {
+                <div class="w-full mt-2 py-3 bg-white/5 border border-white/10 rounded-2xl flex justify-center items-center gap-3 opacity-60">
+                  <span class="text-white font-semibold text-base">Phoenix Feather Charm spent</span>
+                </div>
+                }
+                <button (click)="giveUpFromKo()" [disabled]="adReviveInFlight" [class.opacity-50]="adReviveInFlight" class="w-full mt-4 py-4 bg-transparent hover:bg-white/5 border border-transparent rounded-2xl text-red-300/70 hover:text-red-300 font-semibold transition">
                   Give Up
                 </button>
               </div>
           } @else if (gameState.currentGameMode() === 'battle') {
+          <div class="w-28 h-36 bg-zinc-900 border-2 border-zinc-700 rounded-t-full flex flex-col items-center justify-center mb-6 shadow-[0_0_50px_rgba(0,0,0,1)]">
+            <span class="text-5xl text-zinc-500">✝</span>
+            <span class="text-zinc-500 mt-2 font-mono text-sm">R.I.P</span>
+          </div>
+          <h2 class="text-5xl font-black text-red-500 mb-2 drop-shadow-lg tracking-wide">YOU DIED</h2>
               <p class="text-red-500 text-xl font-bold mb-8 uppercase text-center max-w-md">The AI Phoenix emerges victorious.</p>
               <div class="flex flex-col gap-4 w-full max-w-sm">
                 <button (click)="quitGame()" class="w-full mt-4 py-4 bg-red-950/60 hover:bg-red-900/50 border border-red-500/40 rounded-2xl text-white font-bold transition">
@@ -381,6 +396,11 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
                 </button>
               </div>
           } @else {
+          <div class="w-28 h-36 bg-zinc-900 border-2 border-zinc-700 rounded-t-full flex flex-col items-center justify-center mb-6 shadow-[0_0_50px_rgba(0,0,0,1)]">
+            <span class="text-5xl text-zinc-500">✝</span>
+            <span class="text-zinc-500 mt-2 font-mono text-sm">R.I.P</span>
+          </div>
+          <h2 class="text-5xl font-black text-red-500 mb-2 drop-shadow-lg tracking-wide">YOU DIED</h2>
               <p class="text-red-500 text-xl font-bold mb-8 uppercase text-center max-w-md">Your flames have been permanently extinguished.</p>
               <div class="flex flex-col gap-4 w-full max-w-sm">
                 <button (click)="quitGame()" class="w-full mt-4 py-4 bg-red-950/60 hover:bg-red-900/50 border border-red-500/40 rounded-2xl text-white font-bold transition">
@@ -389,6 +409,20 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
               </div>
           }
         </div>
+      }
+
+      <!-- Revive blast ring: an expanding shockwave drawn over the
+           frozen world at the moment the returned phoenix lands its
+           revive blast. Sized to the blast's minimum clear distance
+           (diameter), scaled and faded by reviveBlastFx.progress. -->
+      @if (reviveBlastFx(); as fx) {
+        <div class="absolute rounded-full pointer-events-none z-40"
+             [style.left.px]="fx.x" [style.top.px]="fx.y"
+             [style.width.px]="blastDiameterPx()" [style.height.px]="blastDiameterPx()"
+             [style.transform]="'translate(-50%, -50%) scale(' + (0.08 + 0.92 * fx.progress) + ')'"
+             [style.opacity]="0.95 * (1 - fx.progress)"
+             [style.border]="'5px solid rgba(255, 120, 30, 0.95)'"
+             [style.box-shadow]="'0 0 60px 18px rgba(255, 77, 0, 0.45), inset 0 0 60px 18px rgba(255, 77, 0, 0.35)'"></div>
       }
 
       <!-- End Game Screen -->
@@ -686,14 +720,41 @@ export class GameComponent implements OnInit, OnDestroy {
   // monthly crates open from the shop's subscription card.
 
 
-  // Revive UI
-  public reviveCountdown = signal<number>(10);
+  // Revive UI and the flight lore death flow (Oct 28, 2026).
+  // Campaign and Endless deaths enter the down state (see
+  // gameState.playerDownPhase): the bird falls, then the KO panel
+  // opens with no countdown. The run ends only when the player taps
+  // Give Up. Battle keeps its own defeat panel and never uses these.
+  public koPanelOpen = signal<boolean>(false);
 
-  private reviveInterval: any;
+  // Polls the bird's screen position through the down phases: opens
+  // the KO panel once the falling bird has fully left the screen,
+  // and fires the revive blast once the returning bird reaches
+  // mid-screen. One owner, created on entering the down state and
+  // cleared when the run resumes or ends.
+  private downWatchInterval: any = null;
+  private downPhaseStartedAt = 0;
+  private pendingReviveHp = 0;
 
-  // True while a revive rewarded ad is on screen. The revive countdown
-  // is paused for the whole flight of the ad (playtest round 1, Bug 4).
-  private adReviveInFlight = false;
+  // The revive blast (balance-latitude values, recorded in
+  // LORE-REVIVE.md; there was no blast before this package): the
+  // damage packet is this many seconds of the player's current
+  // auto-fire DPS, and regular enemies are knocked out to at least
+  // this fraction of the logical unit from the bird (elites get
+  // half the knockback distance). The boss takes the packet under
+  // the ultimate per-cast cap and is never displaced.
+  public readonly REVIVE_BLAST_DPS_SECONDS = 5;
+  public readonly REVIVE_BLAST_MIN_DIST_LU = 0.55;
+
+  // The blast ring visual: center and expansion progress (0 to 1),
+  // driven by an interval in fireReviveBlast so no CSS keyframes are
+  // needed. Null when no blast is showing.
+  public reviveBlastFx = signal<{ x: number, y: number, progress: number } | null>(null);
+
+  // True while a revive rewarded ad is on screen (playtest round 1,
+  // Bug 4 lineage): the KO panel's other actions stay inert for the
+  // whole flight of the ad. Public because the KO template binds it.
+  public adReviveInFlight = false;
 
 
   // Abilities
@@ -784,7 +845,7 @@ export class GameComponent implements OnInit, OnDestroy {
   // S3 gadget state (spec Section 5.3): run-local, reset every run.
   // The Feather Charm fires at most once per run; the Aegis Charm's
   // one charge is armed at run start when the gadget is equipped.
-  private featherUsedThisRun = false;
+  public featherUsedThisRun = false;
   public aegisShieldActive = signal<boolean>(false);
 
   // S5 Overcharge state (spec Section 5.4): run-local, set by the
@@ -913,6 +974,11 @@ export class GameComponent implements OnInit, OnDestroy {
     this.bossShieldHealth.set(0);
     this.inBossDefeatSequence.set(false);
     this.gameState.isDeadMenuOpen.set(false);
+    // Down state starts clean on every run init (runtime only).
+    this.stopDownWatcher();
+    this.koPanelOpen.set(false);
+    this.gameState.playerDownPhase.set('none');
+    this.reviveBlastFx.set(null);
     
     let hp = this.gameState.currentStats().maxHealth;
     // Level HP bonus (systems spec Section 6.2 ruling, adopted in
@@ -3952,18 +4018,196 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   }
 
 
-  private startReviveCountdown() {
-      if (this.reviveInterval) clearInterval(this.reviveInterval);
-      this.reviveInterval = setInterval(() => {
-          // Paused while a revive ad is showing: the tick does nothing,
-          // so the countdown can never expire mid-ad (Bug 4).
-          if (this.adReviveInFlight) return;
-          this.reviveCountdown.update(c => c - 1);
-          if (this.reviveCountdown() <= 0) {
-              clearInterval(this.reviveInterval);
-              this.quitGame();
+  // The player's current auto-fire output: damage per shot times
+  // shots per second (the attack loop fires every 1000 /
+  // attackSpeed ms). The revive blast packet is defined in seconds
+  // of this output, so it scales with the player's build.
+  public autoFireDps(): number {
+      const stats = this.gameState.currentStats();
+      return stats.damage * stats.attackSpeed;
+  }
+
+  public blastDiameterPx(): number {
+      return 2 * this.REVIVE_BLAST_MIN_DIST_LU * this.logicalUnit;
+  }
+
+  // Enter the down state (campaign and Endless only; Battle and the
+  // annihilation phase never reach here). The world freezes: physics
+  // was already stopped by the caller, isDead holds the game loop,
+  // the spawner, and auto-fire still, and playerDownPhase freezes
+  // the scroll and switches the bird to its falling branch. Any hold
+  // charge in progress is cleared so no phantom cast can fire from
+  // the grave. Nothing is recorded yet: the run is not over.
+  private enterDownState() {
+      this.holdTimer = 0;
+      this.holdChargeProgress.set(0);
+      this.holdStill.release();
+      this.gameState.phoenixOverridePosition.set(null);
+      this.gameState.playerDownPhase.set('falling');
+      this.downPhaseStartedAt = Date.now();
+      this.startDownWatcher();
+  }
+
+  // One watcher for the whole down sequence. Falling: when the
+  // bird's screen position passes fully below the viewport (sprite
+  // half-height plus margin), the KO panel opens. Return: when the
+  // bird reaches mid-screen (or a generous timeout passes, so a
+  // wedged bird can never soft-lock the run), the revive blast
+  // fires. The watcher clears itself when the phase leaves the
+  // down family.
+  private startDownWatcher() {
+      if (this.downWatchInterval) return;
+      this.downWatchInterval = setInterval(() => {
+          const phase = this.gameState.playerDownPhase();
+          if (phase === 'falling') {
+              const pos = this.gameState.phoenixScreenPos();
+              const exitMargin = Math.max(120, window.innerHeight * 0.16);
+              if (pos.y > window.innerHeight + exitMargin) {
+                  this.gameState.playerDownPhase.set('ko');
+                  this.koPanelOpen.set(true);
+                  this.gameState.isDeadMenuOpen.set(true);
+                  this.downPhaseStartedAt = Date.now();
+              }
+          } else if (phase === 'return') {
+              const pos = this.gameState.phoenixScreenPos();
+              const dx = pos.x - window.innerWidth / 2;
+              const dy = pos.y - window.innerHeight / 2;
+              const arrived = Math.hypot(dx, dy) < 30;
+              const timedOut = Date.now() - this.downPhaseStartedAt > 5000;
+              if (arrived || timedOut) {
+                  this.fireReviveBlast();
+              }
+          } else if (phase === 'none') {
+              this.stopDownWatcher();
           }
-      }, 1000);
+      }, 40);
+  }
+
+  private stopDownWatcher() {
+      if (this.downWatchInterval) {
+          clearInterval(this.downWatchInterval);
+          this.downWatchInterval = null;
+      }
+  }
+
+  // Give Up on the KO panel: the only action that truly ends a
+  // campaign or Endless run. quitGame records the run (Endless
+  // records here, at the real end, not at the knockdown) and
+  // returns to the menu exactly as before.
+  public giveUpFromKo() {
+      if (this.adReviveInFlight) return;
+      this.stopDownWatcher();
+      this.koPanelOpen.set(false);
+      this.gameState.playerDownPhase.set('none');
+      this.quitGame();
+  }
+
+  // The shared revive sequence for every revive source (token,
+  // gems, watch-ad): the KO panel closes, the world stays frozen,
+  // and the bird re-enters from below the screen, steered by the
+  // normal flight override to mid-screen. The watcher fires the
+  // blast on arrival. HP is restored per the source's rule at the
+  // blast moment (all three sources restore full HP today, matching
+  // the old executeRevival; the Rebirth and Feather auto-revives
+  // keep their own 50 percent rules upstream and never come here).
+  private beginReviveReturn(hpToRestore: number) {
+      this.pendingReviveHp = hpToRestore;
+      this.koPanelOpen.set(false);
+      this.gameState.isDeadMenuOpen.set(false);
+      this.gameState.playerDownPhase.set('return');
+      this.downPhaseStartedAt = Date.now();
+      this.gameState.phoenixOverridePosition.set({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+      this.startDownWatcher();
+  }
+
+  // The revive blast: an expanding shockwave at the bird's position.
+  // Every on-screen regular enemy takes the packet (REVIVE_BLAST_
+  // DPS_SECONDS of current auto-fire DPS) and is knocked radially
+  // outward so none remains closer than the minimum clear distance
+  // (elites: half the knockback distance, full damage). The boss
+  // takes the packet through the ultimate per-cast cap (25 percent
+  // of current boss HP) and is never displaced. Positions clamp at
+  // the screen bounds so nothing is pushed through a wall or lost.
+  private fireReviveBlast() {
+      this.gameState.playerDownPhase.set('blast');
+      const center = { ...this.gameState.phoenixScreenPos() };
+      const stats = this.gameState.currentStats();
+      const packet = this.REVIVE_BLAST_DPS_SECONDS * stats.damage * stats.attackSpeed;
+      const minDist = this.REVIVE_BLAST_MIN_DIST_LU * this.logicalUnit;
+      const castId = this.registerUltCast('player');
+
+      for (const enemy of [...this.enemies]) {
+          const data = enemy.plugin['data'] as EnemyData;
+          if (!data) continue;
+          if (data.type === 'boss') {
+              this.damageEnemy(enemy, packet, center, castId);
+              continue;
+          }
+          const pos = enemy.position;
+          const onScreen = pos.x >= -80 && pos.x <= window.innerWidth + 80
+              && pos.y >= -80 && pos.y <= window.innerHeight + 80;
+          if (!onScreen) continue;
+          this.damageEnemy(enemy, packet, center, castId);
+          // Knockback applies to survivors only (damageEnemy may
+          // have killed and spliced the body out of the field).
+          if (data.health <= 0 || !this.enemies.includes(enemy)) continue;
+          const dx = pos.x - center.x;
+          const dy = pos.y - center.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist < minDist) {
+              const target = data.elite ? dist + (minDist - dist) / 2 : minDist;
+              const ux = dist > 1 ? dx / dist : 0;
+              const uy = dist > 1 ? dy / dist : -1;
+              const nx = Math.max(10, Math.min(window.innerWidth - 10, center.x + ux * target));
+              const ny = Math.max(-70, Math.min(window.innerHeight - 10, center.y + uy * target));
+              Matter.Body.setPosition(enemy, { x: nx, y: ny });
+              Matter.Body.setVelocity(enemy, { x: 0, y: 0 });
+          }
+      }
+
+      this.triggerImpactEffect(center.x, center.y, true);
+      this.audioService.playSFX('explosion');
+      // The ring visual: progress driven here, bound by the template.
+      const fxStart = Date.now();
+      this.reviveBlastFx.set({ x: center.x, y: center.y, progress: 0 });
+      const fxInterval = setInterval(() => {
+          const p = (Date.now() - fxStart) / 650;
+          if (p >= 1) {
+              clearInterval(fxInterval);
+              this.reviveBlastFx.set(null);
+          } else {
+              this.reviveBlastFx.set({ x: center.x, y: center.y, progress: p });
+          }
+      }, 33);
+
+      this.completeReviveReturn();
+  }
+
+  // After the blast: restore HP per the revive source's rule, grant
+  // the standard post-revive invulnerability window (the same 5 s
+  // the old executeRevival granted, plus its 2.5 s speed boost),
+  // unfreeze the world, and hand control back.
+  private completeReviveReturn() {
+      this.currentHealth.set(this.pendingReviveHp);
+      this.gameState.immortalUntil = Date.now() + 5000;
+      this.gameState.speedBoostUntil = Date.now() + 2500;
+      this.gameState.phoenixOverridePosition.set(null);
+      this.rageModeActive.set(false); // Reset rage mode on revive
+      this.killScreenTimer.set(10); // Reset timer just in case
+      this.gameState.playerDownPhase.set('none');
+      this.isDead.set(false);
+      this.stopDownWatcher();
+      if (this.engine) this.startPhysics(); // Unfreeze physics
+      if (this.bossSpawned()) {
+          // Boss fight continues: reset timer so rage mode doesn't trigger instantly
+          this.timeRemaining.set(this.totalTimeSignal());
+          // Restart the intense BGM if it ended
+          if (this.audioService.onIntenseBgmEnded() || this.audioService.getBgmDuration() === 0) {
+              this.audioService.playIntenseBgm(this.gameState.selectedWorldIndex());
+          } else {
+              this.audioService.resumeCurrentBgm();
+          }
+      }
   }
 
 
@@ -3973,32 +4217,37 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
 
   public reviveWithGems() {
+    if (!this.koPanelOpen()) return;
     const cost = this.getReviveCost();
-    if (this.gameState.gems() >= cost) { 
-        this.gameState.gems.update(g => g - cost); 
+    if (this.gameState.gems() >= cost) {
+        this.gameState.gems.update(g => g - cost);
         this.reviveCount++;
-        this.executeRevival(); 
+        this.beginReviveReturn(this.maxHealth());
     }
   }
 
 
   public reviveWithToken() {
+    if (!this.koPanelOpen()) return;
     if (this.gameState.reviveTokens() <= 0) return;
     this.gameState.reviveTokens.update(t => t - 1);
     this.reviveCount++;
     this.gameState.syncProgressToServer();
-    this.executeRevival();
+    this.beginReviveReturn(this.maxHealth());
   }
 
 
   public async reviveWithAd() {
+    if (!this.koPanelOpen()) return;
     if (this.adRevivesUsed >= this.maxAdRevivesPerRun) return;
     if (this.adReviveInFlight) return;
-    // Pause the countdown for the whole flight of the ad: clear the
-    // interval AND raise the in-flight flag, so no countdown path can
-    // end the run while the ad is on screen (playtest round 1, Bug 4).
+    // The ad revive is an extra revive unit on the KO panel. The
+    // in-flight flag holds the panel's other actions inert for the
+    // whole flight of the ad (playtest round 1, Bug 4 lineage), and
+    // the server-verified grant rules are unchanged (SSV kinds and
+    // the per-run cap of 2 live in the ads service and the cap
+    // check above).
     this.adReviveInFlight = true;
-    if (this.reviveInterval) clearInterval(this.reviveInterval);
 
     let rewarded = false;
     try {
@@ -4007,44 +4256,19 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
         this.adReviveInFlight = false;
     }
 
-    // If the run ended while the ad played (for example the player gave
-    // up from the death screen underneath a web simulated ad), do not
+    // If the run ended while the ad played (for example the player
+    // gave up from a state where that was still possible), do not
     // resurrect into a run that no longer exists.
-    if (!this.isDead() || this.gameState.activeScreen() !== 'game') return;
+    if (!this.isDead() || this.gameState.activeScreen() !== 'game'
+        || this.gameState.playerDownPhase() !== 'ko') return;
 
     if (rewarded) {
         this.adRevivesUsed++;
         this.reviveCount++;
-        this.executeRevival();
-    } else {
-        // Ad skipped or failed: resume the countdown from where it paused
-        this.startReviveCountdown();
+        this.beginReviveReturn(this.maxHealth());
     }
-  }
-
-
-  private executeRevival() {
-    clearInterval(this.reviveInterval);
-    this.isDead.set(false);
-    this.gameState.isDeadMenuOpen.set(false);
-    this.gameState.immortalUntil = Date.now() + 5000;
-    this.gameState.speedBoostUntil = Date.now() + 2500;
-    this.currentHealth.set(this.maxHealth());
-    this.gameState.phoenixOverridePosition.set(null);
-    this.clearEnemies();
-    this.rageModeActive.set(false); // Reset rage mode on revive
-    this.killScreenTimer.set(10); // Reset timer just in case
-    if (this.engine) this.startPhysics(); // Unfreeze physics
-    if (this.bossSpawned()) {
-        // Boss fight continues: reset timer so rage mode doesn't trigger instantly
-        this.timeRemaining.set(this.totalTimeSignal());
-        // Restart the intense BGM if it ended
-        if (this.audioService.onIntenseBgmEnded() || this.audioService.getBgmDuration() === 0) {
-            this.audioService.playIntenseBgm(this.gameState.selectedWorldIndex());
-        } else {
-            this.audioService.resumeCurrentBgm();
-        }
-    }
+    // Ad skipped or failed: the player stays on the KO panel. There
+    // is no countdown to resume; the down state simply continues.
   }
 
 
@@ -4464,15 +4688,17 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
 
   private triggerDeathSequence() {
-    // Never run two death sequences at once: a second countdown interval
-    // would orphan the first, and the orphan would end the run from
-    // under the player (playtest round 1, Bug 4 root cause chain).
+    // Never run two death sequences at once.
     if (this.isDead()) return;
     this.isDead.set(true);
-    this.gameState.isDeadMenuOpen.set(true);
-    this.gameState.phoenixOverridePosition.set({ x: window.innerWidth / 2, y: window.innerHeight + 200 });
-    
+
     if (this.gameState.currentGameMode() === 'battle') {
+        // Battle keeps its shipped defeat behavior: the result is
+        // recorded at the defeat, the panel opens immediately, and
+        // Accept Fate ends the match. The down state, the fall, and
+        // the revive blast are campaign and Endless only.
+        this.gameState.isDeadMenuOpen.set(true);
+        this.gameState.phoenixOverridePosition.set({ x: window.innerWidth / 2, y: window.innerHeight + 200 });
         this.gameState.coins.update(c => c + this.battleCoinsCollected());
         // Mode trio: the same result lands in the world's Battle
         // record (the globals above keep feeding the global board).
@@ -4483,31 +4709,29 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
             battleBestTime: this.battleTimer(),
             battleBestCoins: this.currentBattleCoinsGained()
         });
-    } else if (this.gameState.currentGameMode() === 'endless') {
-        // Mode trio: death is the Endless run's scoring moment
-        // (quit records again with the same bests if the player
-        // revives and improves; the runs counter moves once).
-        this.gameState.recordEndlessRun(this.gameState.selectedWorldIndex(),
-            this.gameState.sessionPlayTime(), this.totalSessionKills(), !this.endlessRunCounted);
-        this.endlessRunCounted = true;
-        this.gameState.syncProgressToServer();
-    } else {
-        this.gameState.syncProgressToServer();
+        this.stopPhysics();
+        return;
     }
 
     this.stopPhysics();
 
-    // Disable revive if player dies in Annihilation Phase
+    // Disable revive if player dies in Annihilation Phase: the
+    // flames are extinguished, the panel shows at once, and the run
+    // force-ends on its existing timer. No down state, no revives.
     if (this.annihilationModeActive()) {
+        this.gameState.isDeadMenuOpen.set(true);
+        this.gameState.phoenixOverridePosition.set({ x: window.innerWidth / 2, y: window.innerHeight + 200 });
         setTimeout(() => this.quitGame(), 3000);
         return;
     }
 
-    // Revive mechanic logic: the countdown has exactly one owner,
-    // startReviveCountdown, which always clears any previous interval
-    // before creating its own.
-    this.reviveCountdown.set(10);
-    this.startReviveCountdown();
+    // Campaign and Endless (flight lore death flow): lethal damage
+    // is a knockdown, not a run end. The bird falls, the KO panel
+    // opens after it leaves the screen, and the run is recorded
+    // only when the player gives up (quitGame) or later ends for
+    // real. Endless therefore records at the true end now, not at
+    // the knockdown; a revived run keeps accumulating.
+    this.enterDownState();
   }
 
   
@@ -4661,7 +4885,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
     if (this.timerInterval) clearInterval(this.timerInterval);
     this.spawner.stopSpawning();
     if (this.attackInterval) clearInterval(this.attackInterval);
-    if (this.reviveInterval) clearInterval(this.reviveInterval);
+    this.stopDownWatcher();
     if ((this as any).aiAbilityInterval) clearInterval((this as any).aiAbilityInterval);
     if ((this as any).infiniteBurnInterval) clearInterval((this as any).infiniteBurnInterval);
     
@@ -4691,9 +4915,12 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
 
   public quitGame() {
-      // The revive countdown dies with the run: it must never fire into
-      // the menu or into a later run (playtest round 1, Bug 4 chain).
-      if (this.reviveInterval) clearInterval(this.reviveInterval);
+      // The down state dies with the run: its watcher must never
+      // fire into the menu or into a later run.
+      this.stopDownWatcher();
+      this.koPanelOpen.set(false);
+      this.gameState.playerDownPhase.set('none');
+      this.reviveBlastFx.set(null);
       this.adReviveInFlight = false;
       this.finishRunForAds();
       if (this.gameState.currentGameMode() === 'battle') {
