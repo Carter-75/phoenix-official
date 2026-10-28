@@ -1,0 +1,149 @@
+name: Cloud device test
+
+# Runs Firebase Test Lab Robo tests on a virtual device for every
+# Android build (Carter's standing rule, Oct 27, 2026: every build
+# gets a cloud device test and the results are checked before a build
+# is called ready). Leg 1 crawls the normal debug APK as a boot and
+# menu gate. Leg 2 crawls the dedicated cloudtest build, whose
+# build-time scenario (frontend/src/app/cloudtest/) auto-plays a
+# World 1 boss fight with an invincible player, so the crawl covers
+# real gameplay. The normal build never contains an active scenario:
+# android-build.yml does not use the cloudtest configuration.
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Android build"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+  actions: read
+
+env:
+  GCP_PROJECT: phoenix-fall-testing
+  WIF_PROVIDER: projects/396962735048/locations/global/workloadIdentityPools/github-actions/providers/github
+  TEST_LAB_SA: firebase-test-lab-runner@phoenix-fall-testing.iam.gserviceaccount.com
+
+jobs:
+  cloud-test:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out the repo at the built commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Resolve the Android build run to test
+        id: buildrun
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            RUN_ID="${{ github.event.workflow_run.id }}"
+          else
+            RUN_ID=$(gh api "repos/${{ github.repository }}/actions/workflows/android-build.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].id')
+          fi
+          echo "Android build run: $RUN_ID"
+          echo "id=$RUN_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Download the normal debug APK from that build
+        uses: actions/download-artifact@v4
+        with:
+          name: app-debug-apk
+          run-id: ${{ steps.buildrun.outputs.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: cloudtest-apks/normal
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build the web app (cloudtest configuration)
+        working-directory: frontend
+        run: |
+          node scripts/build-tasks.js prebuild
+          npx ng build --configuration cloudtest
+          node scripts/build-tasks.js postbuild
+
+      - name: Sync Capacitor Android project
+        working-directory: frontend
+        run: npx cap sync android
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Build the cloudtest debug APK
+        working-directory: frontend/android
+        run: |
+          bash gradlew assembleDebug --console=plain
+          cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/cloudtest-apks/app-debug-cloudtest.apk"
+
+      - name: Authenticate to Google Cloud (keyless, Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.TEST_LAB_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Resolve the Test Lab virtual device
+        id: device
+        run: |
+          gcloud firebase test android models list --format=json > models.json
+          python3 - << 'PYEOF'
+          import json, os
+          models = json.load(open('models.json'))
+          cands = []
+          for m in models:
+              mid = m.get('id', '')
+              if not mid.startswith('MediumPhone'):
+                  continue
+              versions = [int(v) for v in m.get('supportedVersionIds', []) if str(v).isdigit()]
+              if not versions:
+                  continue
+              hay = (mid + ' ' + m.get('name', '') + ' ' + ' '.join(m.get('tags', []))).lower()
+              is16k = ('16k' in hay) or ('16_kb' in hay) or ('page_size' in hay)
+              cands.append((is16k, max(versions), mid, max(versions)))
+          if not cands:
+              raise SystemExit('No MediumPhone virtual model in the Test Lab catalog')
+          cands.sort(reverse=True)
+          _, _, mid, ver = cands[0]
+          print(f'Resolved device: model={mid} version={ver}')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'spec=model={mid},version={ver},orientation=portrait,locale=en_US\n')
+          PYEOF
+
+      - name: Leg 1 Robo test, normal APK (boot and menu gate)
+        run: |
+          gcloud firebase test android run \
+            --type robo \
+            --project "$GCP_PROJECT" \
+            --app cloudtest-apks/normal/app-debug.apk \
+            --device "${{ steps.device.outputs.spec }}" \
+            --timeout 10m
+
+      - name: Leg 2 Robo test, cloudtest APK (invincible World 1 boss scenario)
+        if: always()
+        run: |
+          gcloud firebase test android run \
+            --type robo \
+            --project "$GCP_PROJECT" \
+            --app cloudtest-apks/app-debug-cloudtest.apk \
+            --device "${{ steps.device.outputs.spec }}" \
+            --timeout 20m
