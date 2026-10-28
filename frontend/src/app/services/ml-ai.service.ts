@@ -53,9 +53,6 @@ export class MlAiService {
     constructor() {
         this.initModel();
         this.loadLocalWeights();
-        // DIAGNOSTIC BUILD (temporary): expose the TensorFlow
-        // backend name for the startup diagnostics panel.
-        try { (window as any).__phoenixTfBackend = tf.getBackend(); } catch { /* diagnostics only */ }
     }
 
     private initModel() {

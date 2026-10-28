@@ -66,7 +66,7 @@ export class IapService {
       return;
     }
 
-    const { store, ProductType, Platform, LogLevel } = CdvPurchase;
+    const { store, ProductType, Platform, LogLevel, ErrorCode } = CdvPurchase;
 
     store.verbosity = LogLevel.INFO;
 
@@ -141,14 +141,23 @@ export class IapService {
        if (ownsRemoveAds) this.gameState.hasRemoveAds.set(true);
     });
 
-    store.when().cancelled((transaction: any) => {
-      console.log('IAP Cancelled');
-      this.isProcessing.set(false);
-      this.pendingRewardGems = 0;
-    });
-
-    store.when().error((error: any) => {
-      console.error('IAP Error:', error);
+    // v13 API correction (black-screen root cause, Oct 27 2026): the
+    // When interface in cordova-plugin-purchase 13.17.2 has NO
+    // cancelled() and NO error() methods. The old when().cancelled()
+    // registration threw "TypeError: store.when(...).cancelled is not
+    // a function" on real devices during startup DI (this service is
+    // constructed from the root view creation chain), which killed
+    // bootstrap before the first frame. Error handling lives on the
+    // store itself: store.error(cb). A user cancelling the Play
+    // dialog surfaces there as an error whose code is
+    // ErrorCode.PAYMENT_CANCELLED, and it resets the same in-flight
+    // state the old cancelled handler reset.
+    store.error((error: any) => {
+      if (error?.code === ErrorCode.PAYMENT_CANCELLED) {
+        console.log('IAP Cancelled');
+      } else {
+        console.error('IAP Error:', error);
+      }
       this.isProcessing.set(false);
       this.pendingRewardGems = 0;
     });
