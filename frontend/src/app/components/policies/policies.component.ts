@@ -13,7 +13,7 @@ import { ActivatedRoute, Router } from '@angular/router';
               <span class="text-2xl">←</span> Return to Game
            </button>
            
-           <h1 class="text-4xl md:text-5xl font-black mb-8 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-600">
+           <h1 class="text-4xl md:text-5xl font-black mb-8 text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-orange-600">
                {{ getTitle() }}
            </h1>
            
@@ -22,9 +22,9 @@ import { ActivatedRoute, Router } from '@angular/router';
            </div>
            
            <div class="mt-12 pt-8 border-t border-white/10 flex justify-center gap-6">
-               <button (click)="navigate('tos')" class="text-sm font-bold hover:underline transition" [class.text-cyan-400]="type === 'tos'">Terms of Service</button>
-               <button (click)="navigate('privacy')" class="text-sm font-bold hover:underline transition" [class.text-cyan-400]="type === 'privacy'">Privacy Policy</button>
-               <button (click)="navigate('refunds')" class="text-sm font-bold hover:underline transition" [class.text-cyan-400]="type === 'refunds'">Refund Policy</button>
+               <button (click)="navigate('tos')" class="text-sm font-bold hover:underline transition" [class.text-orange-400]="type === 'tos'">Terms of Service</button>
+               <button (click)="navigate('privacy')" class="text-sm font-bold hover:underline transition" [class.text-orange-400]="type === 'privacy'">Privacy Policy</button>
+               <button (click)="navigate('refunds')" class="text-sm font-bold hover:underline transition" [class.text-orange-400]="type === 'refunds'">Refund Policy</button>
            </div>
        </div>
     </div>

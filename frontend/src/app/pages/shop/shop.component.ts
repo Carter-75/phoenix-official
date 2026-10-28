@@ -33,9 +33,9 @@ import { CommonModule } from '@angular/common';
             <img src="assets/coin_icon.png" alt="Coins" class="w-5 h-5 md:w-6 md:h-6 object-contain" />
             <span class="text-lg md:text-xl font-bold text-orange-400">{{ gameState.coins() }}</span>
           </div>
-          <div class="flex items-center gap-2 bg-black/60 px-3 py-1.5 md:px-4 md:py-2 rounded-full border border-white/10 shadow-[0_0_15px_rgba(168,85,247,0.2)]">
+          <div class="flex items-center gap-2 bg-black/60 px-3 py-1.5 md:px-4 md:py-2 rounded-full border border-white/10 shadow-[0_0_15px_rgba(255,100,0,0.2)]">
             <img src="assets/gem_icon.png" alt="Gems" class="w-5 h-5 md:w-6 md:h-6 object-contain" />
-            <span class="text-lg md:text-xl font-bold text-purple-400">{{ gameState.gems() }}</span>
+            <span class="text-lg md:text-xl font-bold text-orange-300">{{ gameState.gems() }}</span>
           </div>
         </div>
       </div>
@@ -45,7 +45,7 @@ import { CommonModule } from '@angular/common';
            holiday inflation, ghost deal, and deal radar were deleted: audit
            bug 37, Google Play deceptive-behavior risk.) -->
       @if (activeTab() === 'gems' && !gameState.hasPurchasedGems()) {
-        <div class="w-full max-w-4xl bg-gradient-to-r from-red-600 to-orange-600 rounded-xl p-4 mb-6 flex justify-between items-center shadow-lg shadow-red-500/50 border border-yellow-400">
+        <div class="w-full max-w-4xl bg-gradient-to-r from-red-600 to-orange-600 rounded-xl p-4 mb-6 flex justify-between items-center shadow-lg shadow-red-500/50 border border-orange-300/60">
           <div class="flex items-center gap-3">
              <span class="text-3xl">🔥</span>
              <div>
@@ -67,16 +67,16 @@ import { CommonModule } from '@angular/common';
         </button>
         <button (click)="setTab('abilities')" 
                 [class.bg-white_10]="activeTab() === 'abilities'"
-                [class.text-cyan-400]="activeTab() === 'abilities'"
+                [class.text-orange-400]="activeTab() === 'abilities'"
                 class="flex-1 py-3 rounded-full font-bold transition-all"
-                [ngClass]="activeTab() === 'abilities' ? 'bg-white/10 text-cyan-400 shadow-md' : 'text-white/50 hover:text-white'">
+                [ngClass]="activeTab() === 'abilities' ? 'bg-white/10 text-orange-400 shadow-md' : 'text-white/50 hover:text-white'">
           Abilities
         </button>
         <button (click)="setTab('gems')" 
                 [class.bg-white_10]="activeTab() === 'gems'"
-                [class.text-purple-400]="activeTab() === 'gems'"
+                [class.text-orange-300]="activeTab() === 'gems'"
                 class="flex-1 py-3 rounded-full font-bold transition-all flex justify-center items-center gap-2"
-                [ngClass]="activeTab() === 'gems' ? 'bg-white/10 text-purple-400 shadow-md' : 'text-white/50 hover:text-white'">
+                [ngClass]="activeTab() === 'gems' ? 'bg-white/10 text-orange-300 shadow-md' : 'text-white/50 hover:text-white'">
           Premium
         </button>
       </div>
@@ -109,11 +109,11 @@ import { CommonModule } from '@angular/common';
                  <div class="w-full py-3 text-center rounded-xl border border-white/15 bg-white/5 text-white/60 font-black tracking-widest">MAX</div>
               } @else if (canAffordWithGemsButNotCoins(getCost('damage', 250, 1, 10))) {
                  <div class="flex gap-2 w-full">
-                   <button (click)="buyDamage(true)" class="flex-1 py-3 bg-gradient-to-r from-purple-600 to-fuchsia-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(200,0,255,0.3)]">
+                   <button (click)="buyDamage(true)" class="flex-1 py-3 bg-gradient-to-r from-red-600 to-orange-500 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(200,0,255,0.3)]">
                      <img src="assets/gem_icon.png" class="w-7 h-7"/>
                    </button>
                    @if (adGrantAllowed(getCost('damage', 250, 1, 10))) {
-                     <button (click)="buyWithAd('damage')" class="flex-1 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
+                     <button (click)="buyWithAd('damage')" class="flex-1 py-3 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
                        <span class="text-2xl">📺</span>
                      </button>
                    } @else {
@@ -122,7 +122,7 @@ import { CommonModule } from '@angular/common';
                  </div>
               } @else if (gameState.coins() < getCost('damage', 250, 1, 10)) {
                  @if (adGrantAllowed(getCost('damage', 250, 1, 10))) {
-                   <button (click)="buyWithAd('damage')" class="w-full py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
+                   <button (click)="buyWithAd('damage')" class="w-full py-3 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
                      <span class="text-xl">📺</span>
                    </button>
                  } @else {
@@ -141,24 +141,24 @@ import { CommonModule } from '@angular/common';
 
           <!-- Attack Speed Upgrade -->
           <div class="bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50">
-            <div class="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center border border-green-500/30">
+            <div class="w-20 h-20 bg-orange-500/15 rounded-full flex items-center justify-center border border-orange-500/30">
               <span class="text-4xl">🏹</span>
             </div>
             <div class="text-center">
               <h3 class="text-2xl font-bold text-white">Rapid Fire</h3>
               <p class="text-white/50 text-sm">Increase Attack Speed</p>
-              <p class="text-green-400 font-mono mt-1">Lvl {{ ((gameState.currentStats().attackSpeed - 1) * 10).toFixed(0) }} / 10</p>
+              <p class="text-orange-300 font-mono mt-1">Lvl {{ ((gameState.currentStats().attackSpeed - 1) * 10).toFixed(0) }} / 10</p>
             </div>
             <div class="w-full mt-4">
               @if (passiveAtMax('attackSpeed')) {
                  <div class="w-full py-3 text-center rounded-xl border border-white/15 bg-white/5 text-white/60 font-black tracking-widest">MAX</div>
               } @else if (canAffordWithGemsButNotCoins(getCost('attackSpeed', 300, 0.1, 1))) {
                  <div class="flex gap-2 w-full">
-                   <button (click)="buyAttackSpeed(true)" class="flex-1 py-3 bg-gradient-to-r from-purple-600 to-fuchsia-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(200,0,255,0.3)]">
+                   <button (click)="buyAttackSpeed(true)" class="flex-1 py-3 bg-gradient-to-r from-red-600 to-orange-500 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(200,0,255,0.3)]">
                      <img src="assets/gem_icon.png" class="w-7 h-7"/>
                    </button>
                    @if (adGrantAllowed(getCost('attackSpeed', 300, 0.1, 1))) {
-                     <button (click)="buyWithAd('attackSpeed')" class="flex-1 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
+                     <button (click)="buyWithAd('attackSpeed')" class="flex-1 py-3 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
                        <span class="text-2xl">📺</span>
                      </button>
                    } @else {
@@ -167,7 +167,7 @@ import { CommonModule } from '@angular/common';
                  </div>
               } @else if (gameState.coins() < getCost('attackSpeed', 300, 0.1, 1)) {
                  @if (adGrantAllowed(getCost('attackSpeed', 300, 0.1, 1))) {
-                   <button (click)="buyWithAd('attackSpeed')" class="w-full py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
+                   <button (click)="buyWithAd('attackSpeed')" class="w-full py-3 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
                      <span class="text-xl">📺</span>
                    </button>
                  } @else {
@@ -199,11 +199,11 @@ import { CommonModule } from '@angular/common';
                  <div class="w-full py-3 text-center rounded-xl border border-white/15 bg-white/5 text-white/60 font-black tracking-widest">MAX</div>
               } @else if (canAffordWithGemsButNotCoins(getCost('homingLevel', 300, 1, 0))) {
                  <div class="flex gap-2 w-full">
-                   <button (click)="buyHoming(true)" class="flex-1 py-3 bg-gradient-to-r from-purple-600 to-fuchsia-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(200,0,255,0.3)]">
+                   <button (click)="buyHoming(true)" class="flex-1 py-3 bg-gradient-to-r from-red-600 to-orange-500 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(200,0,255,0.3)]">
                      <img src="assets/gem_icon.png" class="w-7 h-7"/>
                    </button>
                    @if (adGrantAllowed(getCost('homingLevel', 300, 1, 0))) {
-                     <button (click)="buyWithAd('homingLevel')" class="flex-1 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
+                     <button (click)="buyWithAd('homingLevel')" class="flex-1 py-3 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
                        <span class="text-2xl">📺</span>
                      </button>
                    } @else {
@@ -212,7 +212,7 @@ import { CommonModule } from '@angular/common';
                  </div>
               } @else if (gameState.coins() < getCost('homingLevel', 300, 1, 0)) {
                  @if (adGrantAllowed(getCost('homingLevel', 300, 1, 0))) {
-                   <button (click)="buyWithAd('homingLevel')" class="w-full py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
+                   <button (click)="buyWithAd('homingLevel')" class="w-full py-3 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
                      <span class="text-xl">📺</span>
                    </button>
                  } @else {
@@ -248,11 +248,11 @@ import { CommonModule } from '@angular/common';
                  <div class="w-full py-3 text-center rounded-xl border border-white/15 bg-white/5 text-white/60 font-black tracking-widest">MAX</div>
               } @else if (canAffordWithGemsButNotCoins(getCost('maxHealth', 100, 10, 100))) {
                  <div class="flex gap-2 w-full">
-                   <button (click)="buyHealth(true)" class="flex-1 py-3 bg-gradient-to-r from-purple-600 to-fuchsia-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(200,0,255,0.3)]">
+                   <button (click)="buyHealth(true)" class="flex-1 py-3 bg-gradient-to-r from-red-600 to-orange-500 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(200,0,255,0.3)]">
                      <img src="assets/gem_icon.png" class="w-7 h-7"/>
                    </button>
                    @if (adGrantAllowed(getCost('maxHealth', 100, 10, 100))) {
-                     <button (click)="buyWithAd('maxHealth')" class="flex-1 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
+                     <button (click)="buyWithAd('maxHealth')" class="flex-1 py-3 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
                        <span class="text-2xl">📺</span>
                      </button>
                    } @else {
@@ -261,7 +261,7 @@ import { CommonModule } from '@angular/common';
                  </div>
               } @else if (gameState.coins() < getCost('maxHealth', 100, 10, 100)) {
                  @if (adGrantAllowed(getCost('maxHealth', 100, 10, 100))) {
-                   <button (click)="buyWithAd('maxHealth')" class="w-full py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
+                   <button (click)="buyWithAd('maxHealth')" class="w-full py-3 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
                      <span class="text-xl">📺</span>
                    </button>
                  } @else {
@@ -280,24 +280,24 @@ import { CommonModule } from '@angular/common';
 
           <!-- Speed Upgrade -->
           <div class="bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50">
-            <div class="w-20 h-20 bg-blue-500/20 rounded-full flex items-center justify-center border border-blue-500/30">
+            <div class="w-20 h-20 bg-orange-500/20 rounded-full flex items-center justify-center border border-orange-500/30">
               <span class="text-4xl">⚡</span>
             </div>
             <div class="text-center">
               <h3 class="text-2xl font-bold text-white">Agility</h3>
               <p class="text-white/50 text-sm">Increase Flight Speed</p>
-              <p class="text-blue-400 font-mono mt-1">Lvl {{ ((gameState.currentStats().speed - 2) * 10).toFixed(0) }} / 6</p>
+              <p class="text-orange-400 font-mono mt-1">Lvl {{ ((gameState.currentStats().speed - 2) * 10).toFixed(0) }} / 6</p>
             </div>
             <div class="w-full mt-4">
               @if (passiveAtMax('speed')) {
                  <div class="w-full py-3 text-center rounded-xl border border-white/15 bg-white/5 text-white/60 font-black tracking-widest">MAX</div>
               } @else if (canAffordWithGemsButNotCoins(getCost('speed', 150, 0.1, 2))) {
                  <div class="flex gap-2 w-full">
-                   <button (click)="buySpeed(true)" class="flex-1 py-3 bg-gradient-to-r from-purple-600 to-fuchsia-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(200,0,255,0.3)]">
+                   <button (click)="buySpeed(true)" class="flex-1 py-3 bg-gradient-to-r from-red-600 to-orange-500 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(200,0,255,0.3)]">
                      <img src="assets/gem_icon.png" class="w-7 h-7"/>
                    </button>
                    @if (adGrantAllowed(getCost('speed', 150, 0.1, 2))) {
-                     <button (click)="buyWithAd('speed')" class="flex-1 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
+                     <button (click)="buyWithAd('speed')" class="flex-1 py-3 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
                        <span class="text-2xl">📺</span>
                      </button>
                    } @else {
@@ -306,7 +306,7 @@ import { CommonModule } from '@angular/common';
                  </div>
               } @else if (gameState.coins() < getCost('speed', 150, 0.1, 2)) {
                  @if (adGrantAllowed(getCost('speed', 150, 0.1, 2))) {
-                   <button (click)="buyWithAd('speed')" class="w-full py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
+                   <button (click)="buyWithAd('speed')" class="w-full py-3 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
                      <span class="text-xl">📺</span>
                    </button>
                  } @else {
@@ -338,11 +338,11 @@ import { CommonModule } from '@angular/common';
                  <div class="w-full py-3 text-center rounded-xl border border-white/15 bg-white/5 text-white/60 font-black tracking-widest">MAX</div>
               } @else if (canAffordWithGemsButNotCoins(getCost('aegisPlating', 400, 1, 0))) {
                  <div class="flex gap-2 w-full">
-                   <button (click)="buyAegisPlating(true)" class="flex-1 py-3 bg-gradient-to-r from-purple-600 to-fuchsia-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(200,0,255,0.3)]">
+                   <button (click)="buyAegisPlating(true)" class="flex-1 py-3 bg-gradient-to-r from-red-600 to-orange-500 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(200,0,255,0.3)]">
                      <img src="assets/gem_icon.png" class="w-7 h-7"/>
                    </button>
                    @if (adGrantAllowed(getCost('aegisPlating', 400, 1, 0))) {
-                     <button (click)="buyWithAd('aegisPlating')" class="flex-1 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
+                     <button (click)="buyWithAd('aegisPlating')" class="flex-1 py-3 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
                        <span class="text-2xl">📺</span>
                      </button>
                    } @else {
@@ -351,7 +351,7 @@ import { CommonModule } from '@angular/common';
                  </div>
               } @else if (gameState.coins() < getCost('aegisPlating', 400, 1, 0)) {
                  @if (adGrantAllowed(getCost('aegisPlating', 400, 1, 0))) {
-                   <button (click)="buyWithAd('aegisPlating')" class="w-full py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
+                   <button (click)="buyWithAd('aegisPlating')" class="w-full py-3 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
                      <span class="text-xl">📺</span>
                    </button>
                  } @else {
@@ -374,24 +374,24 @@ import { CommonModule } from '@angular/common';
 
           <!-- Magnetism Upgrade -->
           <div class="bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50">
-            <div class="w-20 h-20 bg-purple-500/20 rounded-full flex items-center justify-center border border-purple-500/30">
+            <div class="w-20 h-20 bg-orange-500/20 rounded-full flex items-center justify-center border border-orange-500/30">
               <span class="text-4xl">🧲</span>
             </div>
             <div class="text-center">
               <h3 class="text-2xl font-bold text-white">Magnetism</h3>
               <p class="text-white/50 text-sm">Attract more coins</p>
-              <p class="text-purple-400 font-mono mt-1">Lvl {{ ((gameState.currentStats().magnetism - 1) * 10).toFixed(0) }} / 10</p>
+              <p class="text-orange-300 font-mono mt-1">Lvl {{ ((gameState.currentStats().magnetism - 1) * 10).toFixed(0) }} / 10</p>
             </div>
             <div class="w-full mt-4">
               @if (passiveAtMax('magnetism')) {
                  <div class="w-full py-3 text-center rounded-xl border border-white/15 bg-white/5 text-white/60 font-black tracking-widest">MAX</div>
               } @else if (canAffordWithGemsButNotCoins(getCost('magnetism', 200, 0.1, 1))) {
                  <div class="flex gap-2 w-full">
-                   <button (click)="buyMagnet(true)" class="flex-1 py-3 bg-gradient-to-r from-purple-600 to-fuchsia-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(200,0,255,0.3)]">
+                   <button (click)="buyMagnet(true)" class="flex-1 py-3 bg-gradient-to-r from-red-600 to-orange-500 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(200,0,255,0.3)]">
                      <img src="assets/gem_icon.png" class="w-7 h-7"/>
                    </button>
                    @if (adGrantAllowed(getCost('magnetism', 200, 0.1, 1))) {
-                     <button (click)="buyWithAd('magnetism')" class="flex-1 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
+                     <button (click)="buyWithAd('magnetism')" class="flex-1 py-3 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
                        <span class="text-2xl">📺</span>
                      </button>
                    } @else {
@@ -400,7 +400,7 @@ import { CommonModule } from '@angular/common';
                  </div>
               } @else if (gameState.coins() < getCost('magnetism', 200, 0.1, 1)) {
                  @if (adGrantAllowed(getCost('magnetism', 200, 0.1, 1))) {
-                   <button (click)="buyWithAd('magnetism')" class="w-full py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
+                   <button (click)="buyWithAd('magnetism')" class="w-full py-3 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
                      <span class="text-xl">📺</span>
                    </button>
                  } @else {
@@ -419,24 +419,24 @@ import { CommonModule } from '@angular/common';
 
           <!-- Attack Range Upgrade -->
           <div class="bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50">
-            <div class="w-20 h-20 bg-teal-500/20 rounded-full flex items-center justify-center border border-teal-500/30">
+            <div class="w-20 h-20 bg-orange-500/20 rounded-full flex items-center justify-center border border-orange-500/30">
               <span class="text-4xl">🔭</span>
             </div>
             <div class="text-center">
               <h3 class="text-2xl font-bold text-white">Reach</h3>
               <p class="text-white/50 text-sm">Increase Attack Range</p>
-              <p class="text-teal-400 font-mono mt-1">Lvl {{ (gameState.currentStats().attackRange - 400) / 50 }} / 5</p>
+              <p class="text-orange-400 font-mono mt-1">Lvl {{ (gameState.currentStats().attackRange - 400) / 50 }} / 5</p>
             </div>
             <div class="w-full mt-4">
               @if (passiveAtMax('attackRange')) {
                  <div class="w-full py-3 text-center rounded-xl border border-white/15 bg-white/5 text-white/60 font-black tracking-widest">MAX</div>
               } @else if (canAffordWithGemsButNotCoins(getCost('attackRange', 250, 50, 400))) {
                  <div class="flex gap-2 w-full">
-                   <button (click)="buyAttackRange(true)" class="flex-1 py-3 bg-gradient-to-r from-purple-600 to-fuchsia-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(200,0,255,0.3)]">
+                   <button (click)="buyAttackRange(true)" class="flex-1 py-3 bg-gradient-to-r from-red-600 to-orange-500 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(200,0,255,0.3)]">
                      <img src="assets/gem_icon.png" class="w-7 h-7"/>
                    </button>
                    @if (adGrantAllowed(getCost('attackRange', 250, 50, 400))) {
-                     <button (click)="buyWithAd('attackRange')" class="flex-1 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
+                     <button (click)="buyWithAd('attackRange')" class="flex-1 py-3 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
                        <span class="text-2xl">📺</span>
                      </button>
                    } @else {
@@ -445,7 +445,7 @@ import { CommonModule } from '@angular/common';
                  </div>
               } @else if (gameState.coins() < getCost('attackRange', 250, 50, 400)) {
                  @if (adGrantAllowed(getCost('attackRange', 250, 50, 400))) {
-                   <button (click)="buyWithAd('attackRange')" class="w-full py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
+                   <button (click)="buyWithAd('attackRange')" class="w-full py-3 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
                      <span class="text-xl">📺</span>
                    </button>
                  } @else {
@@ -464,24 +464,24 @@ import { CommonModule } from '@angular/common';
 
           <!-- Aura Radius Upgrade -->
           <div class="bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50">
-            <div class="w-20 h-20 bg-cyan-500/20 rounded-full flex items-center justify-center border border-cyan-500/30">
+            <div class="w-20 h-20 bg-orange-500/20 rounded-full flex items-center justify-center border border-orange-500/30">
               <span class="text-4xl">🌀</span>
             </div>
             <div class="text-center">
               <h3 class="text-2xl font-bold text-white">Aura (Hold)</h3>
               <p class="text-white/50 text-sm">Increase Aura Radius</p>
-              <p class="text-cyan-400 font-mono mt-1">Lvl {{ (gameState.currentStats().auraRadius - 250) / 10 }} / 10</p>
+              <p class="text-orange-400 font-mono mt-1">Lvl {{ (gameState.currentStats().auraRadius - 250) / 10 }} / 10</p>
             </div>
             <div class="w-full mt-4">
               @if (passiveAtMax('auraRadius')) {
                  <div class="w-full py-3 text-center rounded-xl border border-white/15 bg-white/5 text-white/60 font-black tracking-widest">MAX</div>
               } @else if (canAffordWithGemsButNotCoins(getCost('auraRadius', 400, 10, 250))) {
                  <div class="flex gap-2 w-full">
-                   <button (click)="buyAuraRadius(true)" class="flex-1 py-3 bg-gradient-to-r from-purple-600 to-fuchsia-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(200,0,255,0.3)]">
+                   <button (click)="buyAuraRadius(true)" class="flex-1 py-3 bg-gradient-to-r from-red-600 to-orange-500 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(200,0,255,0.3)]">
                      <img src="assets/gem_icon.png" class="w-7 h-7"/>
                    </button>
                    @if (adGrantAllowed(getCost('auraRadius', 400, 10, 250))) {
-                     <button (click)="buyWithAd('auraRadius')" class="flex-1 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
+                     <button (click)="buyWithAd('auraRadius')" class="flex-1 py-3 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
                        <span class="text-2xl">📺</span>
                      </button>
                    } @else {
@@ -490,7 +490,7 @@ import { CommonModule } from '@angular/common';
                  </div>
               } @else if (gameState.coins() < getCost('auraRadius', 400, 10, 250)) {
                  @if (adGrantAllowed(getCost('auraRadius', 400, 10, 250))) {
-                   <button (click)="buyWithAd('auraRadius')" class="w-full py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
+                   <button (click)="buyWithAd('auraRadius')" class="w-full py-3 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
                      <span class="text-xl">📺</span>
                    </button>
                  } @else {
@@ -532,7 +532,7 @@ import { CommonModule } from '@angular/common';
                <div class="bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col hover:bg-white/10 transition shadow-lg relative">
                   <!-- Equipped Badge -->
                   @if (gameState.currentStats().activeTapAbility === ability.id || gameState.currentStats().activeHoldAbility === ability.id || gameState.currentStats().activeDoubleAbility === ability.id || gameState.currentStats().activeTripleAbility === ability.id) {
-                     <div class="absolute -top-3 right-4 bg-cyan-500 text-black px-3 py-1 rounded-full text-xs font-bold uppercase shadow-lg">Equipped</div>
+                     <div class="absolute -top-3 right-4 bg-orange-500 text-black px-3 py-1 rounded-full text-xs font-bold uppercase shadow-lg">Equipped</div>
                   }
                   <div class="flex items-center gap-4 mb-4">
                      <div class="w-16 h-16 bg-white/10 rounded-2xl flex items-center justify-center border border-white/20 shrink-0 text-3xl">
@@ -551,16 +551,16 @@ import { CommonModule } from '@angular/common';
                      @if (!gameState.currentStats().unlockedAbilities[ability.id]) {
                         <!-- Locked -->
                         @if (ability.type === 'triple' && !gameState.isWorldBossBeaten(gameState.selectedWorldIndex())) {
-                           <div class="w-full py-3 px-2 text-center text-amber-300/90 text-sm font-bold border border-amber-400/30 rounded-xl bg-amber-400/10">Beat this realm's boss to unlock its ultimate</div>
+                           <div class="w-full py-3 px-2 text-center text-orange-300/90 text-sm font-bold border border-orange-400/30 rounded-xl bg-orange-400/10">Beat this realm's boss to unlock its ultimate</div>
                         } @else {
                         <div class="w-full">
                            @if (canAffordWithGemsButNotCoins(ability.unlockCost)) {
                               <div class="flex gap-2 w-full">
-                                 <button (click)="unlockAbility(ability.id, ability.unlockCost, true)" class="flex-1 py-3 bg-gradient-to-r from-purple-600 to-fuchsia-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(200,0,255,0.3)]">
+                                 <button (click)="unlockAbility(ability.id, ability.unlockCost, true)" class="flex-1 py-3 bg-gradient-to-r from-red-600 to-orange-500 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(200,0,255,0.3)]">
                                     <img src="assets/gem_icon.png" class="w-7 h-7"/>
                                  </button>
                                  @if (adGrantAllowed(ability.unlockCost)) {
-                                   <button (click)="buyWithAd('unlock_' + ability.id)" class="flex-1 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
+                                   <button (click)="buyWithAd('unlock_' + ability.id)" class="flex-1 py-3 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl flex items-center justify-center hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
                                       <span class="text-2xl">📺</span>
                                    </button>
                                  } @else {
@@ -569,7 +569,7 @@ import { CommonModule } from '@angular/common';
                               </div>
                            } @else if (gameState.coins() < ability.unlockCost) {
                               @if (adGrantAllowed(ability.unlockCost)) {
-                                <button (click)="buyWithAd('unlock_' + ability.id)" class="w-full py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
+                                <button (click)="buyWithAd('unlock_' + ability.id)" class="w-full py-3 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
                                    <span class="text-xl">📺</span> Unlock
                                 </button>
                               } @else {
@@ -589,7 +589,7 @@ import { CommonModule } from '@angular/common';
                         <!-- Unlocked -->
                         <div class="flex flex-col w-full gap-2">
                            <div class="flex flex-col gap-1 w-full">
-                              <span class="text-cyan-400 font-mono text-sm font-bold">Level {{ gameState.currentStats().unlockedAbilities[ability.id].level }}</span>
+                              <span class="text-orange-400 font-mono text-sm font-bold">Level {{ gameState.currentStats().unlockedAbilities[ability.id].level }}</span>
                               <!-- Dynamic Stats Display -->
                               <div class="flex flex-wrap gap-1 text-[10px] uppercase font-mono">
                                  @for (mod of gameState.currentStats().unlockedAbilities[ability.id].modifiers | keyvalue; track mod.key) {
@@ -607,11 +607,11 @@ import { CommonModule } from '@angular/common';
                               </button>
                               @if (canAffordWithGemsButNotCoins(getAbilityCost(ability.id, ability.upgradeCost))) {
                                  <div class="flex-1 flex gap-1">
-                                    <button (click)="upgradeAbility(ability.id, getAbilityCost(ability.id, ability.upgradeCost), true)" class="flex-1 py-2 bg-gradient-to-r from-purple-600 to-fuchsia-600 rounded-xl flex items-center justify-center hover:brightness-110 transition disabled:opacity-50">
+                                    <button (click)="upgradeAbility(ability.id, getAbilityCost(ability.id, ability.upgradeCost), true)" class="flex-1 py-2 bg-gradient-to-r from-red-600 to-orange-500 rounded-xl flex items-center justify-center hover:brightness-110 transition disabled:opacity-50">
                                        <img src="assets/gem_icon.png" class="w-4 h-4"/>
                                     </button>
                                     @if (adGrantAllowed(getAbilityCost(ability.id, ability.upgradeCost))) {
-                                      <button (click)="buyWithAd('upgrade_' + ability.id)" class="flex-1 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl flex items-center justify-center hover:brightness-110 transition disabled:opacity-50">
+                                      <button (click)="buyWithAd('upgrade_' + ability.id)" class="flex-1 py-2 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl flex items-center justify-center hover:brightness-110 transition disabled:opacity-50">
                                          <span class="text-lg">📺</span>
                                       </button>
                                     } @else {
@@ -620,7 +620,7 @@ import { CommonModule } from '@angular/common';
                                  </div>
                               } @else if (gameState.coins() < getAbilityCost(ability.id, ability.upgradeCost)) {
                                  @if (adGrantAllowed(getAbilityCost(ability.id, ability.upgradeCost))) {
-                                   <button (click)="buyWithAd('upgrade_' + ability.id)" class="flex-1 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl flex items-center justify-center gap-1 hover:brightness-110 transition disabled:opacity-50">
+                                   <button (click)="buyWithAd('upgrade_' + ability.id)" class="flex-1 py-2 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl flex items-center justify-center gap-1 hover:brightness-110 transition disabled:opacity-50">
                                       <span class="text-lg">📺</span> Upgrade
                                    </button>
                                  } @else {
@@ -652,7 +652,7 @@ import { CommonModule } from '@angular/common';
                @for (gadget of gadgetsList; track gadget.id) {
                   <div class="bg-white/5 border border-white/10 rounded-3xl p-5 flex flex-col hover:bg-white/10 transition shadow-lg relative">
                      @if (gameState.currentStats().activeGadget === gadget.id) {
-                        <div class="absolute -top-3 right-4 bg-cyan-500 text-black px-3 py-1 rounded-full text-xs font-bold uppercase shadow-lg">Equipped</div>
+                        <div class="absolute -top-3 right-4 bg-orange-500 text-black px-3 py-1 rounded-full text-xs font-bold uppercase shadow-lg">Equipped</div>
                      }
                      <div class="flex items-center gap-3 mb-3">
                         <div class="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center border border-white/20 shrink-0 text-2xl">{{ gadget.icon }}</div>
@@ -679,24 +679,24 @@ import { CommonModule } from '@angular/common';
       <!-- Gems Tab -->
       @if (activeTab() === 'gems') {
         @if (!iapService.purchasesEnabled()) {
-          <div class="w-full max-w-4xl mb-6 px-6 py-4 rounded-2xl bg-amber-500/10 border border-amber-400/40 text-amber-200 text-center font-semibold animate-fade-in">
+          <div class="w-full max-w-4xl mb-6 px-6 py-4 rounded-2xl bg-orange-500/10 border border-orange-500/40 text-orange-200 text-center font-semibold animate-fade-in">
             Purchases are not available in this version yet. Nothing here can be bought or charged.
           </div>
         } @else if (iapService.purchasesUnavailable()) {
-          <div class="w-full max-w-4xl mb-6 px-6 py-4 rounded-2xl bg-amber-500/10 border border-amber-400/40 text-amber-200 text-center font-semibold animate-fade-in">
+          <div class="w-full max-w-4xl mb-6 px-6 py-4 rounded-2xl bg-orange-500/10 border border-orange-500/40 text-orange-200 text-center font-semibold animate-fade-in">
             That purchase could not be completed because billing is not configured yet. Nothing was granted.
           </div>
         }
         <div class="w-full max-w-4xl grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in">
           
           <!-- Package 1 -->
-          <div class="bg-white/5 border border-purple-500/20 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-[0_0_20px_rgba(168,85,247,0.1)] hover:shadow-[0_0_30px_rgba(168,85,247,0.2)] relative overflow-hidden">
+          <div class="bg-white/5 border border-orange-500/25 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-[0_0_20px_rgba(168,85,247,0.1)] hover:shadow-[0_0_30px_rgba(168,85,247,0.2)] relative overflow-hidden">
             <img src="assets/gem_icon.png" class="w-24 h-24 object-contain drop-shadow-[0_0_15px_rgba(168,85,247,0.5)]" />
             <div class="text-center">
               <h3 class="text-2xl font-bold text-white">Single Gem</h3>
-              <p class="text-purple-400 font-bold text-xl mt-1">{{ calculatedGems()[0] }} Gem</p>
+              <p class="text-orange-300 font-bold text-xl mt-1">{{ calculatedGems()[0] }} Gem</p>
             </div>
-            <button (click)="buyGems(calculatedGems()[0], 0)" class="mt-4 w-full py-3 bg-white/10 border border-purple-500/50 rounded-xl font-bold text-lg text-white hover:bg-purple-600/50 hover:border-purple-500 active:scale-95 transition flex justify-center gap-2" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
+            <button (click)="buyGems(calculatedGems()[0], 0)" class="mt-4 w-full py-3 bg-white/10 border border-orange-500/40 rounded-xl font-bold text-lg text-white hover:bg-orange-600/30 hover:border-orange-500/40 active:scale-95 transition flex justify-center gap-2" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
 &dollar;{{ basePrices[0] }}
             </button>
           </div>
@@ -704,45 +704,45 @@ import { CommonModule } from '@angular/common';
           <!-- Package 2 (Best Value) -->
           <div class="relative transform md:-translate-y-2 mt-4 md:mt-0 flex flex-col w-full h-full">
             <!-- Out-of-bounds Ribbon -->
-            <div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-purple-500 text-white px-4 py-1 rounded-full text-sm font-bold tracking-widest uppercase shadow-lg z-20 whitespace-nowrap">Most Popular</div>
+            <div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-orange-500 text-white px-4 py-1 rounded-full text-sm font-bold tracking-widest uppercase shadow-lg z-20 whitespace-nowrap">Most Popular</div>
             
             <!-- Clipped Card -->
-            <div class="relative w-full h-full bg-gradient-to-b from-purple-900/40 to-black/40 border border-purple-500/50 rounded-3xl p-6 flex flex-col items-center gap-4 hover:brightness-110 transition shadow-[0_0_30px_rgba(168,85,247,0.3)] overflow-hidden">
+            <div class="relative w-full h-full bg-gradient-to-b from-orange-900/40 to-black/40 border border-orange-500/40 rounded-3xl p-6 flex flex-col items-center gap-4 hover:brightness-110 transition shadow-[0_0_30px_rgba(168,85,247,0.3)] overflow-hidden">
                 @if (!gameState.hasPurchasedGems()) {
                     <div class="absolute top-4 -right-8 bg-red-600 text-white text-xs font-bold py-1 px-10 rotate-45 shadow-lg z-10 pointer-events-none">2X BONUS</div>
                 }
                 <img src="assets/gem_icon.png" class="w-32 h-32 object-contain drop-shadow-[0_0_25px_rgba(168,85,247,0.8)] mt-2" />
                 <div class="text-center">
                   <h3 class="text-2xl font-bold text-white">Handful of Gems</h3>
-                  <p class="text-purple-400 font-bold text-xl mt-1">{{ calculatedGems()[1] }} Gems</p>
+                  <p class="text-orange-300 font-bold text-xl mt-1">{{ calculatedGems()[1] }} Gems</p>
                 </div>
-                <button (click)="buyGems(calculatedGems()[1], 1)" class="mt-4 w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl font-bold text-lg text-white hover:brightness-110 active:scale-95 transition shadow-lg shadow-purple-500/30 flex justify-center gap-2" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
+                <button (click)="buyGems(calculatedGems()[1], 1)" class="mt-4 w-full py-3 bg-gradient-to-r from-red-600 to-indigo-600 rounded-xl font-bold text-lg text-white hover:brightness-110 active:scale-95 transition shadow-lg shadow-orange-500/30 flex justify-center gap-2" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
 &dollar;{{ basePrices[1] }}
                 </button>
             </div>
           </div>
 
           <!-- Package 3 -->
-          <div class="bg-white/5 border border-purple-500/20 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-[0_0_20px_rgba(168,85,247,0.1)] hover:shadow-[0_0_30px_rgba(168,85,247,0.2)] relative overflow-hidden">
+          <div class="bg-white/5 border border-orange-500/25 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-[0_0_20px_rgba(168,85,247,0.1)] hover:shadow-[0_0_30px_rgba(168,85,247,0.2)] relative overflow-hidden">
             @if (!gameState.hasPurchasedGems()) {
                 <div class="absolute top-4 -right-8 bg-red-600 text-white text-xs font-bold py-1 px-10 rotate-45 shadow-lg z-10">2X BONUS</div>
             }
             <img src="assets/gem_icon.png" class="w-24 h-24 object-contain drop-shadow-[0_0_15px_rgba(168,85,247,0.5)]" />
             <div class="text-center">
               <h3 class="text-2xl font-bold text-white">Chest of Gems</h3>
-              <p class="text-purple-400 font-bold text-xl mt-1">{{ calculatedGems()[2] }} Gems</p>
+              <p class="text-orange-300 font-bold text-xl mt-1">{{ calculatedGems()[2] }} Gems</p>
             </div>
-            <button (click)="buyGems(calculatedGems()[2], 2)" class="mt-4 w-full py-3 bg-white/10 border border-purple-500/50 rounded-xl font-bold text-lg text-white hover:bg-purple-600/50 hover:border-purple-500 active:scale-95 transition flex justify-center gap-2" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
+            <button (click)="buyGems(calculatedGems()[2], 2)" class="mt-4 w-full py-3 bg-white/10 border border-orange-500/40 rounded-xl font-bold text-lg text-white hover:bg-orange-600/30 hover:border-orange-500/40 active:scale-95 transition flex justify-center gap-2" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
 &dollar;{{ basePrices[2] }}
             </button>
           </div>
 
           <!-- Currency Exchange -->
-          <div class="col-span-full md:col-span-3 bg-white/5 border border-purple-500/30 rounded-3xl p-6 mt-4 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-[0_0_20px_rgba(168,85,247,0.15)] relative overflow-hidden">
-            <div class="absolute inset-0 bg-gradient-to-r from-purple-900/20 to-transparent"></div>
+          <div class="col-span-full md:col-span-3 bg-white/5 border border-orange-500/30 rounded-3xl p-6 mt-4 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-[0_0_20px_rgba(168,85,247,0.15)] relative overflow-hidden">
+            <div class="absolute inset-0 bg-gradient-to-r from-orange-900/20 to-transparent"></div>
             <div class="flex flex-col md:flex-row items-center justify-between w-full relative z-10 gap-6">
                <div class="flex items-center gap-4">
-                  <div class="w-16 h-16 bg-purple-500/20 rounded-full flex items-center justify-center border border-purple-500/50 shrink-0">
+                  <div class="w-16 h-16 bg-orange-500/20 rounded-full flex items-center justify-center border border-orange-500/40 shrink-0">
                     <img src="assets/gem_icon.png" class="w-10 h-10 drop-shadow-[0_0_10px_rgba(168,85,247,1)]"/>
                   </div>
                   <div>
@@ -759,7 +759,7 @@ import { CommonModule } from '@angular/common';
                        +1500 <img src="assets/coin_icon.png" class="w-5 h-5"/>
                     </p>
                   </div>
-                  <button (click)="exchangeGem()" class="px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold text-xl hover:brightness-110 active:scale-95 transition disabled:opacity-50 disabled:grayscale shrink-0 relative overflow-hidden group" [disabled]="gameState.gems() < 1">
+                  <button (click)="exchangeGem()" class="px-8 py-4 bg-gradient-to-r from-red-600 to-red-600 rounded-xl font-bold text-xl hover:brightness-110 active:scale-95 transition disabled:opacity-50 disabled:grayscale shrink-0 relative overflow-hidden group" [disabled]="gameState.gems() < 1">
                     <span class="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform"></span>
                     Exchange
                   </button>
@@ -769,21 +769,21 @@ import { CommonModule } from '@angular/common';
 
           <!-- Remove Ads -->
           <div class="col-span-1 md:col-span-3 mt-8">
-            <div class="bg-gradient-to-br from-emerald-900/50 to-teal-900/50 border border-emerald-500/50 rounded-3xl p-6 flex flex-col md:flex-row items-center justify-between shadow-[0_0_20px_rgba(16,185,129,0.2)]">
+            <div class="bg-gradient-to-br from-orange-900/50 to-red-950/50 border border-orange-500/40 rounded-3xl p-6 flex flex-col md:flex-row items-center justify-between shadow-[0_0_20px_rgba(16,185,129,0.2)]">
               <div class="flex items-center gap-4 mb-4 md:mb-0">
-                 <div class="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center border border-emerald-500/50 shrink-0">
+                 <div class="w-16 h-16 bg-orange-500/20 rounded-full flex items-center justify-center border border-orange-500/40 shrink-0">
                     <span class="text-3xl">🚫</span>
                  </div>
                  <div>
                     <h3 class="text-xl font-bold text-white">Remove Ads</h3>
-                    <p class="text-emerald-300/80 text-sm">Removes all interstitial ads forever. Optional rewarded ads stay available whenever you choose them.</p>
+                    <p class="text-orange-300/80 text-sm">Removes all interstitial ads forever. Optional rewarded ads stay available whenever you choose them.</p>
                     @if (gameState.hasRemoveAds()) {
-                      <p class="text-green-400 font-bold text-sm mt-1">✓ Owned</p>
+                      <p class="text-orange-300 font-bold text-sm mt-1">✓ Owned</p>
                     }
                  </div>
               </div>
               @if (!gameState.hasRemoveAds()) {
-                 <button (click)="buyRemoveAds()" class="px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition flex items-center gap-2 whitespace-nowrap shadow-lg shadow-emerald-500/30" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
+                 <button (click)="buyRemoveAds()" class="px-8 py-4 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition flex items-center gap-2 whitespace-nowrap shadow-lg shadow-orange-500/30" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
                     Buy $4.99
                  </button>
               }
@@ -794,7 +794,7 @@ import { CommonModule } from '@angular/common';
           <div class="col-span-1 md:col-span-3 mt-8">
             <h2 class="text-2xl font-black text-white uppercase tracking-widest border-b border-white/20 pb-2 mb-6">Subscriptions</h2>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-               <div class="bg-gradient-to-br from-indigo-900/50 to-purple-900/50 border border-indigo-500/50 rounded-3xl p-6 flex flex-col md:flex-row items-center justify-between shadow-[0_0_20px_rgba(99,102,241,0.2)]">
+               <div class="bg-gradient-to-br from-indigo-900/50 to-red-950/50 border border-indigo-500/50 rounded-3xl p-6 flex flex-col md:flex-row items-center justify-between shadow-[0_0_20px_rgba(99,102,241,0.2)]">
                  <div class="flex items-center gap-4 mb-4 md:mb-0">
                     <div class="w-16 h-16 bg-indigo-500/20 rounded-full flex items-center justify-center border border-indigo-500/50 shrink-0">
                        <span class="text-3xl">📦</span>
@@ -803,16 +803,16 @@ import { CommonModule } from '@angular/common';
                        <h3 class="text-xl font-bold text-white flex items-center gap-2">Monthly Crate Pass</h3>
                        <p class="text-indigo-300/80 text-sm">Get a reward crate once per month: 5,000 Coins and 100 Gems, exactly as shown when it opens.</p>
                        @if (gameState.pendingCratesCount() > 0) {
-                         <p class="text-green-400 font-bold text-sm mt-1">✓ Active ({{ gameState.pendingCratesCount() }} Crate(s) Ready to Open)</p>
+                         <p class="text-orange-300 font-bold text-sm mt-1">✓ Active ({{ gameState.pendingCratesCount() }} Crate(s) Ready to Open)</p>
                        }
                     </div>
                  </div>
                  @if (gameState.pendingCratesCount() > 0) {
-                   <button (click)="openPendingCrate()" class="px-8 py-4 bg-gradient-to-r from-amber-500 to-yellow-500 text-black rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition flex items-center gap-2 whitespace-nowrap shadow-lg shadow-amber-500/30">
+                   <button (click)="openPendingCrate()" class="px-8 py-4 bg-gradient-to-r from-orange-500 to-orange-500 text-black rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition flex items-center gap-2 whitespace-nowrap shadow-lg shadow-orange-500/30">
                       Open Crate
                    </button>
                  } @else {
-                   <button (click)="buySubscription()" class="px-8 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition flex items-center gap-2 whitespace-nowrap shadow-lg shadow-indigo-500/30" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
+                   <button (click)="buySubscription()" class="px-8 py-4 bg-gradient-to-r from-indigo-600 to-orange-500 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition flex items-center gap-2 whitespace-nowrap shadow-lg shadow-indigo-500/30" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
                       Subscribe $2.99/mo
                    </button>
                  }
@@ -824,35 +824,35 @@ import { CommonModule } from '@angular/common';
           <div class="col-span-1 md:col-span-3 mt-8">
             <h2 class="text-2xl font-black text-white uppercase tracking-widest border-b border-white/20 pb-2 mb-6">Temporary Boosts</h2>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-               <div class="bg-gradient-to-br from-blue-900/40 to-cyan-900/40 border border-blue-500/30 rounded-3xl p-6 flex flex-col md:flex-row items-center justify-between shadow-[0_0_20px_rgba(59,130,246,0.1)]">
+               <div class="bg-gradient-to-br from-orange-900/40 to-red-950/40 border border-orange-500/30 rounded-3xl p-6 flex flex-col md:flex-row items-center justify-between shadow-[0_0_20px_rgba(59,130,246,0.1)]">
                  <div class="flex items-center gap-4 mb-4 md:mb-0">
-                    <div class="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center border border-blue-500/50 shrink-0">
+                    <div class="w-16 h-16 bg-orange-500/20 rounded-full flex items-center justify-center border border-orange-500/40 shrink-0">
                        <span class="text-3xl">⚡</span>
                     </div>
                     <div>
                        <h3 class="text-xl font-bold text-white">x2 Rewards (1 Min)</h3>
-                       <p class="text-blue-300/80 text-sm">Double Coins & XP for 60 seconds. Multipliers combine up to x10 Coins and x4 XP.</p>
+                       <p class="text-orange-300/80 text-sm">Double Coins & XP for 60 seconds. Multipliers combine up to x10 Coins and x4 XP.</p>
                        @if (gameState.tempCoinMultiplier() > 1) {
-                         <p class="text-green-400 font-bold text-sm mt-1">✓ Active</p>
+                         <p class="text-orange-300 font-bold text-sm mt-1">✓ Active</p>
                        }
                     </div>
                  </div>
-                 <button (click)="buyTempMultiplier(2)" class="px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition whitespace-nowrap shadow-lg" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
+                 <button (click)="buyTempMultiplier(2)" class="px-6 py-3 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition whitespace-nowrap shadow-lg" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
                     Buy $0.99
                  </button>
                </div>
                
-               <div class="bg-gradient-to-br from-fuchsia-900/40 to-pink-900/40 border border-fuchsia-500/30 rounded-3xl p-6 flex flex-col md:flex-row items-center justify-between shadow-[0_0_20px_rgba(217,70,239,0.1)]">
+               <div class="bg-gradient-to-br from-orange-900/40 to-red-950/40 border border-orange-500/30 rounded-3xl p-6 flex flex-col md:flex-row items-center justify-between shadow-[0_0_20px_rgba(217,70,239,0.1)]">
                  <div class="flex items-center gap-4 mb-4 md:mb-0">
-                    <div class="w-16 h-16 bg-fuchsia-500/20 rounded-full flex items-center justify-center border border-fuchsia-500/50 shrink-0">
+                    <div class="w-16 h-16 bg-orange-500/20 rounded-full flex items-center justify-center border border-orange-500/50 shrink-0">
                        <span class="text-3xl">🔥</span>
                     </div>
                     <div>
                        <h3 class="text-xl font-bold text-white">x10 Rewards (5 Mins)</h3>
-                       <p class="text-fuchsia-300/80 text-sm">10x Coins and 4x XP for 5 full minutes. Multipliers combine up to x10 Coins and x4 XP.</p>
+                       <p class="text-orange-300/80 text-sm">10x Coins and 4x XP for 5 full minutes. Multipliers combine up to x10 Coins and x4 XP.</p>
                     </div>
                  </div>
-                 <button (click)="buyTempMultiplier(10)" class="px-6 py-3 bg-gradient-to-r from-fuchsia-600 to-pink-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition whitespace-nowrap shadow-lg" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
+                 <button (click)="buyTempMultiplier(10)" class="px-6 py-3 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition whitespace-nowrap shadow-lg" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
                     Buy $4.99
                  </button>
                </div>
@@ -864,104 +864,104 @@ import { CommonModule } from '@angular/common';
             <h2 class="text-2xl font-black text-white uppercase tracking-widest border-b border-white/20 pb-2 mb-6">Permanent Boosts</h2>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                <!-- Coin Doubler -->
-               <div class="bg-white/5 border border-yellow-500/30 rounded-3xl p-6 flex items-center justify-between shadow-[0_0_20px_rgba(234,179,8,0.1)]">
+               <div class="bg-white/5 border border-orange-500/30 rounded-3xl p-6 flex items-center justify-between shadow-[0_0_20px_rgba(234,179,8,0.1)]">
                  <div class="flex items-center gap-4">
-                    <div class="w-16 h-16 bg-yellow-500/20 rounded-full flex items-center justify-center border border-yellow-500/50">
+                    <div class="w-16 h-16 bg-orange-500/20 rounded-full flex items-center justify-center border border-orange-500/50">
                        <span class="text-3xl">💰</span>
                     </div>
                     <div>
                        <h3 class="text-xl font-bold text-white">Coin Doubler</h3>
-                       <p class="text-yellow-400/80 text-sm">Earn 2x Coins forever! Multipliers combine up to x10 Coins.</p>
+                       <p class="text-orange-300/80 text-sm">Earn 2x Coins forever! Multipliers combine up to x10 Coins.</p>
                        @if (gameState.coinMultiplier() > 1) {
-                         <p class="text-green-400 font-bold text-sm mt-1">✓ Active</p>
+                         <p class="text-orange-300 font-bold text-sm mt-1">✓ Active</p>
                        }
                     </div>
                  </div>
                  @if (gameState.coinMultiplier() === 1) {
-                    <button (click)="buyCoinMultiplier()" class="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition disabled:opacity-50 flex items-center gap-2" [disabled]="gameState.gems() < 50">
+                    <button (click)="buyCoinMultiplier()" class="px-6 py-3 bg-gradient-to-r from-red-600 to-red-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition disabled:opacity-50 flex items-center gap-2" [disabled]="gameState.gems() < 50">
                        <img src="assets/gem_icon.png" class="w-5 h-5"/> 50
                     </button>
                  }
                </div>
 
                <!-- XP Doubler -->
-               <div class="bg-white/5 border border-blue-500/30 rounded-3xl p-6 flex items-center justify-between shadow-[0_0_20px_rgba(59,130,246,0.1)]">
+               <div class="bg-white/5 border border-orange-500/30 rounded-3xl p-6 flex items-center justify-between shadow-[0_0_20px_rgba(59,130,246,0.1)]">
                  <div class="flex items-center gap-4">
-                    <div class="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center border border-blue-500/50">
+                    <div class="w-16 h-16 bg-orange-500/20 rounded-full flex items-center justify-center border border-orange-500/40">
                        <span class="text-3xl">⭐</span>
                     </div>
                     <div>
                        <h3 class="text-xl font-bold text-white">XP Doubler</h3>
-                       <p class="text-blue-400/80 text-sm">Earn 2x XP forever! Multipliers combine up to x4 XP.</p>
+                       <p class="text-orange-400/80 text-sm">Earn 2x XP forever! Multipliers combine up to x4 XP.</p>
                        @if (gameState.xpMultiplier() > 1) {
-                         <p class="text-green-400 font-bold text-sm mt-1">✓ Active</p>
+                         <p class="text-orange-300 font-bold text-sm mt-1">✓ Active</p>
                        }
                     </div>
                  </div>
                  @if (gameState.xpMultiplier() === 1) {
-                    <button (click)="buyXpMultiplier()" class="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition disabled:opacity-50 flex items-center gap-2" [disabled]="gameState.gems() < 50">
+                    <button (click)="buyXpMultiplier()" class="px-6 py-3 bg-gradient-to-r from-red-600 to-red-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition disabled:opacity-50 flex items-center gap-2" [disabled]="gameState.gems() < 50">
                        <img src="assets/gem_icon.png" class="w-5 h-5"/> 50
                     </button>
                  }               </div>
 
                <!-- Cosmic Phoenix Trail -->
-               <div class="bg-white/5 border border-pink-500/30 rounded-3xl p-6 flex items-center justify-between shadow-[0_0_20px_rgba(236,72,153,0.1)] col-span-1 md:col-span-2">
+               <div class="bg-white/5 border border-red-500/30 rounded-3xl p-6 flex items-center justify-between shadow-[0_0_20px_rgba(236,72,153,0.1)] col-span-1 md:col-span-2">
                  <div class="flex items-center gap-4">
-                    <div class="w-16 h-16 bg-pink-500/20 rounded-full flex items-center justify-center border border-pink-500/50">
+                    <div class="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center border border-red-500/50">
                        <span class="text-3xl">✨</span>
                     </div>
                     <div>
-                       <h3 class="text-xl font-bold text-white flex items-center gap-2">Cosmic Phoenix Trail <span class="bg-pink-500/20 text-pink-400 text-xs px-2 py-0.5 rounded font-bold uppercase">Cosmetic</span></h3>
-                       <p class="text-pink-400/80 text-sm">Leave a stunning starry trail that generates passive XP!</p>
+                       <h3 class="text-xl font-bold text-white flex items-center gap-2">Cosmic Phoenix Trail <span class="bg-red-500/20 text-red-400 text-xs px-2 py-0.5 rounded font-bold uppercase">Cosmetic</span></h3>
+                       <p class="text-red-400/80 text-sm">Leave a stunning starry trail that generates passive XP!</p>
                        @if (gameState.hasCosmicTrail()) {
-                         <p class="text-green-400 font-bold text-sm mt-1">✓ Active</p>
+                         <p class="text-orange-300 font-bold text-sm mt-1">✓ Active</p>
                        }
                     </div>
                  </div>
                  @if (!gameState.hasCosmicTrail()) {
-                    <button (click)="buyCosmicTrail()" class="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition disabled:opacity-50 flex items-center gap-2" [disabled]="gameState.gems() < 200">
+                    <button (click)="buyCosmicTrail()" class="px-6 py-3 bg-gradient-to-r from-red-600 to-red-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition disabled:opacity-50 flex items-center gap-2" [disabled]="gameState.gems() < 200">
                        <img src="assets/gem_icon.png" class="w-5 h-5"/> 200
                     </button>
                  }
                </div>
 
                <!-- Golden Aura of Midas -->
-               <div class="bg-white/5 border border-amber-500/30 rounded-3xl p-6 flex items-center justify-between shadow-[0_0_20px_rgba(245,158,11,0.1)] col-span-1 md:col-span-2">
+               <div class="bg-white/5 border border-orange-500/30 rounded-3xl p-6 flex items-center justify-between shadow-[0_0_20px_rgba(245,158,11,0.1)] col-span-1 md:col-span-2">
                  <div class="flex items-center gap-4">
-                    <div class="w-16 h-16 bg-amber-500/20 rounded-full flex items-center justify-center border border-amber-500/50">
+                    <div class="w-16 h-16 bg-orange-500/20 rounded-full flex items-center justify-center border border-orange-500/50">
                        <span class="text-3xl">📿</span>
                     </div>
                     <div>
-                       <h3 class="text-xl font-bold text-white flex items-center gap-2">Golden Aura of Midas <span class="bg-amber-500/20 text-amber-400 text-xs px-2 py-0.5 rounded font-bold uppercase">Cosmetic</span></h3>
-                       <p class="text-amber-400/80 text-sm">A beautiful golden ring with a 10% chance to multiply coins by 5x!</p>
+                       <h3 class="text-xl font-bold text-white flex items-center gap-2">Golden Aura of Midas <span class="bg-orange-500/20 text-orange-400 text-xs px-2 py-0.5 rounded font-bold uppercase">Cosmetic</span></h3>
+                       <p class="text-orange-400/80 text-sm">A beautiful golden ring with a 10% chance to multiply coins by 5x!</p>
                        @if (gameState.hasGoldenAura()) {
-                         <p class="text-green-400 font-bold text-sm mt-1">✓ Active</p>
+                         <p class="text-orange-300 font-bold text-sm mt-1">✓ Active</p>
                        }
                     </div>
                  </div>
                  @if (!gameState.hasGoldenAura()) {
-                    <button (click)="buyGoldenAura()" class="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition disabled:opacity-50 flex items-center gap-2" [disabled]="gameState.gems() < 300">
+                    <button (click)="buyGoldenAura()" class="px-6 py-3 bg-gradient-to-r from-red-600 to-red-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition disabled:opacity-50 flex items-center gap-2" [disabled]="gameState.gems() < 300">
                        <img src="assets/gem_icon.png" class="w-5 h-5"/> 300
                     </button>
                  }
                </div>
 
                <!-- Celestial Shield -->
-               <div class="bg-white/5 border border-cyan-500/30 rounded-3xl p-6 flex items-center justify-between shadow-[0_0_20px_rgba(6,182,212,0.1)] col-span-1 md:col-span-2">
+               <div class="bg-white/5 border border-orange-500/30 rounded-3xl p-6 flex items-center justify-between shadow-[0_0_20px_rgba(6,182,212,0.1)] col-span-1 md:col-span-2">
                  <div class="flex items-center gap-4">
-                    <div class="w-16 h-16 bg-cyan-500/20 rounded-full flex items-center justify-center border border-cyan-500/50">
+                    <div class="w-16 h-16 bg-orange-500/20 rounded-full flex items-center justify-center border border-orange-500/50">
                        <span class="text-3xl">💠</span>
                     </div>
                     <div>
-                       <h3 class="text-xl font-bold text-white flex items-center gap-2">Celestial Shield <span class="bg-cyan-500/20 text-cyan-400 text-xs px-2 py-0.5 rounded font-bold uppercase">Cosmetic</span></h3>
-                       <p class="text-cyan-400/80 text-sm">A stunning orbital shield that blocks 1 hit. Recharges slowly.</p>
+                       <h3 class="text-xl font-bold text-white flex items-center gap-2">Celestial Shield <span class="bg-orange-500/20 text-orange-400 text-xs px-2 py-0.5 rounded font-bold uppercase">Cosmetic</span></h3>
+                       <p class="text-orange-400/80 text-sm">A stunning orbital shield that blocks 1 hit. Recharges slowly.</p>
                        @if (gameState.hasCelestialShield()) {
-                         <p class="text-green-400 font-bold text-sm mt-1">✓ Active</p>
+                         <p class="text-orange-300 font-bold text-sm mt-1">✓ Active</p>
                        }
                     </div>
                  </div>
                  @if (!gameState.hasCelestialShield()) {
-                    <button (click)="buyCelestialShield()" class="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition disabled:opacity-50 flex items-center gap-2" [disabled]="gameState.gems() < 400">
+                    <button (click)="buyCelestialShield()" class="px-6 py-3 bg-gradient-to-r from-red-600 to-red-600 rounded-xl font-bold text-lg hover:brightness-110 active:scale-95 transition disabled:opacity-50 flex items-center gap-2" [disabled]="gameState.gems() < 400">
                        <img src="assets/gem_icon.png" class="w-5 h-5"/> 400
                     </button>
                  }
@@ -975,7 +975,7 @@ import { CommonModule } from '@angular/common';
       <!-- Payment Processing Modal -->
       @if (iapService.isProcessing()) {
         <div class="fixed inset-0 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center z-50">
-           <div class="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+           <div class="w-16 h-16 border-4 border-orange-500/40 border-t-transparent rounded-full animate-spin mb-4"></div>
            <h3 class="text-2xl font-bold text-white mb-2">Processing Payment...</h3>
            <p class="text-white/50">Contacting Google Play / Payment Provider</p>
         </div>

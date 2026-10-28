@@ -55,7 +55,7 @@ const TROPHY_CATALOG: RealmTrophies[] = [
         
         @if (auth.currentUser()) {
           <div class="flex items-center gap-6 mb-12">
-            <div class="w-24 h-24 rounded-full bg-gradient-to-tr from-orange-500 to-purple-600 flex items-center justify-center text-4xl font-black shadow-[0_0_30px_rgba(255,100,0,0.5)]">
+            <div class="w-24 h-24 rounded-full bg-gradient-to-tr from-orange-500 to-orange-600 flex items-center justify-center text-4xl font-black shadow-[0_0_30px_rgba(255,100,0,0.5)]">
               {{ auth.currentUser()!.username.charAt(0).toUpperCase() }}
             </div>
             <div>
@@ -89,10 +89,10 @@ const TROPHY_CATALOG: RealmTrophies[] = [
                         <div class="flex flex-wrap gap-3">
                            @for (trophy of realm.trophies; track trophy.id) {
                                @if (hasTrophy(trophy.id)) {
-                                   <div class="bg-white/5 border border-yellow-500/30 rounded-lg py-2 px-4 flex items-center gap-3 shadow-[0_0_10px_rgba(234,179,8,0.05)] hover:bg-white/10 transition cursor-help" [title]="trophy.desc">
+                                   <div class="bg-white/5 border border-orange-500/30 rounded-lg py-2 px-4 flex items-center gap-3 shadow-[0_0_10px_rgba(234,179,8,0.05)] hover:bg-white/10 transition cursor-help" [title]="trophy.desc">
                                       <span class="text-2xl drop-shadow-md">🏆</span>
                                       <div class="flex flex-col">
-                                          <span class="text-yellow-100 font-bold text-sm leading-tight">{{ trophy.name }}</span>
+                                          <span class="text-orange-100 font-bold text-sm leading-tight">{{ trophy.name }}</span>
                                           <span class="text-white/40 text-xs">{{ trophy.desc }}</span>
                                       </div>
                                    </div>
@@ -133,11 +133,11 @@ const TROPHY_CATALOG: RealmTrophies[] = [
                 @if (gameState.hasCosmicTrail()) {
                 <div class="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center justify-between">
                   <div class="flex flex-col">
-                     <span class="text-pink-400 font-bold text-lg">Cosmic Trail</span>
+                     <span class="text-red-400 font-bold text-lg">Cosmic Trail</span>
                      <span class="text-white/50 text-sm">Toggle the cosmic energy trail effect</span>
                   </div>
                   <button (click)="toggleCosmetic('trail')" class="w-16 h-8 rounded-full transition-colors relative"
-                          [ngClass]="!gameState.toggleCosmicTrail() ? 'bg-gray-600' : 'bg-pink-500'">
+                          [ngClass]="!gameState.toggleCosmicTrail() ? 'bg-gray-600' : 'bg-red-500'">
                      <div class="absolute top-1 w-6 h-6 bg-white rounded-full transition-all shadow-md"
                           [ngClass]="!gameState.toggleCosmicTrail() ? 'left-1' : 'left-9'"></div>
                   </button>
@@ -147,11 +147,11 @@ const TROPHY_CATALOG: RealmTrophies[] = [
                 @if (gameState.hasGoldenAura()) {
                 <div class="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center justify-between">
                   <div class="flex flex-col">
-                     <span class="text-yellow-400 font-bold text-lg">Golden Aura</span>
+                     <span class="text-orange-400 font-bold text-lg">Golden Aura</span>
                      <span class="text-white/50 text-sm">Toggle the swirling golden particle vortex</span>
                   </div>
                   <button (click)="toggleCosmetic('aura')" class="w-16 h-8 rounded-full transition-colors relative"
-                          [ngClass]="!gameState.toggleGoldenAura() ? 'bg-gray-600' : 'bg-yellow-500'">
+                          [ngClass]="!gameState.toggleGoldenAura() ? 'bg-gray-600' : 'bg-orange-500'">
                      <div class="absolute top-1 w-6 h-6 bg-white rounded-full transition-all shadow-md"
                           [ngClass]="!gameState.toggleGoldenAura() ? 'left-1' : 'left-9'"></div>
                   </button>
@@ -161,11 +161,11 @@ const TROPHY_CATALOG: RealmTrophies[] = [
                 @if (gameState.hasCelestialShield()) {
                 <div class="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center justify-between">
                   <div class="flex flex-col">
-                     <span class="text-cyan-400 font-bold text-lg">Celestial Shield</span>
+                     <span class="text-orange-400 font-bold text-lg">Celestial Shield</span>
                      <span class="text-white/50 text-sm">Toggle the orbital energy shield visual</span>
                   </div>
                   <button (click)="toggleCosmetic('shield')" class="w-16 h-8 rounded-full transition-colors relative"
-                          [ngClass]="!gameState.toggleCelestialShield() ? 'bg-gray-600' : 'bg-cyan-500'">
+                          [ngClass]="!gameState.toggleCelestialShield() ? 'bg-gray-600' : 'bg-orange-500'">
                      <div class="absolute top-1 w-6 h-6 bg-white rounded-full transition-all shadow-md"
                           [ngClass]="!gameState.toggleCelestialShield() ? 'left-1' : 'left-9'"></div>
                   </button>
@@ -185,7 +185,7 @@ const TROPHY_CATALOG: RealmTrophies[] = [
                    <span class="text-white font-bold text-lg">Legal & Policies</span>
                    <span class="text-white/50 text-sm">Review our TOS, Privacy, and Refund policies</span>
                 </div>
-                <button (click)="showLegal('tos')" class="px-6 py-2 bg-cyan-500/20 text-cyan-400 border border-cyan-500/50 hover:bg-cyan-500/40 rounded-lg transition font-bold">
+                <button (click)="showLegal('tos')" class="px-6 py-2 bg-orange-500/20 text-orange-400 border border-orange-500/50 hover:bg-orange-500/40 rounded-lg transition font-bold">
                    View
                 </button>
               </div>
@@ -197,22 +197,22 @@ const TROPHY_CATALOG: RealmTrophies[] = [
       <!-- Legal Modal -->
       @if (activeLegalDoc) {
           <div class="fixed inset-0 bg-black/95 flex flex-col items-center justify-center z-[300] px-4 backdrop-blur-md pointer-events-auto">
-             <div class="w-full max-w-2xl bg-zinc-900 border border-cyan-500/50 rounded-3xl p-8 flex flex-col max-h-[80vh] shadow-[0_0_30px_rgba(0,255,255,0.2)]">
+             <div class="w-full max-w-2xl bg-zinc-900 border border-orange-500/50 rounded-3xl p-8 flex flex-col max-h-[80vh] shadow-[0_0_30px_rgba(0,255,255,0.2)]">
                  <div class="flex justify-between items-center mb-6">
                     <h2 class="text-2xl font-bold text-white">{{ getLegalTitle() }}</h2>
                     <button (click)="activeLegalDoc = null" class="text-white/50 hover:text-white text-3xl font-black">&times;</button>
                  </div>
                  
                  <div class="flex gap-4 mb-6 border-b border-white/10 pb-4">
-                    <button (click)="showLegal('tos')" class="text-sm font-bold transition hover:text-cyan-300" [class.text-cyan-400]="activeLegalDoc === 'tos'" [class.text-white]="activeLegalDoc !== 'tos'">Terms of Service</button>
-                    <button (click)="showLegal('privacy')" class="text-sm font-bold transition hover:text-cyan-300" [class.text-cyan-400]="activeLegalDoc === 'privacy'" [class.text-white]="activeLegalDoc !== 'privacy'">Privacy Policy</button>
-                    <button (click)="showLegal('refunds')" class="text-sm font-bold transition hover:text-cyan-300" [class.text-cyan-400]="activeLegalDoc === 'refunds'" [class.text-white]="activeLegalDoc !== 'refunds'">Refund Policy</button>
+                    <button (click)="showLegal('tos')" class="text-sm font-bold transition hover:text-orange-300" [class.text-orange-400]="activeLegalDoc === 'tos'" [class.text-white]="activeLegalDoc !== 'tos'">Terms of Service</button>
+                    <button (click)="showLegal('privacy')" class="text-sm font-bold transition hover:text-orange-300" [class.text-orange-400]="activeLegalDoc === 'privacy'" [class.text-white]="activeLegalDoc !== 'privacy'">Privacy Policy</button>
+                    <button (click)="showLegal('refunds')" class="text-sm font-bold transition hover:text-orange-300" [class.text-orange-400]="activeLegalDoc === 'refunds'" [class.text-white]="activeLegalDoc !== 'refunds'">Refund Policy</button>
                  </div>
 
                  <div class="overflow-y-auto text-white/80 text-sm md:text-base space-y-4 pr-4 custom-scrollbar leading-relaxed">
                     {{ getLegalContent() }}
                  </div>
-                 <button (click)="activeLegalDoc = null" class="mt-8 w-full py-4 bg-cyan-600/20 border border-cyan-500 hover:bg-cyan-600/40 rounded-xl font-bold text-cyan-300 transition text-xl">Close</button>
+                 <button (click)="activeLegalDoc = null" class="mt-8 w-full py-4 bg-orange-600/20 border border-orange-500 hover:bg-orange-600/40 rounded-xl font-bold text-orange-300 transition text-xl">Close</button>
              </div>
           </div>
       }

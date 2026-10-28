@@ -18,7 +18,7 @@ import { TrioMode } from '../../data/mode-records';
       </button>
 
       <div class="bg-black/60 backdrop-blur-xl border border-white/10 rounded-3xl p-4 md:p-8 w-full max-w-3xl mt-16 md:mt-12 shadow-[0_0_50px_rgba(255,100,0,0.1)]">
-        <h2 class="text-3xl md:text-4xl font-black text-center mb-6 md:mb-8 text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-yellow-500">
+        <h2 class="text-3xl md:text-4xl font-black text-center mb-6 md:mb-8 text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-orange-500">
           {{ activeTab() === 'world' ? 'PER-WORLD RECORDS' : 'GLOBAL LEADERBOARD' }}
         </h2>
         <div class="flex gap-3 md:gap-4 justify-center mb-6 flex-wrap">
@@ -28,12 +28,12 @@ import { TrioMode } from '../../data/mode-records';
                 SURVIVAL
             </button>
             <button (click)="switchTab('battle')"
-                    [ngClass]="activeTab() === 'battle' ? 'border-fuchsia-500 text-white' : 'border-white/10 text-white/50'"
+                    [ngClass]="activeTab() === 'battle' ? 'border-orange-500 text-white' : 'border-white/10 text-white/50'"
                     class="px-5 py-2 rounded-full border-2 bg-white/5 hover:bg-white/10 transition font-bold tracking-widest">
                 BATTLE MODE
             </button>
             <button (click)="switchTab('world')"
-                    [ngClass]="activeTab() === 'world' ? 'border-cyan-500 text-white' : 'border-white/10 text-white/50'"
+                    [ngClass]="activeTab() === 'world' ? 'border-orange-500 text-white' : 'border-white/10 text-white/50'"
                     class="px-5 py-2 rounded-full border-2 bg-white/5 hover:bg-white/10 transition font-bold tracking-widest">
                 PER-WORLD
             </button>
@@ -55,10 +55,10 @@ import { TrioMode } from '../../data/mode-records';
                         [ngClass]="worldMode() === 'normal' ? 'bg-orange-500/80 text-white' : 'bg-white/5 text-white/50 hover:text-white'"
                         class="px-4 py-1.5 rounded-full text-xs font-black tracking-widest uppercase transition">Normal</button>
                 <button (click)="switchWorldMode('endless')"
-                        [ngClass]="worldMode() === 'endless' ? 'bg-cyan-500/80 text-white' : 'bg-white/5 text-white/50 hover:text-white'"
+                        [ngClass]="worldMode() === 'endless' ? 'bg-orange-500/80 text-white' : 'bg-white/5 text-white/50 hover:text-white'"
                         class="px-4 py-1.5 rounded-full text-xs font-black tracking-widest uppercase transition">Endless</button>
                 <button (click)="switchWorldMode('battle')"
-                        [ngClass]="worldMode() === 'battle' ? 'bg-fuchsia-500/80 text-white' : 'bg-white/5 text-white/50 hover:text-white'"
+                        [ngClass]="worldMode() === 'battle' ? 'bg-orange-500/80 text-white' : 'bg-white/5 text-white/50 hover:text-white'"
                         class="px-4 py-1.5 rounded-full text-xs font-black tracking-widest uppercase transition">Battle</button>
             </div>
             @if (ownRecordText()) {
@@ -75,13 +75,13 @@ import { TrioMode } from '../../data/mode-records';
                 @for (player of players(); track player.username; let i = $index) {
                     <div class="flex items-center gap-2 md:gap-4 bg-white/5 border border-white/5 p-3 md:p-4 rounded-xl hover:bg-white/10 transition min-w-[300px]">
                         <div class="w-8 md:w-12 text-center font-black text-xl md:text-2xl"
-                             [class.text-yellow-400]="i === 0"
+                             [class.text-orange-400]="i === 0"
                              [class.text-gray-300]="i === 1"
                              [class.text-orange-600]="i === 2"
                              [class.text-white/40]="i > 2">
                             #{{ i + 1 }}
                         </div>
-                        <div class="w-12 h-12 rounded-full bg-gradient-to-tr from-orange-500 to-purple-600 flex items-center justify-center text-xl font-black shadow-lg">
+                        <div class="w-12 h-12 rounded-full bg-gradient-to-tr from-orange-500 to-orange-600 flex items-center justify-center text-xl font-black shadow-lg">
                           {{ player.username.charAt(0).toUpperCase() }}
                         </div>
                         <div class="flex-1">
@@ -95,16 +95,16 @@ import { TrioMode } from '../../data/mode-records';
                                 <div class="text-orange-400 font-bold text-2xl">Lvl {{ player.level }}</div>
                                 <div class="text-white/40 text-sm">{{ player.xp }} XP</div>
                             } @else if (activeTab() === 'battle') {
-                                <div class="text-fuchsia-400 font-bold text-2xl">{{ player.battleHighscore }}</div>
+                                <div class="text-orange-400 font-bold text-2xl">{{ player.battleHighscore }}</div>
                                 <div class="text-white/40 text-sm">Lvl {{ player.level }} | {{ formatTime(player.battleBestTime) }} | {{ player.battleBestCoins }} Coins</div>
                             } @else if (worldMode() === 'normal') {
                                 <div class="text-orange-400 font-bold text-2xl">{{ formatTime(player.bestClearSec) }}</div>
                                 <div class="text-white/40 text-sm">Lvl {{ player.level }} | {{ player.clearKills }} Kills</div>
                             } @else if (worldMode() === 'endless') {
-                                <div class="text-cyan-400 font-bold text-2xl">{{ formatTime(player.bestTimeSec) }}</div>
+                                <div class="text-orange-400 font-bold text-2xl">{{ formatTime(player.bestTimeSec) }}</div>
                                 <div class="text-white/40 text-sm">Lvl {{ player.level }} | {{ player.bestKills }} Kills</div>
                             } @else {
-                                <div class="text-fuchsia-400 font-bold text-2xl">{{ player.bestScore }}</div>
+                                <div class="text-orange-400 font-bold text-2xl">{{ player.bestScore }}</div>
                                 <div class="text-white/40 text-sm">Lvl {{ player.level }} | {{ formatTime(player.bestTimeSec) }} | {{ player.bestCoins }} Coins</div>
                             }
                         </div>

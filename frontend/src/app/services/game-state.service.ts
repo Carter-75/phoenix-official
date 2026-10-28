@@ -788,7 +788,10 @@ export class GameStateService {
           this.trophies.set([...current, name]);
           // Simple visual notification
           const el = document.createElement('div');
-          el.className = 'fixed bottom-4 right-4 bg-black/90 text-yellow-400 border border-yellow-500/30 px-5 py-2 rounded-xl font-bold shadow-[0_0_15px_rgba(255,200,0,0.15)] z-50 flex items-center gap-2 animate-fade-in transition-opacity duration-500';
+          // bottom-36 keeps the toast clear of the in-game bottom HUD
+          // rail (Fix Round 1, Part 6): it must never cover the ability
+          // tiles while it is on screen.
+          el.className = 'fixed bottom-36 right-4 bg-zinc-950/95 text-orange-300 border border-orange-500/40 px-5 py-2 rounded-xl font-bold shadow-[0_0_15px_rgba(255,100,0,0.2)] z-50 flex items-center gap-2 animate-fade-in transition-opacity duration-500';
           el.innerHTML = `<span class="text-2xl">🏆</span> <span>${name} Unlocked</span>`;
           document.body.appendChild(el);
           setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 500); }, 3000);

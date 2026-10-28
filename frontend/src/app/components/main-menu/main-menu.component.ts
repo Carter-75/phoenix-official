@@ -41,7 +41,6 @@ import { AdsService } from '../../services/ads.service';
       .menu-play { margin-top: 0.35rem !important; }
       .menu-play img { width: 4.25rem !important; height: 4.25rem !important; }
       .menu-play p { bottom: -1.1rem !important; font-size: 0.6rem !important; }
-      .menu-mode-toggle { bottom: 0.9rem !important; }
 
       /* Header at short heights (fix round 1 leftover): at 640x360 the
          stacked two-row header (currencies over nav) was about 130 px
@@ -72,13 +71,13 @@ import { AdsService } from '../../services/ads.service';
         <!-- Gems -->
         <div class="flex items-center gap-2 bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/10">
           <img src="assets/gem_icon.png" alt="Gems" class="w-6 h-6 object-contain" />
-          <span class="text-xl font-bold text-purple-400">{{ gameState.gems() }}</span>
+          <span class="text-xl font-bold text-white">{{ gameState.gems() }}</span>
         </div>
       </div>
       
       <!-- Navigation -->
       <div class="menu-header-nav flex flex-wrap items-center justify-center md:justify-end gap-2 md:gap-4 w-full md:w-auto pointer-events-auto">
-        <button (click)="openCodex()" class="px-3 py-1.5 md:px-4 md:py-2 text-sm md:text-base bg-white/5 hover:bg-white/10 border border-white/10 rounded-full font-semibold transition backdrop-blur-md text-amber-400">
+        <button (click)="openCodex()" class="px-3 py-1.5 md:px-4 md:py-2 text-sm md:text-base bg-white/5 hover:bg-white/10 border border-white/10 rounded-full font-semibold transition backdrop-blur-md text-white">
           Codex
         </button>
         <button (click)="openLeaderboard()" class="px-3 py-1.5 md:px-4 md:py-2 text-sm md:text-base bg-white/5 hover:bg-white/10 border border-white/10 rounded-full font-semibold transition backdrop-blur-md text-white">
@@ -101,7 +100,7 @@ import { AdsService } from '../../services/ads.service';
     <div class="fixed bottom-0 inset-x-0 z-50 flex items-end justify-between gap-3 p-4 md:p-6 pointer-events-none">
       <!-- Deliberate 2x boost (rewarded ad, opt-in only) -->
       <button (click)="watchBoostAd()" class="pointer-events-auto px-4 py-2 rounded-full border font-bold transition max-w-[52vw]"
-              [ngClass]="gameState.tempCoinMultiplier() > 1 ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300' : 'bg-blue-500/10 border-blue-400/30 text-blue-200 hover:bg-blue-500/20'">
+              [ngClass]="gameState.tempCoinMultiplier() > 1 ? 'bg-orange-500/25 border-orange-400/50 text-white' : 'bg-orange-500/10 border-orange-400/30 text-orange-200 hover:bg-orange-500/20'">
          @if (gameState.tempCoinMultiplier() > 1) {
             ⚡ 2x Boost Active
          } @else {
@@ -158,7 +157,7 @@ import { AdsService } from '../../services/ads.service';
             </button>
             <button (click)="campaignPlayMode.set('endless')"
                     class="px-4 py-1 rounded-full text-xs font-black tracking-widest uppercase transition"
-                    [ngClass]="campaignPlayMode() === 'endless' ? 'bg-cyan-500/80 text-white' : 'text-white/50 hover:text-white'">
+                    [ngClass]="campaignPlayMode() === 'endless' ? 'bg-red-500/80 text-white' : 'text-white/50 hover:text-white'">
               Endless
             </button>
             <button (click)="activeMenuMode = 'battle'"

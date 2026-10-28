@@ -15,7 +15,7 @@ import anime from 'animejs';
             (click)="onBubbleClick()"
             [style.left.px]="x()"
             [style.top.px]="y()">
-          <div class="relative w-16 h-16 rounded-full bg-gradient-to-br from-blue-300/40 to-purple-500/40 border border-white/50 backdrop-blur-sm shadow-[0_0_15px_rgba(255,255,255,0.5)] flex flex-col items-center justify-center animate-[pulse_2s_ease-in-out_infinite]">
+          <div class="relative w-16 h-16 rounded-full bg-gradient-to-br from-orange-300/40 to-orange-500/40 border border-white/50 backdrop-blur-sm shadow-[0_0_15px_rgba(255,255,255,0.5)] flex flex-col items-center justify-center animate-[pulse_2s_ease-in-out_infinite]">
              <span class="absolute top-1 left-2 w-3 h-1 bg-white/60 rounded-full rotate-[-45deg]"></span>
              <span class="text-xl drop-shadow-md z-10">{{ getRewardIcon() }}</span>
              <span class="text-[10px] font-black text-white bg-red-600 px-1 rounded absolute -bottom-2 border border-red-900 shadow-sm z-10">AD</span>
@@ -38,7 +38,7 @@ import anime from 'animejs';
                 <button (click)="declineOffer()" class="flex-1 py-3 bg-red-900/30 hover:bg-red-800/50 border border-red-500/50 rounded-xl text-white font-bold transition">
                    Decline
                 </button>
-                <button (click)="acceptOffer()" class="flex-1 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 hover:brightness-125 border border-cyan-400/50 rounded-xl text-white font-bold transition flex justify-center items-center gap-2">
+                <button (click)="acceptOffer()" class="flex-1 py-3 bg-gradient-to-r from-orange-600 to-orange-600 hover:brightness-125 border border-orange-400/50 rounded-xl text-white font-bold transition flex justify-center items-center gap-2">
                    <span>Watch</span> <span class="text-xl">📺</span>
                 </button>
              </div>

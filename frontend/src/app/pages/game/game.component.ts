@@ -35,15 +35,17 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
   template: `
     <div class="fixed inset-0 z-10 w-full h-full pointer-events-none" [style.transform]="shakeTransform()">
       
-      <!-- Progress Bar Overlay -->
-      <div class="absolute top-8 left-1/2 -translate-x-1/2 w-[80%] max-w-2xl flex flex-col items-center gap-2 pointer-events-auto">
+      <!-- Progress Bar Overlay (Fix Round 1, Part 6: the top rail is
+           width-capped so it can never run under the pause button,
+           which owns the top-right corner). -->
+      <div class="absolute top-4 left-1/2 -translate-x-1/2 w-[68%] max-w-2xl flex flex-col items-center gap-2 pointer-events-auto">
         @if (gameState.currentGameMode() === 'battle' || gameState.currentGameMode() === 'ai_vs_ai') {
            <span class="text-white font-bold tracking-widest uppercase drop-shadow-md text-xl">{{ gameState.currentGameMode() === 'ai_vs_ai' ? 'AI VS AI' : 'BATTLE MODE' }}</span>
            <span class="text-white/90 font-mono text-2xl font-bold">{{ formatTime(battleTimer()) }}</span>
-           
+
            <span class="text-white font-bold tracking-widest uppercase drop-shadow-md mt-4">AI PHOENIX</span>
            <div class="w-full h-4 bg-black/50 border border-white/20 rounded-full overflow-hidden shadow-[0_0_15px_rgba(255,0,0,0.2)]">
-              <div class="h-full bg-gradient-to-r from-cyan-600 to-blue-600 transition-all duration-300"
+              <div class="h-full bg-gradient-to-r from-red-600 to-red-400 transition-all duration-300"
                    [style.width]="bossHealthPercent() + '%'"></div>
            </div>
         } @else if (gameState.currentGameMode() === 'endless') {
@@ -82,91 +84,157 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
         }
       </div>
       
-      <!-- AI vs AI Scoreboard UI -->
+      <!-- AI vs AI Scoreboard UI (raised above the bottom HUD rail,
+           Fix Round 1, Part 6). -->
       @if (gameState.currentGameMode() === 'ai_vs_ai') {
-          <div class="absolute bottom-20 right-4 md:right-8 flex flex-col gap-1 pointer-events-auto z-10 p-4 bg-black/50 border border-white/10 rounded-2xl backdrop-blur-sm">
+          <div class="absolute bottom-44 right-4 md:right-8 flex flex-col gap-1 pointer-events-auto z-10 p-4 bg-zinc-950/70 backdrop-blur-md border border-white/10 rounded-2xl">
              <div class="text-white/80 font-bold text-xs tracking-widest uppercase mb-1 text-right">Wins</div>
-             <div class="text-3xl font-black text-cyan-400 drop-shadow-md text-right">{{ gameState.ai1Wins() }}</div>
+             <div class="text-3xl font-black text-orange-400 drop-shadow-md text-right">{{ gameState.ai1Wins() }}</div>
           </div>
-          <div class="absolute bottom-20 left-4 md:left-8 flex flex-col gap-1 pointer-events-auto z-10 p-4 bg-black/50 border border-white/10 rounded-2xl backdrop-blur-sm">
+          <div class="absolute bottom-44 left-4 md:left-8 flex flex-col gap-1 pointer-events-auto z-10 p-4 bg-zinc-950/70 backdrop-blur-md border border-white/10 rounded-2xl">
              <div class="text-white/80 font-bold text-xs tracking-widest uppercase mb-1">Wins</div>
-             <div class="text-3xl font-black text-fuchsia-400 drop-shadow-md">{{ gameState.ai2Wins() }}</div>
+             <div class="text-3xl font-black text-red-400 drop-shadow-md">{{ gameState.ai2Wins() }}</div>
           </div>
       }
 
       <!-- Battle Score UI -->
       @if (gameState.currentGameMode() === 'battle') {
-          <div class="absolute bottom-20 left-4 md:left-8 flex flex-col gap-1 pointer-events-auto z-10 p-4 bg-black/50 border border-white/10 rounded-2xl backdrop-blur-sm">
+          <div class="absolute bottom-44 left-4 md:left-8 flex flex-col gap-1 pointer-events-auto z-10 p-4 bg-zinc-950/70 backdrop-blur-md border border-white/10 rounded-2xl">
              <div class="text-white/80 font-bold text-xs tracking-widest uppercase mb-1">Battle Stats</div>
-             <div class="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-cyan-400 drop-shadow-md flex items-center gap-2">
+             <div class="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-red-500 drop-shadow-md flex items-center gap-2">
                  <span>Score:</span> <span>{{ currentBattleScore() }}</span>
              </div>
-             <div class="text-lg font-bold text-yellow-400 flex items-center gap-2 drop-shadow-md">
+             <div class="text-lg font-bold text-orange-300 flex items-center gap-2 drop-shadow-md">
                  <img src="assets/coin_icon.png" class="w-5 h-5"/> <span>{{ gameState.coins() }}</span>
-                 <span class="text-xs text-yellow-500 ml-1">(+{{ currentBattleCoinsGained() }})</span>
+                 <span class="text-xs text-orange-400/80 ml-1">(+{{ currentBattleCoinsGained() }})</span>
              </div>
           </div>
       }
       
-      <!-- Health Bar -->
-      <div class="absolute bottom-8 left-1/2 -translate-x-1/2 w-48 md:w-64 flex flex-col items-center gap-2 pointer-events-auto">
-        @if (gameState.currentGameMode() === 'ai_vs_ai') {
-            <span class="text-white font-bold tracking-widest uppercase drop-shadow-md mt-4 text-xs">AI PHOENIX</span>
-        }
-        <div class="w-full h-4 bg-black/50 border border-white/20 rounded-full overflow-hidden shadow-[0_0_15px_rgba(255,0,0,0.2)]">
-           <div class="h-full bg-gradient-to-r from-red-600 to-fuchsia-600 transition-all duration-300"
-                [style.width]="(currentHealth() / maxHealth()) * 100 + '%'"></div>
+      <!-- Bottom HUD rail (Fix Round 1, Part 6): HP, level, status,
+           and the ability buttons live in ONE stacked rail with a
+           fixed layout, so no element can overlap another. The old
+           centered HP cluster and the right-anchored ability row
+           collided at phone widths and hid the level line behind
+           the buttons. -->
+      <div class="absolute bottom-0 inset-x-0 px-4 pb-4 flex flex-col gap-2 pointer-events-none">
+        <!-- HP row: bar, readout, level badge on one line. -->
+        <div class="flex items-center gap-3 pointer-events-auto">
+          @if (gameState.currentGameMode() === 'ai_vs_ai') {
+              <span class="text-white font-bold tracking-widest uppercase drop-shadow-md text-xs shrink-0">AI Phoenix</span>
+          }
+          <div class="flex-1 h-3.5 bg-black/50 border border-white/15 rounded-full overflow-hidden">
+             <div class="h-full bg-gradient-to-r from-red-600 to-orange-500 transition-all duration-300"
+                  [style.width]="(currentHealth() / maxHealth()) * 100 + '%'"></div>
+          </div>
+          <span class="text-red-300 font-bold text-sm shrink-0">{{ currentHealth() }} / {{ maxHealth() }}</span>
+          <!-- Account level in the HUD (S6 level audit), now a badge
+               on the HP row where it can never be covered. The max HP
+               beside it already includes the level bonus in campaign. -->
+          @if (gameState.currentGameMode() === 'campaign' || gameState.currentGameMode() === 'endless') {
+            <span class="shrink-0 px-2 py-0.5 rounded-full bg-orange-500/15 border border-orange-500/40 text-orange-300 font-black text-[11px] tracking-widest">LV {{ gameState.level() }}</span>
+          }
         </div>
-        <span class="text-red-400 font-bold text-sm">{{ currentHealth() }} / {{ maxHealth() }}</span>
-        <!-- Account level in the HUD (S6 level audit: level showed
-             on the profile and the survival board but nowhere in a
-             run; it sits under the health readout, and the max HP
-             beside it already includes the level bonus in campaign). -->
-        @if (gameState.currentGameMode() === 'campaign' || gameState.currentGameMode() === 'endless') {
-          <span class="text-orange-300/90 font-bold text-xs tracking-widest -mt-1">LV {{ gameState.level() }}</span>
-        }
-        <!-- Stamina arc (spec Section 2.5): a slim ring under the HP
-             bar in the skin's mid color, emptying toward the hostile
-             color as it drains. No numbers, no popups. It glows while
-             gliding (Section 2.6). -->
-        @if (gameState.currentGameMode() !== 'ai_vs_ai') {
-          <div class="w-10 h-10 rounded-full flex items-center justify-center transition-shadow duration-300"
-               [style.background]="staminaArcBackground()"
-               [style.box-shadow]="gameState.playerMovement.gliding ? '0 0 14px rgba(255,255,255,0.55)' : '0 0 6px rgba(0,0,0,0.5)'"
-               title="Stamina">
-            <div class="w-7 h-7 rounded-full bg-black/70"></div>
-          </div>
-        }
-        <!-- Defense and charge status (Stage 7 tie-in for S3's
-             signal, plus the S5 Overcharge charge). The Aegis Charm
-             pill exists only while that gadget is equipped: bright,
-             pulsing, and ringed while its one charge is armed, then
-             dimmed and struck through for the rest of the run once
-             the charge has negated its hit, so the negation is never
-             silent. The Overcharge pill shows only while a charge
-             is held, with its remaining window. -->
-        @if (gameState.currentGameMode() !== 'ai_vs_ai' && (gameState.currentStats().activeGadget === 'aegis_charm' || overchargeReady())) {
-          <div class="flex items-center gap-2 mt-1">
-            @if (gameState.currentStats().activeGadget === 'aegis_charm') {
-              <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border backdrop-blur-sm transition-all duration-300"
-                   [class]="aegisShieldActive()
-                     ? 'bg-cyan-400/20 border-cyan-300/70 shadow-[0_0_12px_rgba(34,211,238,0.55)] animate-pulse'
-                     : 'bg-black/40 border-white/15 opacity-50'"
-                   title="Aegis Charm: one-hit shield">
-                <span class="text-sm" [class.grayscale]="!aegisShieldActive()">🛡️</span>
-                <span class="text-[10px] font-black tracking-widest uppercase"
-                      [class]="aegisShieldActive() ? 'text-cyan-200' : 'text-white/50 line-through'">Aegis</span>
+        <!-- Status and abilities row: stamina and gadget status on
+             the left, the four ability slots on the right. -->
+        <div class="flex items-end justify-between gap-3">
+          <div class="flex items-center gap-2 pointer-events-auto pb-1">
+            <!-- Stamina arc (spec Section 2.5): a slim ring in the
+                 skin's mid color, emptying toward the hostile color
+                 as it drains. No numbers, no popups. It glows while
+                 gliding (Section 2.6). -->
+            @if (gameState.currentGameMode() !== 'ai_vs_ai') {
+              <div class="w-9 h-9 rounded-full flex items-center justify-center transition-shadow duration-300 shrink-0"
+                   [style.background]="staminaArcBackground()"
+                   [style.box-shadow]="gameState.playerMovement.gliding ? '0 0 14px rgba(255,255,255,0.55)' : '0 0 6px rgba(0,0,0,0.5)'"
+                   title="Stamina">
+                <div class="w-6 h-6 rounded-full bg-black/70"></div>
               </div>
             }
-            @if (overchargeReady()) {
-              <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border bg-violet-500/25 border-violet-300/70 shadow-[0_0_12px_rgba(167,139,250,0.55)] backdrop-blur-sm animate-pulse"
-                   title="Overcharge: your next cast ignores its cooldown">
-                <span class="text-sm">⚡</span>
-                <span class="text-[10px] font-black tracking-widest uppercase text-violet-200">Overcharge</span>
-              </div>
+            <!-- Defense and charge status (Stage 7 tie-in for S3's
+                 signal, plus the S5 Overcharge charge). The Aegis
+                 Charm pill exists only while that gadget is equipped:
+                 bright, pulsing, and ringed while its one charge is
+                 armed, then dimmed and struck through for the rest of
+                 the run once the charge has negated its hit, so the
+                 negation is never silent. The Overcharge pill shows
+                 only while a charge is held, with its remaining
+                 window. -->
+            @if (gameState.currentGameMode() !== 'ai_vs_ai' && (gameState.currentStats().activeGadget === 'aegis_charm' || overchargeReady())) {
+              @if (gameState.currentStats().activeGadget === 'aegis_charm') {
+                <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border backdrop-blur-sm transition-all duration-300"
+                     [class]="aegisShieldActive()
+                       ? 'bg-orange-400/20 border-orange-300/70 shadow-[0_0_12px_rgba(255,120,40,0.55)] animate-pulse'
+                       : 'bg-black/40 border-white/15 opacity-50'"
+                     title="Aegis Charm: one-hit shield">
+                  <span class="text-sm" [class.grayscale]="!aegisShieldActive()">🛡️</span>
+                  <span class="text-[10px] font-black tracking-widest uppercase"
+                        [class]="aegisShieldActive() ? 'text-orange-200' : 'text-white/50 line-through'">Aegis</span>
+                </div>
+              }
+              @if (overchargeReady()) {
+                <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border bg-red-500/25 border-red-300/70 shadow-[0_0_12px_rgba(255,80,40,0.55)] backdrop-blur-sm animate-pulse"
+                     title="Overcharge: your next cast ignores its cooldown">
+                  <span class="text-sm">⚡</span>
+                  <span class="text-[10px] font-black tracking-widest uppercase text-red-200">Overcharge</span>
+                </div>
+              }
             }
           </div>
-        }
+
+          <!-- Ability slots: one uniform tile design for all four
+               families, each with its family label. -->
+          <div class="flex gap-2 md:gap-3 pointer-events-auto">
+            <!-- Tap Ability -->
+            <div class="relative w-14 h-14 md:w-16 md:h-16 bg-zinc-950/70 backdrop-blur-md border border-white/15 rounded-2xl overflow-hidden flex items-center justify-center">
+              <span class="text-3xl z-10" [class.opacity-50]="tapCooldown() > 0">{{ getTapIcon() }}</span>
+              <span class="absolute bottom-1 inset-x-0 z-20 text-center text-[9px] font-bold text-white/50 uppercase tracking-wider">Tap</span>
+              @if (tapCooldown() > 0) {
+                <div class="absolute bottom-0 left-0 w-full bg-orange-500/40 transition-all" [style.height]="(tapCooldown() / getTapMaxCooldown()) * 100 + '%'"></div>
+                <span class="absolute z-20 text-white font-bold drop-shadow-md">{{ tapCooldown().toFixed(1) }}</span>
+              }
+            </div>
+            <!-- Hold Ability -->
+            <div class="relative w-14 h-14 md:w-16 md:h-16 bg-zinc-950/70 backdrop-blur-md border border-white/15 rounded-2xl overflow-hidden flex items-center justify-center"
+                 [class.ring-2]="holdChargeProgress() > 0" [class.ring-orange-300]="holdChargeProgress() > 0">
+              <span class="text-3xl z-10" [class.opacity-50]="holdCooldown() > 0">{{ getHoldIcon() }}</span>
+              <span class="absolute bottom-1 inset-x-0 z-20 text-center text-[9px] font-bold text-white/50 uppercase tracking-wider">Hold</span>
+              @if (holdCooldown() > 0) {
+                <div class="absolute bottom-0 left-0 w-full bg-red-500/40 transition-all" [style.height]="(holdCooldown() / getHoldMaxCooldown()) * 100 + '%'"></div>
+                <span class="absolute z-20 text-white font-bold drop-shadow-md">{{ holdCooldown().toFixed(1) }}</span>
+              }
+              @if (holdChargeProgress() > 0 && (holdCooldown() <= 0 || overchargeReady())) {
+                <div class="absolute bottom-0 left-0 w-full bg-orange-400/40" [style.height]="holdChargeProgress() * 100 + '%'"></div>
+              }
+            </div>
+            <!-- Double-tap slot (spec Section 3.2). -->
+            <div class="relative w-14 h-14 md:w-16 md:h-16 bg-zinc-950/70 backdrop-blur-md border border-white/15 rounded-2xl overflow-hidden flex items-center justify-center">
+              @if (gameState.currentStats().activeDoubleAbility) {
+                <span class="text-3xl z-10" [class.opacity-50]="doubleCooldown() > 0">{{ getDoubleIcon() }}</span>
+              } @else {
+                <span class="text-lg font-black text-white/40 z-10">2x</span>
+              }
+              <span class="absolute bottom-1 inset-x-0 z-20 text-center text-[9px] font-bold text-white/50 uppercase tracking-wider">Dbl</span>
+              @if (doubleCooldown() > 0) {
+                <div class="absolute bottom-0 left-0 w-full bg-orange-700/40 transition-all" [style.height]="(doubleCooldown() / getDoubleMaxCooldown()) * 100 + '%'"></div>
+                <span class="absolute z-20 text-white font-bold drop-shadow-md">{{ doubleCooldown().toFixed(1) }}</span>
+              }
+            </div>
+            <!-- Triple-tap slot (the ultimate slot, spec Section 3.2). -->
+            <div class="relative w-14 h-14 md:w-16 md:h-16 bg-zinc-950/70 backdrop-blur-md border border-white/15 rounded-2xl overflow-hidden flex items-center justify-center">
+              @if (gameState.currentStats().activeTripleAbility) {
+                <span class="text-3xl z-10" [class.opacity-50]="tripleCooldown() > 0">{{ getTripleIcon() }}</span>
+              } @else {
+                <span class="text-lg font-black text-white/40 z-10">3x</span>
+              }
+              <span class="absolute bottom-1 inset-x-0 z-20 text-center text-[9px] font-bold text-white/50 uppercase tracking-wider">Ult</span>
+              @if (tripleCooldown() > 0) {
+                <div class="absolute bottom-0 left-0 w-full bg-red-700/50 transition-all" [style.height]="(tripleCooldown() / getTripleMaxCooldown()) * 100 + '%'"></div>
+                <span class="absolute z-20 text-white font-bold drop-shadow-md">{{ tripleCooldown().toFixed(1) }}</span>
+              }
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Damage numbers layer (spec Section 4.4): player-dealt damage
@@ -184,70 +252,18 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
         }
       }
 
-      <!-- Cooldown UI -->
-      <div class="absolute bottom-8 right-4 md:right-8 flex gap-2 md:gap-4 pointer-events-auto">
-        <!-- Tap Ability -->
-        <div class="relative w-14 h-14 md:w-16 md:h-16 bg-black/50 border border-white/20 rounded-2xl overflow-hidden flex items-center justify-center backdrop-blur-sm shadow-[0_0_15px_rgba(255,100,200,0.2)]">
-          <span class="text-3xl z-10" [class.opacity-50]="tapCooldown() > 0">{{ getTapIcon() }}</span>
-          @if (tapCooldown() > 0) {
-            <div class="absolute bottom-0 left-0 w-full bg-pink-600/50 transition-all" [style.height]="(tapCooldown() / getTapMaxCooldown()) * 100 + '%'"></div>
-            <span class="absolute z-20 text-white font-bold drop-shadow-md">{{ tapCooldown().toFixed(1) }}</span>
-          }
-        </div>
-        <!-- Hold Ability -->
-        <div class="relative w-14 h-14 md:w-16 md:h-16 bg-black/50 border border-white/20 rounded-2xl overflow-hidden flex items-center justify-center backdrop-blur-sm shadow-[0_0_15px_rgba(0,255,255,0.2)]"
-             [class.ring-2]="holdChargeProgress() > 0" [class.ring-cyan-300]="holdChargeProgress() > 0">
-          <span class="text-3xl z-10" [class.opacity-50]="holdCooldown() > 0">{{ getHoldIcon() }}</span>
-          @if (holdCooldown() > 0) {
-            <div class="absolute bottom-0 left-0 w-full bg-cyan-600/50 transition-all" [style.height]="(holdCooldown() / getHoldMaxCooldown()) * 100 + '%'"></div>
-            <span class="absolute z-20 text-white font-bold drop-shadow-md">{{ holdCooldown().toFixed(1) }}</span>
-          }
-          @if (holdChargeProgress() > 0 && (holdCooldown() <= 0 || overchargeReady())) {
-            <div class="absolute bottom-0 left-0 w-full bg-cyan-400/40" [style.height]="holdChargeProgress() * 100 + '%'"></div>
-          }
-        </div>
-        <!-- Double-tap slot (spec Section 3.2): parsed and equippable
-             from S1; its move pool ships in S2, so an empty slot shows
-             the family mark instead of an icon. -->
-        <div class="relative w-14 h-14 md:w-16 md:h-16 bg-black/50 border border-white/20 rounded-2xl overflow-hidden flex items-center justify-center backdrop-blur-sm shadow-[0_0_15px_rgba(150,100,255,0.2)]">
-          @if (gameState.currentStats().activeDoubleAbility) {
-            <span class="text-3xl z-10" [class.opacity-50]="doubleCooldown() > 0">{{ getDoubleIcon() }}</span>
-          } @else {
-            <span class="text-lg font-black text-white/40 z-10">2x</span>
-          }
-          <span class="absolute bottom-1 right-1.5 z-20 text-[9px] font-bold text-white/50 uppercase tracking-wider">Dbl</span>
-          @if (doubleCooldown() > 0) {
-            <div class="absolute bottom-0 left-0 w-full bg-violet-600/50 transition-all" [style.height]="(doubleCooldown() / getDoubleMaxCooldown()) * 100 + '%'"></div>
-            <span class="absolute z-20 text-white font-bold drop-shadow-md">{{ doubleCooldown().toFixed(1) }}</span>
-          }
-        </div>
-        <!-- Triple-tap slot (the ultimate slot, spec Section 3.2). -->
-        <div class="relative w-14 h-14 md:w-16 md:h-16 bg-black/50 border border-white/20 rounded-2xl overflow-hidden flex items-center justify-center backdrop-blur-sm shadow-[0_0_15px_rgba(255,200,0,0.2)]">
-          @if (gameState.currentStats().activeTripleAbility) {
-            <span class="text-3xl z-10" [class.opacity-50]="tripleCooldown() > 0">{{ getTripleIcon() }}</span>
-          } @else {
-            <span class="text-lg font-black text-white/40 z-10">3x</span>
-          }
-          <span class="absolute bottom-1 right-1.5 z-20 text-[9px] font-bold text-white/50 uppercase tracking-wider">Ult</span>
-          @if (tripleCooldown() > 0) {
-            <div class="absolute bottom-0 left-0 w-full bg-amber-600/50 transition-all" [style.height]="(tripleCooldown() / getTripleMaxCooldown()) * 100 + '%'"></div>
-            <span class="absolute z-20 text-white font-bold drop-shadow-md">{{ tripleCooldown().toFixed(1) }}</span>
-          }
-        </div>
-      </div>
-
       <!-- Hold-charge ring anchored to the finger (fills as you hold still; flashes when ready) -->
       @if (holdChargeProgress() > 0 && (holdCooldown() <= 0 || overchargeReady())) {
         <div class="fixed pointer-events-none z-40 -translate-x-1/2 -translate-y-1/2"
              [style.left.px]="holdChargePos().x" [style.top.px]="holdChargePos().y">
           <div class="w-24 h-24 rounded-full flex items-center justify-center"
                [class.animate-ping]="holdChargeProgress() >= 1"
-               [style.background]="'conic-gradient(rgba(34,211,238,0.85) ' + (holdChargeProgress()*360) + 'deg, rgba(255,255,255,0.08) 0deg)'">
-            <div class="w-20 h-20 rounded-full bg-black/40 border border-cyan-300/40 flex items-center justify-center">
+               [style.background]="'conic-gradient(rgba(255,77,0,0.85) ' + (holdChargeProgress()*360) + 'deg, rgba(255,255,255,0.08) 0deg)'">
+            <div class="w-20 h-20 rounded-full bg-black/40 border border-orange-300/40 flex items-center justify-center">
               @if (holdChargeProgress() >= 1) {
-                <span class="text-cyan-200 text-[10px] font-bold uppercase tracking-widest text-center leading-tight">Release<br/>to move</span>
+                <span class="text-orange-200 text-[10px] font-bold uppercase tracking-widest text-center leading-tight">Release<br/>to move</span>
               } @else {
-                <span class="text-cyan-100/80 text-xs font-bold">{{ (holdChargeProgress()*100).toFixed(0) }}%</span>
+                <span class="text-orange-100/80 text-xs font-bold">{{ (holdChargeProgress()*100).toFixed(0) }}%</span>
               }
             </div>
           </div>
@@ -269,35 +285,38 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
       }
 
       <!-- Pause Button -->
-      <button (click)="togglePause()" class="absolute top-8 right-4 md:right-8 w-10 h-10 md:w-12 md:h-12 bg-black/50 border border-white/20 rounded-full flex items-center justify-center pointer-events-auto hover:bg-white/10 transition z-20">
+      <button (click)="togglePause()" class="absolute top-4 right-4 md:right-8 w-11 h-11 md:w-12 md:h-12 bg-zinc-950/70 backdrop-blur-md border border-white/15 rounded-full flex items-center justify-center pointer-events-auto hover:bg-white/10 transition z-20">
         <span class="text-white font-bold text-xl">||</span>
       </button>
 
-      <!-- Pause Screen -->
+      <!-- Pause Screen (Fix Round 1, Part 6: a proper obsidian panel
+           with the shared button system, not floating text). -->
       @if (gameState.isPaused()) {
-        <div class="absolute inset-0 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto z-40">
-          <h2 (click)="onPauseTextClick()" 
-              class="text-6xl font-black mb-8 tracking-widest cursor-pointer select-none transition-all duration-300"
-              [class.text-red-500]="cheatPrepared()"
-              [class.drop-shadow-[0_0_15px_rgba(239,68,68,0.8)]]="cheatPrepared()"
-              [class.text-white]="!cheatPrepared()"
-              [class.drop-shadow-lg]="!cheatPrepared()">PAUSED</h2>
-          
-          <div class="flex flex-col gap-4 w-full max-w-xs">
-            <button (click)="togglePause()" class="w-full py-4 bg-white/10 hover:bg-white/20 border border-white/30 rounded-2xl text-white font-bold text-xl transition">
-              Resume
-            </button>
-            <button (click)="showSettings = true" class="w-full py-4 bg-white/5 hover:bg-white/10 border border-white/20 rounded-2xl text-white font-bold text-lg transition">
-              Settings
-            </button>
-            @if (gameState.currentGameMode() === 'ai_vs_ai') {
-                <button (click)="mlAi.downloadWeights()" class="w-full py-4 bg-blue-900/50 hover:bg-blue-800/50 border border-blue-500/50 rounded-2xl text-white font-bold text-lg transition">
-                  Download AI Weights
-                </button>
-            }
-            <button (click)="quitFromPause()" class="w-full py-4 bg-transparent hover:bg-white/5 border border-transparent hover:border-white/10 rounded-2xl text-white/50 hover:text-white transition">
-              Quit to Menu
-            </button>
+        <div class="absolute inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center pointer-events-auto z-40 px-6">
+          <div class="w-full max-w-xs bg-zinc-950/90 border border-white/10 rounded-3xl p-6 flex flex-col items-center shadow-2xl">
+            <h2 (click)="onPauseTextClick()"
+                class="text-4xl font-black mb-6 tracking-widest cursor-pointer select-none transition-all duration-300"
+                [class.text-red-500]="cheatPrepared()"
+                [class.drop-shadow-[0_0_15px_rgba(239,68,68,0.8)]]="cheatPrepared()"
+                [class.text-white]="!cheatPrepared()"
+                [class.drop-shadow-lg]="!cheatPrepared()">PAUSED</h2>
+
+            <div class="flex flex-col gap-3 w-full">
+              <button (click)="togglePause()" class="w-full py-3.5 bg-gradient-to-r from-orange-500 to-red-600 hover:brightness-110 active:scale-95 rounded-2xl text-white font-bold text-lg transition shadow-lg shadow-orange-900/40">
+                Resume
+              </button>
+              <button (click)="showSettings = true" class="w-full py-3.5 bg-white/5 hover:bg-white/10 border border-white/15 rounded-2xl text-white font-bold text-lg transition">
+                Settings
+              </button>
+              @if (gameState.currentGameMode() === 'ai_vs_ai') {
+                  <button (click)="mlAi.downloadWeights()" class="w-full py-3.5 bg-white/5 hover:bg-white/10 border border-orange-500/40 rounded-2xl text-white font-bold text-lg transition">
+                    Download AI Weights
+                  </button>
+              }
+              <button (click)="quitFromPause()" class="w-full py-3.5 bg-transparent hover:bg-white/5 border border-transparent rounded-2xl text-red-300/70 hover:text-red-300 font-semibold transition">
+                Quit to Menu
+              </button>
+            </div>
           </div>
         </div>
       }
@@ -316,54 +335,54 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
 
       <!-- Death / Tombstone Screen -->
       @if (isDead()) {
-        <div class="absolute inset-0 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto z-50">
-          <div class="w-32 h-40 bg-gray-800 border-4 border-gray-600 rounded-t-full flex flex-col items-center justify-center mb-8 shadow-[0_0_50px_rgba(0,0,0,1)]">
-            <span class="text-5xl text-gray-400">✝</span>
-            <span class="text-gray-500 mt-2 font-mono text-sm">R.I.P</span>
+        <div class="absolute inset-0 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto z-50 px-6">
+          <div class="w-28 h-36 bg-zinc-900 border-2 border-zinc-700 rounded-t-full flex flex-col items-center justify-center mb-6 shadow-[0_0_50px_rgba(0,0,0,1)]">
+            <span class="text-5xl text-zinc-500">✝</span>
+            <span class="text-zinc-500 mt-2 font-mono text-sm">R.I.P</span>
           </div>
 
-          <h2 class="text-5xl font-black text-red-500 mb-2 drop-shadow-lg">YOU DIED</h2>
+          <h2 class="text-5xl font-black text-red-500 mb-2 drop-shadow-lg tracking-wide">YOU DIED</h2>
           @if (!annihilationModeActive() && gameState.currentGameMode() !== 'battle') {
               <p class="text-white text-xl font-bold mb-8">Revive in: <span class="text-orange-400 font-mono">{{ reviveCountdown() }}s</span></p>
               
               <div class="flex flex-col gap-4 w-full max-w-sm">
-                <button (click)="reviveWithGems()" 
+                <button (click)="reviveWithGems()"
                         [disabled]="gameState.gems() < getReviveCost()"
                         [class.opacity-50]="gameState.gems() < getReviveCost()"
                         [class.cursor-not-allowed]="gameState.gems() < getReviveCost()"
-                        class="w-full py-4 bg-gradient-to-r from-purple-600 to-fuchsia-600 hover:brightness-125 border border-fuchsia-400/50 rounded-2xl flex justify-center items-center gap-3 transition shadow-[0_0_20px_rgba(200,0,255,0.3)]">
+                        class="w-full py-4 bg-gradient-to-r from-orange-500 to-red-600 hover:brightness-110 border border-orange-400/50 rounded-2xl flex justify-center items-center gap-3 transition shadow-lg shadow-orange-900/40">
                   <span class="text-white font-bold text-xl">Instant Revive</span>
                   <img src="assets/gem_icon.png" class="w-6 h-6"/>
                   <span class="text-white font-bold text-xl">{{ getReviveCost() }}</span>
                 </button>
                 @if (adRevivesUsed < maxAdRevivesPerRun) {
-                <button (click)="reviveWithAd()" class="w-full mt-2 py-4 bg-gradient-to-r from-blue-600 to-cyan-600 hover:brightness-125 border border-cyan-400/50 rounded-2xl flex justify-center items-center gap-3 transition shadow-[0_0_20px_rgba(0,200,255,0.3)]">
+                <button (click)="reviveWithAd()" class="w-full mt-2 py-4 bg-white/5 hover:bg-white/10 border border-white/25 rounded-2xl flex justify-center items-center gap-3 transition">
                   <span class="text-white font-bold text-xl">Watch Ad to Revive</span>
                   <span class="text-2xl">📺</span>
                 </button>
                 }
                 @if (gameState.reviveTokens() > 0) {
-                <button (click)="reviveWithToken()" class="w-full mt-2 py-4 bg-gradient-to-r from-amber-600 to-orange-600 hover:brightness-125 border border-amber-400/50 rounded-2xl flex justify-center items-center gap-3 transition shadow-[0_0_20px_rgba(255,180,0,0.3)]">
+                <button (click)="reviveWithToken()" class="w-full mt-2 py-4 bg-white/5 hover:bg-white/10 border border-orange-500/40 rounded-2xl flex justify-center items-center gap-3 transition">
                   <span class="text-white font-bold text-xl">Use Revive Token</span>
                   <span class="text-white font-bold text-xl">({{ gameState.reviveTokens() }})</span>
                   <span class="text-2xl">🪶</span>
                 </button>
                 }
-                <button (click)="quitGame()" class="w-full mt-4 py-4 bg-transparent hover:bg-white/5 border border-transparent hover:border-white/10 rounded-2xl text-white/50 hover:text-white transition">
+                <button (click)="quitGame()" class="w-full mt-4 py-4 bg-transparent hover:bg-white/5 border border-transparent rounded-2xl text-red-300/70 hover:text-red-300 font-semibold transition">
                   Give Up
                 </button>
               </div>
           } @else if (gameState.currentGameMode() === 'battle') {
               <p class="text-red-500 text-xl font-bold mb-8 uppercase text-center max-w-md">The AI Phoenix emerges victorious.</p>
               <div class="flex flex-col gap-4 w-full max-w-sm">
-                <button (click)="quitGame()" class="w-full mt-4 py-4 bg-red-900/50 hover:bg-red-800/50 border border-red-500/30 rounded-2xl text-white transition">
+                <button (click)="quitGame()" class="w-full mt-4 py-4 bg-red-950/60 hover:bg-red-900/50 border border-red-500/40 rounded-2xl text-white font-bold transition">
                   Accept Fate
                 </button>
               </div>
           } @else {
               <p class="text-red-500 text-xl font-bold mb-8 uppercase text-center max-w-md">Your flames have been permanently extinguished.</p>
               <div class="flex flex-col gap-4 w-full max-w-sm">
-                <button (click)="quitGame()" class="w-full mt-4 py-4 bg-red-900/50 hover:bg-red-800/50 border border-red-500/30 rounded-2xl text-white transition">
+                <button (click)="quitGame()" class="w-full mt-4 py-4 bg-red-950/60 hover:bg-red-900/50 border border-red-500/40 rounded-2xl text-white font-bold transition">
                   Accept Fate
                 </button>
               </div>
@@ -373,18 +392,18 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
 
       <!-- End Game Screen -->
       @if (gameEnded() && !isDead()) {
-        <div class="absolute inset-0 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto z-50">
-          <h2 class="text-6xl font-black text-white mb-4 drop-shadow-lg" [ngClass]="gameWon() ? 'text-yellow-400' : 'text-red-500'">
+        <div class="absolute inset-0 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto z-50 px-6">
+          <h2 class="text-6xl font-black text-white mb-4 drop-shadow-lg tracking-wide" [ngClass]="gameWon() ? 'text-orange-400' : 'text-red-500'">
             {{ gameWon() ? 'VICTORY' : 'DEFEAT' }}
           </h2>
           @if (gameWon()) {
-            <div class="flex items-center gap-3 mb-8 bg-purple-900/50 px-6 py-3 rounded-full border border-purple-500/50">
+            <div class="flex items-center gap-3 mb-8 bg-orange-950/60 px-6 py-3 rounded-full border border-orange-500/40">
               <span class="text-white font-bold">Reward:</span>
-              <span class="text-purple-400 font-bold text-2xl">+1</span>
+              <span class="text-orange-300 font-bold text-2xl">+1</span>
               <img src="assets/gem_icon.png" class="w-8 h-8"/>
             </div>
           }
-          <button (click)="quitGame()" class="px-8 py-3 bg-white/10 hover:bg-white/20 border border-white/30 rounded-full text-white font-bold transition">
+          <button (click)="quitGame()" class="px-8 py-3.5 bg-gradient-to-r from-orange-500 to-red-600 hover:brightness-110 active:scale-95 border border-orange-400/40 rounded-full text-white font-bold transition shadow-lg shadow-orange-900/40">
             Return to Menu
           </button>
         </div>
