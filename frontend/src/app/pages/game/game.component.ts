@@ -787,6 +787,10 @@ export class GameComponent implements OnInit, OnDestroy {
   public holdChargePos = signal<{x: number, y: number}>({ x: 0, y: 0 });
 
   private holdTimer = 0;
+  // Wall-clock stamp for hold-charge accumulation (Fix Round 1,
+  // Part 3): the last live beforeUpdate time in the current charge
+  // session; 0 means no session timing is running.
+  private lastChargeStamp = 0;
 
   private holdStartX = 0;
 
@@ -1697,7 +1701,9 @@ export class GameComponent implements OnInit, OnDestroy {
     // Update Loop
     Matter.Events.on(this.engine, 'beforeUpdate', (event: any) => {
       // Hard pause (pause menu / tab hidden): freeze everything.
-      if (this.gameState.isPaused()) return;
+      // The charge stamp resets too, so paused wall time is never
+      // banked into the hold charge on resume (Fix Round 1, Part 3).
+      if (this.gameState.isPaused()) { this.lastChargeStamp = 0; return; }
       const now = Date.now();
       // Fixed-step driver: event.delta is the step size in ms (always
       // 1000/60), identical on every device and refresh rate.
@@ -1938,15 +1944,32 @@ export class GameComponent implements OnInit, OnDestroy {
       // rule reset the charge on any movement past 10 px, which made
       // hold moves unusable under bot steering and twitchy on touch.
       // Now the charge has a fixed origin (where the press began):
-      // drifting beyond 25 percent of the min screen dimension from
-      // that origin PAUSES accumulation with progress kept, and
-      // returning inside resumes it. The charge in exchange for the
-      // shorter, forgiving charge is the family's higher cooldowns
-      // (turret 14, aura 17, rebirth 75). The Focus Charm gadget
-      // multiplies the charge time by 0.75. Releasing the press, or
-      // having no ready hold move, still ends the session.
+      // drifting beyond the drift radius from that origin PAUSES
+      // accumulation with progress kept, and returning inside resumes
+      // it. The charge in exchange for the shorter, forgiving charge
+      // is the family's higher cooldowns (turret 14, aura 17,
+      // rebirth 75). The Focus Charm gadget multiplies the charge
+      // time by 0.75. Releasing the press, or having no ready hold
+      // move, still ends the session.
+      //
+      // Fix Round 1, Part 3 (Carter's device feedback, Oct 27 2026):
+      // two corrections to the shipped numbers. (a) The drift radius
+      // was 25 percent of the min screen dimension (90 CSS px on a
+      // 360 px wide phone): the finger could roam a 180 px circle
+      // with the bird flying after it while the charge filled and
+      // fired, which reads as charging while moving. The radius is
+      // now a planted-finger tolerance (24 CSS px, about natural
+      // fingertip jitter): the charge builds only while the player
+      // is holding position, per spec Section 2.4 (the steering
+      // finger planted). (b) The charge accumulated the fixed
+      // physics step per beforeUpdate event; the Matter runner
+      // delivers those events in bursts (catch-up steps inside one
+      // rendered frame, none in others), so the displayed percent
+      // stalled, then jumped. Accumulation is now wall-clock based
+      // (clamped per event), so the percent tracks real elapsed time
+      // and rises continuously at any refresh rate.
       const chargeMs = 1500 * (this.gameState.currentStats().activeGadget === 'focus_charm' ? 0.75 : 1);
-      const driftLimit = 0.25 * Math.min(window.innerWidth, window.innerHeight);
+      const driftLimit = 24;
       if (this.isMouseHeld && !this.isDead() && !this.gameState.isPaused() && !this.gameState.isRebirthing()) {
         const holdAbility = this.gameState.currentStats().activeHoldAbility;
         // Brake and charge are mutually exclusive (spec Section 2.4):
@@ -1956,6 +1979,7 @@ export class GameComponent implements OnInit, OnDestroy {
         // and fire during its cooldown (see fireSlot).
         if (!holdAbility || (this.holdCooldown() > 0 && !this.overchargeActive()) || (this.rawBrakeHeld && this.holdTimer <= 0)) {
             this.holdTimer = 0;
+            this.lastChargeStamp = 0;
             if (this.holdChargeProgress() !== 0) this.holdChargeProgress.set(0);
         } else {
             if (this.holdTimer <= 0 && this.holdChargeProgress() === 0) {
@@ -1964,8 +1988,16 @@ export class GameComponent implements OnInit, OnDestroy {
                 this.holdStartY = this.mouseY;
             }
             const dist = Math.hypot(this.mouseX - this.holdStartX, this.mouseY - this.holdStartY);
+            // Wall-clock accumulation: each event adds the real time
+            // since the previous live event (clamped at 100 ms, so a
+            // pause or hitch can never bank more than a fifteenth of
+            // the charge in one step). The stamp advances whether or
+            // not the pointer is inside the radius, so time spent
+            // drifted out is never banked.
+            const stepMs = this.lastChargeStamp ? Math.min(100, Math.max(0, now - this.lastChargeStamp)) : 0;
+            this.lastChargeStamp = now;
             if (dist <= driftLimit) {
-                this.holdTimer += delta * 1000;
+                this.holdTimer += stepMs;
             }
             // Outside the drift radius the timer simply does not
             // advance: progress is frozen, not lost.
@@ -1980,11 +2012,13 @@ export class GameComponent implements OnInit, OnDestroy {
                     else this.holdCooldown.set(cd);
                 }
                 this.holdTimer = 0;
+                this.lastChargeStamp = 0;
                 this.holdChargeProgress.set(0);
             }
         }
       } else {
         this.holdTimer = 0;
+        this.lastChargeStamp = 0;
         if (this.holdChargeProgress() !== 0) this.holdChargeProgress.set(0);
       }
 
