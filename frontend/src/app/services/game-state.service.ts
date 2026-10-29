@@ -232,6 +232,16 @@ export class GameStateService {
   // steering data read by the auto-fire targeting (the facing cone,
   // Fix Round 2 A1), and nothing renders from it reactively.
   public phoenixHeading = { x: 0, y: -1 };
+
+  // Parked targeting (Fix Round 3): the world-space heading angle
+  // (radians, atan2 convention; PI/2 is straight up-screen) of the
+  // nearest enemy inside the auto-fire range, or null when nothing
+  // is in range. Written per physics step by the game component,
+  // which owns the enemy list; read by the bird physics parked
+  // branch, which owns the heading. A plain mutable field like
+  // phoenixHeading: per-frame steering data, nothing renders from
+  // it reactively.
+  public parkedTargetAngle: number | null = null;
   public phoenixOverridePosition = signal<{x: number, y: number} | null>(null);
   public aiPhoenixScreenPos = signal<{x: number, y: number}>({x: window.innerWidth / 2, y: 100});
   public aiMousePos = signal<{x: number, y: number}>({ x: window.innerWidth / 2, y: 100 });

@@ -54,6 +54,27 @@ export const AUTO_FIRE = {
   targeting: 'facing cone, 45 degree half-angle, nearest in cone',
 };
 
+// Parked targeting rotation (Carter's rule, Fix Round 3, Oct 29,
+// 2026): amends the flight lore's parked rule. A parked phoenix no
+// longer only settles nose-up: the nearest enemy inside the
+// auto-fire range pulls the parked heading toward it at a capped
+// slow turn rate, with full 360 degree freedom (shortest arc, no
+// snapping), so the A1 facing cone sweeps onto the target and
+// auto-fire engages once it is inside the cone. With nothing in
+// range the heading works back to straight up at the return rate,
+// the shipped nose-up settle kept as the no-influence case.
+// Carter's image: a door stopper you can pull all the way around
+// that slowly works back to straight when nothing is influencing
+// it. The influence range is not a separate number: it is the
+// shipped auto-fire gate itself (attackRange stat x speedScale),
+// so anything that can pull the heading is something auto-fire can
+// reach once the cone sweeps onto it.
+export const PARKED_TARGETING = {
+  turnRateDegPerSec: 50,
+  returnRateDegPerSec: 45,
+  rangeGate: 'attackRange stat x speedScale (the auto-fire range gate)',
+};
+
 export const PLAYER_ANCHORS = {
   cruiseCrossingSeconds: 1.4, // one full-width crossing at base speed stat
   turnRateCapRadPerSec: 5.5,

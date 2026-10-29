@@ -17,6 +17,7 @@ import * as THREE from 'three';
 import { GameStateService, STAMINA } from '../../services/game-state.service';
 import { PhoenixState } from './phoenix-state';
 import { HOSTILE_SKIN, phoenixSkinById } from './phoenix-skins';
+import { PARKED_TARGETING } from '../../data/balance.constants';
 import { PHOENIX_ANCHOR_NZ, ensureAshFrames, flapFrameIndex, getPhoenixFrames } from './phoenix-sprite';
 
 // The shipped speed stat is anchored at 2.0 (BASE_STATS.speed): before
@@ -444,10 +445,32 @@ updateBirdPhysics(bird: PhoenixState, targetWaypoint: THREE.Vector3, baseSpeed: 
             while (dA < -Math.PI) dA += Math.PI * 2;
             bird.headingAngle += dA * (1 - Math.pow(0.92, frameScale));
         } else if (bird.hovering && this.host.gameState.playerDownPhase() === 'none') {
-            let dA = Math.PI / 2 - bird.headingAngle;
+            // Parked heading. Flight lore (Oct 28, 2026): a parked
+            // phoenix glides nose-up. Parked targeting (Carter, Fix
+            // Round 3, Oct 29, 2026) amends the rule: the nearest
+            // enemy inside the auto-fire range pulls the parked
+            // heading toward it at a capped slow turn rate (full
+            // 360 degree freedom, shortest arc, no snapping), so the
+            // A1 facing cone sweeps onto it and auto-fire engages;
+            // with nothing in range the heading works back to
+            // straight up at the return rate, the lore settle kept
+            // as the no-influence case. The game publishes the
+            // target angle (world space) on gameState
+            // .parkedTargetAngle; the AI bird never takes the
+            // influence, only the return. Both moves are capped
+            // rates, not eases: the rotation reads at a steady slow
+            // pace and cannot snap.
+            let desiredAngle = Math.PI / 2;
+            let rateDegPerSec = PARKED_TARGETING.returnRateDegPerSec;
+            if (!isAi && this.host.gameState.parkedTargetAngle !== null) {
+                desiredAngle = this.host.gameState.parkedTargetAngle;
+                rateDegPerSec = PARKED_TARGETING.turnRateDegPerSec;
+            }
+            let dA = desiredAngle - bird.headingAngle;
             while (dA > Math.PI) dA -= Math.PI * 2;
             while (dA < -Math.PI) dA += Math.PI * 2;
-            bird.headingAngle += dA * (1 - Math.pow(0.955, frameScale));
+            const maxStep = rateDegPerSec * (Math.PI / 180) * (frameScale / 60);
+            bird.headingAngle += Math.max(-maxStep, Math.min(maxStep, dA));
         }
         const headingVec = new THREE.Vector3(Math.cos(bird.headingAngle), Math.sin(bird.headingAngle), 0);
         // Publish the player bird's heading for the auto-fire

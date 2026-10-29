@@ -1451,6 +1451,42 @@ export class GameComponent implements OnInit, OnDestroy {
   }
 
 
+  // Parked targeting publisher (Fix Round 3): the game owns the
+  // enemy list and the auto-fire range gate, so it publishes the
+  // nearest in-range enemy's heading angle on gameState (world
+  // space, the bird physics atan2 convention, y flipped from
+  // screen space); the parked branch in bird-physics owns turning
+  // the heading toward it at the capped rate. Mirrors the
+  // executor's range gate exactly (attackRange stat x speedScale)
+  // and its body set (this.enemies), so anything that can pull the
+  // parked heading is something auto-fire can reach once the cone
+  // sweeps onto it. Bodies at point-blank range are skipped: no
+  // meaningful direction, and contact handles them.
+  private publishParkedTarget() {
+    const gs = this.gameState;
+    if (this.gameEnded() || this.isDead() || !this.playerBody || !this.enemies) {
+      gs.parkedTargetAngle = null;
+      return;
+    }
+    const range = gs.currentStats().attackRange * this.speedScale;
+    const px = this.playerBody.position.x;
+    const py = this.playerBody.position.y;
+    let best: Matter.Body | null = null;
+    let bestDist = Infinity;
+    for (const e of this.enemies) {
+      const data = e.plugin?.data as EnemyData | undefined;
+      if (data && typeof data.health === 'number' && data.health <= 0) continue;
+      const dx = e.position.x - px;
+      const dy = e.position.y - py;
+      const dist = Math.hypot(dx, dy);
+      if (dist >= 2 && dist <= range && dist < bestDist) { best = e; bestDist = dist; }
+    }
+    gs.parkedTargetAngle = best
+      ? Math.atan2(-(best.position.y - py), best.position.x - px)
+      : null;
+  }
+
+
   // Start the fixed-step physics driver. No-op if already running.
   private startPhysics() {
     if (this.physicsRafId !== null || !this.engine) return;
@@ -1905,6 +1941,7 @@ export class GameComponent implements OnInit, OnDestroy {
       // The charge stamp resets too, so paused wall time is never
       // banked into the hold charge on resume (Fix Round 1, Part 3).
       if (this.gameState.isPaused()) { this.lastChargeStamp = 0; return; }
+      this.publishParkedTarget();
       const now = Date.now();
       // Fixed-step driver: event.delta is the step size in ms (always
       // 1000/60), identical on every device and refresh rate.
