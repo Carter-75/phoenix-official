@@ -215,7 +215,9 @@ const PAINTERS: Record<string, Painter> = {
       const a = (i / 6) * Math.PI * 2 + 0.4;
       const rx = cx + Math.cos(a) * 0.88 * u, ry = cy + Math.sin(a) * 0.88 * u;
       ctx.fillStyle = css(pal.deep);
-      poly(ctx, [[rx - 0.14 * u, ry], [rx, ry - 0.15 * u], [rx + 0.15 * u, ry + 0.03 * u], [rx + 0.02 * u, ry + 0.15 * u]]); ctx.fill();
+      poly(ctx, [[rx - 0.16 * u, ry + 0.05 * u], [rx - 0.05 * u, ry - 0.13 * u], [rx + 0.08 * u, ry - 0.16 * u], [rx + 0.17 * u, ry - 0.02 * u], [rx + 0.1 * u, ry + 0.14 * u], [rx - 0.06 * u, ry + 0.16 * u]]); ctx.fill();
+      ctx.fillStyle = css(pal.body, 0.8);
+      poly(ctx, [[rx - 0.05 * u, ry - 0.13 * u], [rx + 0.08 * u, ry - 0.16 * u], [rx + 0.06 * u, ry + 0.02 * u], [rx - 0.08 * u, ry + 0.04 * u]]); ctx.fill();
     }
     ctx.fillStyle = css(pal.deep);
     poly(ctx, [[cx - 0.55 * u, cy + 0.62 * u], [cx - 0.68 * u, cy - 0.1 * u], [cx - 0.4 * u, cy - 0.55 * u], [cx - 0.05 * u, cy - 0.72 * u], [cx + 0.38 * u, cy - 0.6 * u], [cx + 0.66 * u, cy - 0.15 * u], [cx + 0.55 * u, cy + 0.6 * u], [cx + 0.1 * u, cy + 0.72 * u]]); ctx.fill();
