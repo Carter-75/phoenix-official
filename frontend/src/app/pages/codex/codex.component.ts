@@ -104,7 +104,14 @@ export class CodexComponent implements OnInit, OnDestroy {
   private initThree() {
     const canvas = this.canvasRef.nativeElement;
     this.renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
-    this.renderer.setSize(400, 400);
+    // updateStyle false: the drawing buffer stays 400x400, but
+    // Three must not write a fixed 400px inline style onto the
+    // canvas. The stylesheet sizes the canvas to its wrapper
+    // (width min(400px, 100%), aspect-ratio 1), which is what
+    // lets the preview fit phone widths; the inline style used
+    // to override that and push the codex to a 646px scroll
+    // width inside a 412px screen.
+    this.renderer.setSize(400, 400, false);
     this.renderer.setPixelRatio(window.devicePixelRatio);
 
     this.scene = new THREE.Scene();
