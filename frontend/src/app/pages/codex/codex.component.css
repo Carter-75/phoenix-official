@@ -128,19 +128,61 @@
 
 .enemy-preview {
   flex: 2;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
 }
 
+/* Phone widths: the two-column split (a 300px realms list, a
+   2rem gap, and the preview column) cannot fit a 360 to 412px
+   screen; measured before this fix, the container's scroll
+   width was 646px inside a 412px viewport, so the preview was
+   pushed off screen. Stack the columns instead: realms first,
+   preview below, both full width. */
+@media (max-width: 700px) {
+  .codex-container {
+    padding: 1rem;
+  }
+
+  .title {
+    font-size: 1.8rem;
+    margin-top: 2.4rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .content-split {
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .realms-list {
+    max-width: none;
+    width: 100%;
+  }
+
+  .enemy-preview {
+    width: 100%;
+  }
+
+  .enemy-info {
+    max-width: 100%;
+  }
+
+  .enemy-info h2 {
+    font-size: 1.5rem;
+  }
+}
+
 .canvas-wrapper {
   position: relative;
-  width: 400px;
-  height: 400px;
+  width: min(400px, 100%);
+  aspect-ratio: 1 / 1;
   background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, rgba(0,0,0,0) 70%);
   border-radius: 50%;
   margin-bottom: 2rem;
+  flex-shrink: 0;
 }
 
 canvas {
