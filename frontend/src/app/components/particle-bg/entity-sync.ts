@@ -9,7 +9,7 @@ import { GameStateService } from '../../services/game-state.service';
 import { PhysicsEntity, WorldTheme } from '../../models/game.models';
 import { WORLDS, HOSTILE_RGB } from '../../constants/game.constants';
 import { buildEntityGeometry } from './entity-builder';
-import { MOB_SPRITE_TYPES, getMobSpriteSet, getBossFormSets, getBoltSpriteSet } from './mob-sprite';
+import { MOB_SPRITE_TYPES, getMobSpriteSet, getBossFormSets, getBoltSpriteSet, PICKUP_SPRITE_TYPES, getPickupSpriteSet } from './mob-sprite';
 import { bossDefFor } from '../../data/boss-rig';
 import { PhoenixState, ParticleEntity, DyingBurst } from './phoenix-state';
 import { Rgb3 } from './phoenix-skins';
@@ -187,18 +187,20 @@ syncEntities() {
         entity.budgeted = budgeted;
       }
 
-      // Rotate for visual effect
-      if (data.type === 'coin') {
+      // Rotate for visual effect (points entities only: drawn
+      // sprites own their transforms in updateSpriteEntity, and a
+      // plane must never tumble around the y axis).
+      if (!entity.sprite && data.type === 'coin') {
         entity.mesh.rotation.y += 0.1;
-      } else if (data.type === 'flame_tornado') {
+      } else if (!entity.sprite && data.type === 'flame_tornado') {
         // The vortex spin (final sweep): the builder lays the zone's
         // points on a spiral, and rotating the mesh in the screen
         // plane is what makes it read as turning.
         entity.mesh.rotation.z -= 0.12;
-      } else if (data.type === 'heart') {
+      } else if (!entity.sprite && data.type === 'heart') {
         const beat = 1 + Math.sin(Date.now() * 0.01) * 0.2;
         entity.mesh.scale.set(beat, beat, beat);
-      } else if (data.type === 'gem' || data.type === 'xp_orb' || data.type === 'spark_cell' || data.type === 'overcharge') {
+      } else if (!entity.sprite && (data.type === 'gem' || data.type === 'xp_orb' || data.type === 'spark_cell' || data.type === 'overcharge')) {
         entity.mesh.rotation.y += 0.05;
         entity.mesh.rotation.x += 0.02;
       }
@@ -933,6 +935,9 @@ updateSpriteEntity(entity: ParticleEntity, data: PhysicsEntity, nowMs: number, d
     const t = Date.now();
     const off = entity.timeOffset || 0;
     const charge = data.attackCharge ?? 0;
+    // A sprite plane only ever turns in the screen plane.
+    mesh.rotation.x = 0;
+    mesh.rotation.y = 0;
 
     // Heading: player bolts read their travel velocity directly;
     // published facing wins for the aimed types; the boss faces
@@ -975,6 +980,12 @@ updateSpriteEntity(entity: ParticleEntity, data: PhysicsEntity, nowMs: number, d
       mesh.rotation.z = t * 0.0011 + off;
     } else if (data.type === 'chanter') {
       mesh.rotation.z = t * 0.0007 + off;
+    } else if (data.type === 'coin') {
+      // Pickups (A12): the coin turns in the screen plane; the
+      // orb family rocks gently; hearts and crates stay upright.
+      mesh.rotation.z = t * 0.0016 + off;
+    } else if (data.type === 'gem' || data.type === 'xp_orb' || data.type === 'spark_cell' || data.type === 'overcharge') {
+      mesh.rotation.z = Math.sin(t * 0.002 + off) * 0.18;
     } else {
       mesh.rotation.z = 0;
     }
@@ -997,6 +1008,9 @@ updateSpriteEntity(entity: ParticleEntity, data: PhysicsEntity, nowMs: number, d
       mesh.position.y += Math.sin(t * 0.0016 + off) * 0.035;
     } else if (data.type === 'serpent') {
       if ((data as any).weave === 'coil') { ux = uy = 1.12; }
+    } else if (data.type === 'heart') {
+      // The shipped heartbeat, carried to the drawn heart.
+      ux = uy = 1 + Math.sin(t * 0.01) * 0.2;
     } else if (data.type === 'boss') {
       if (data.bossFormFlow !== undefined && data.bossFormFlow < 1) {
         ux = uy = 1 + 0.08 * Math.sin(data.bossFormFlow * Math.PI);
@@ -1050,7 +1064,7 @@ updateSpriteEntity(entity: ParticleEntity, data: PhysicsEntity, nowMs: number, d
     // Opacity: spawn fade, then the phase reads. Bolts skip the
     // fade: they live about a second and must read instantly.
     let op = 0.9;
-    if (data.type === 'projectile_player') {
+    if (data.type === 'projectile_player' || PICKUP_SPRITE_TYPES.has(data.type)) {
       op = 0.95;
     } else if (entity.bornMs !== undefined) {
       const age = (nowMs - entity.bornMs) / 300;
@@ -1162,7 +1176,7 @@ createEntityMesh(data: PhysicsEntity): ParticleEntity {
     // codex shares it, and its extents size the sprite plane, so
     // the mob keeps exactly its shipped footprint). Effects,
     // projectiles, pickups, and zones keep the points path below.
-    if (MOB_SPRITE_TYPES.has(data.type) || data.type === 'projectile_player') {
+    if (MOB_SPRITE_TYPES.has(data.type) || data.type === 'projectile_player' || PICKUP_SPRITE_TYPES.has(data.type)) {
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
       const bp = built.positions;
       for (let i = 0; i < bp.length; i += 3) {
@@ -1181,7 +1195,9 @@ createEntityMesh(data: PhysicsEntity): ParticleEntity {
         ? getBossFormSets(buildCtx.worldIndex, extentX, extentY)
         : isBolt
           ? [getBoltSpriteSet(data.ownerId === 'player' && buildCtx.gameMode === 'ai_vs_ai' ? 'violet' : 'amber')]
-          : [getMobSpriteSet(data.type, buildCtx.worldIndex, extentX, extentY)];
+          : PICKUP_SPRITE_TYPES.has(data.type)
+            ? [getPickupSpriteSet(data.type)]
+            : [getMobSpriteSet(data.type, buildCtx.worldIndex, extentX, extentY)];
       const set = sets[0];
       const mat = new THREE.MeshBasicMaterial({ map: set.maps[0], transparent: true, opacity: 0.9, depthWrite: false });
       const plane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);

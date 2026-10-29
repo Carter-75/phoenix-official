@@ -788,6 +788,124 @@ export function getBoltSpriteSet(variant: 'amber' | 'violet'): MobSpriteSet {
   return set;
 }
 
+// ------------------------------------------------------------------
+// Pickup sprites (Fix Round 2, A12): every dropped item gets a
+// drawn body in the same style, in its shipped identity color, so
+// it reads instantly for what it is: gold coin, pink heart, violet
+// gem crystal, sky XP orb, cyan spark cell, violet-white
+// overcharge orb, wooden crate. Values and drop logic unchanged.
+// ------------------------------------------------------------------
+const PICKUP_PAINTERS: Record<string, Painter> = {
+  coin(ctx, cx, cy, u, pal) {
+    ctx.fillStyle = css(pal.deep);
+    circ(ctx, cx, cy, 0.92 * u); ctx.fill();
+    ctx.fillStyle = css(pal.body);
+    circ(ctx, cx, cy, 0.82 * u); ctx.fill();
+    ctx.strokeStyle = css(pal.deep); ctx.lineWidth = 0.07 * u;
+    circ(ctx, cx, cy, 0.58 * u); ctx.stroke();
+    ctx.fillStyle = css(pal.accent);
+    poly(ctx, [[cx, cy - 0.34 * u], [cx + 0.1 * u, cy - 0.1 * u], [cx + 0.34 * u, cy - 0.08 * u], [cx + 0.16 * u, cy + 0.06 * u], [cx + 0.22 * u, cy + 0.32 * u], [cx, cy + 0.18 * u], [cx - 0.22 * u, cy + 0.32 * u], [cx - 0.16 * u, cy + 0.06 * u], [cx - 0.34 * u, cy - 0.08 * u], [cx - 0.1 * u, cy - 0.1 * u]]); ctx.fill();
+  },
+  heart(ctx, cx, cy, u, pal) {
+    ctx.fillStyle = css(pal.body);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + 0.85 * u);
+    ctx.bezierCurveTo(cx - 1.05 * u, cy + 0.1 * u, cx - 0.72 * u, cy - 0.85 * u, cx - 0.28 * u, cy - 0.85 * u);
+    ctx.bezierCurveTo(cx - 0.08 * u, cy - 0.85 * u, cx, cy - 0.62 * u, cx, cy - 0.45 * u);
+    ctx.bezierCurveTo(cx, cy - 0.62 * u, cx + 0.08 * u, cy - 0.85 * u, cx + 0.28 * u, cy - 0.85 * u);
+    ctx.bezierCurveTo(cx + 0.72 * u, cy - 0.85 * u, cx + 1.05 * u, cy + 0.1 * u, cx, cy + 0.85 * u);
+    ctx.fill();
+    ctx.fillStyle = css(pal.accent, 0.75);
+    ctx.beginPath(); ctx.ellipse(cx - 0.32 * u, cy - 0.42 * u, 0.2 * u, 0.13 * u, -0.6, 0, Math.PI * 2); ctx.fill();
+  },
+  gem(ctx, cx, cy, u, pal) {
+    ctx.fillStyle = css(pal.deep);
+    poly(ctx, [[cx - 0.55 * u, cy - 0.55 * u], [cx + 0.55 * u, cy - 0.55 * u], [cx + 0.85 * u, cy - 0.05 * u], [cx, cy + 0.95 * u], [cx - 0.85 * u, cy - 0.05 * u]]); ctx.fill();
+    ctx.fillStyle = css(pal.body);
+    poly(ctx, [[cx - 0.48 * u, cy - 0.5 * u], [cx + 0.48 * u, cy - 0.5 * u], [cx + 0.72 * u, cy - 0.05 * u], [cx, cy + 0.8 * u], [cx - 0.72 * u, cy - 0.05 * u]]); ctx.fill();
+    ctx.fillStyle = css(pal.accent, 0.85);
+    poly(ctx, [[cx - 0.48 * u, cy - 0.5 * u], [cx + 0.48 * u, cy - 0.5 * u], [cx + 0.3 * u, cy - 0.05 * u], [cx - 0.3 * u, cy - 0.05 * u]]); ctx.fill();
+    ctx.strokeStyle = css(pal.core, 0.8); ctx.lineWidth = 0.045 * u;
+    ctx.beginPath(); ctx.moveTo(cx - 0.3 * u, cy - 0.05 * u); ctx.lineTo(cx, cy + 0.8 * u); ctx.moveTo(cx + 0.3 * u, cy - 0.05 * u); ctx.lineTo(cx, cy + 0.8 * u); ctx.stroke();
+    glow(ctx, cx, cy - 0.1 * u, 0.4 * u, pal.core, 0.5);
+  },
+  xp_orb(ctx, cx, cy, u, pal) {
+    glow(ctx, cx, cy, 0.95 * u, pal.body, 0.55);
+    ctx.fillStyle = css(pal.body);
+    circ(ctx, cx, cy, 0.72 * u); ctx.fill();
+    ctx.fillStyle = css(pal.accent, 0.8);
+    circ(ctx, cx, cy, 0.5 * u); ctx.fill();
+    ctx.fillStyle = css(pal.core);
+    circ(ctx, cx, cy, 0.26 * u); ctx.fill();
+    ctx.strokeStyle = css(pal.core, 0.9); ctx.lineWidth = 0.06 * u;
+    ctx.beginPath(); ctx.moveTo(cx, cy - 0.95 * u); ctx.lineTo(cx, cy - 0.68 * u); ctx.moveTo(cx, cy + 0.68 * u); ctx.lineTo(cx, cy + 0.95 * u); ctx.moveTo(cx - 0.95 * u, cy); ctx.lineTo(cx - 0.68 * u, cy); ctx.moveTo(cx + 0.68 * u, cy); ctx.lineTo(cx + 0.95 * u, cy); ctx.stroke();
+  },
+  spark_cell(ctx, cx, cy, u, pal) {
+    ctx.fillStyle = css(pal.deep);
+    ctx.beginPath(); (ctx as any).roundRect(cx - 0.55 * u, cy - 0.7 * u, 1.1 * u, 1.55 * u, 0.18 * u); ctx.fill();
+    ctx.fillStyle = css(pal.body);
+    ctx.beginPath(); (ctx as any).roundRect(cx - 0.45 * u, cy - 0.6 * u, 0.9 * u, 1.35 * u, 0.14 * u); ctx.fill();
+    ctx.fillStyle = css(pal.deep);
+    ctx.fillRect(cx - 0.22 * u, cy - 0.92 * u, 0.44 * u, 0.24 * u);
+    // Lightning bolt charge mark.
+    ctx.fillStyle = css(pal.core);
+    poly(ctx, [[cx + 0.14 * u, cy - 0.42 * u], [cx - 0.24 * u, cy + 0.22 * u], [cx - 0.02 * u, cy + 0.22 * u], [cx - 0.14 * u, cy + 0.62 * u], [cx + 0.26 * u, cy - 0.05 * u], [cx + 0.03 * u, cy - 0.05 * u]]); ctx.fill();
+  },
+  overcharge(ctx, cx, cy, u, pal) {
+    glow(ctx, cx, cy, 0.95 * u, pal.body, 0.5);
+    ctx.fillStyle = css(pal.body);
+    circ(ctx, cx, cy, 0.78 * u); ctx.fill();
+    ctx.fillStyle = css(pal.deep, 0.65);
+    ctx.beginPath(); ctx.ellipse(cx, cy + 0.3 * u, 0.72 * u, 0.45 * u, 0, 0, Math.PI); ctx.fill();
+    // Bright equatorial band (the shipped identity mark).
+    ctx.fillStyle = css(pal.core);
+    ctx.beginPath(); ctx.ellipse(cx, cy, 0.78 * u, 0.17 * u, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = css(pal.accent, 0.7);
+    circ(ctx, cx - 0.25 * u, cy - 0.35 * u, 0.12 * u); ctx.fill();
+  },
+  crate(ctx, cx, cy, u, pal) {
+    ctx.fillStyle = css(pal.deep);
+    ctx.fillRect(cx - 0.88 * u, cy - 0.88 * u, 1.76 * u, 1.76 * u);
+    ctx.fillStyle = css(pal.body);
+    ctx.fillRect(cx - 0.78 * u, cy - 0.78 * u, 1.56 * u, 1.56 * u);
+    ctx.strokeStyle = css(pal.deep); ctx.lineWidth = 0.09 * u;
+    ctx.strokeRect(cx - 0.78 * u, cy - 0.78 * u, 1.56 * u, 1.56 * u);
+    ctx.beginPath(); ctx.moveTo(cx - 0.78 * u, cy - 0.78 * u); ctx.lineTo(cx + 0.78 * u, cy + 0.78 * u); ctx.moveTo(cx + 0.78 * u, cy - 0.78 * u); ctx.lineTo(cx - 0.78 * u, cy + 0.78 * u); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx - 0.78 * u, cy); ctx.lineTo(cx + 0.78 * u, cy); ctx.stroke();
+    ctx.fillStyle = css(pal.accent);
+    for (const [dx, dy] of [[-0.78, -0.78], [0.78, -0.78], [-0.78, 0.78], [0.78, 0.78]] as Array<[number, number]>) {
+      circ(ctx, cx + dx * u, cy + dy * u, 0.07 * u); ctx.fill();
+    }
+  },
+};
+const PICKUP_PALETTES: Record<string, MobPalette> = {
+  coin: { core: [1.0, 0.95, 0.6], body: [0.98, 0.8, 0.082], accent: [1.0, 0.88, 0.35], deep: [0.72, 0.53, 0.04] },
+  heart: { core: [1.0, 0.85, 0.92], body: [0.925, 0.282, 0.6], accent: [1.0, 0.65, 0.82], deep: [0.62, 0.15, 0.38] },
+  gem: { core: [0.95, 0.88, 1.0], body: [0.753, 0.518, 0.988], accent: [0.85, 0.68, 1.0], deep: [0.45, 0.25, 0.72] },
+  xp_orb: { core: [0.95, 1.0, 1.0], body: [0.22, 0.741, 0.973], accent: [0.55, 0.88, 1.0], deep: [0.1, 0.45, 0.7] },
+  spark_cell: { core: [0.95, 1.0, 1.0], body: [0.30, 0.90, 1.0], accent: [0.65, 0.97, 1.0], deep: [0.08, 0.5, 0.65] },
+  overcharge: { core: [0.98, 0.95, 1.0], body: [0.62, 0.38, 0.98], accent: [0.85, 0.68, 1.0], deep: [0.36, 0.2, 0.62] },
+  crate: { core: [0.9, 0.75, 0.5], body: [0.55, 0.36, 0.18], accent: [0.75, 0.6, 0.35], deep: [0.32, 0.19, 0.08] },
+};
+const pickupCache = new Map<string, MobSpriteSet>();
+export function getPickupSpriteSet(type: string): MobSpriteSet {
+  const hit = pickupCache.get(type);
+  if (hit) return hit;
+  const pal = PICKUP_PALETTES[type] ?? PICKUP_PALETTES['coin'];
+  const painter = PICKUP_PAINTERS[type] ?? PICKUP_PAINTERS['coin'];
+  const W = 160, H = 160;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+  painter(ctx, W / 2, H / 2, W / 2 * 0.92, pal, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const set: MobSpriteSet = { maps: [tex], burstPositions: new Float32Array(0), burstColors: new Float32Array(0) };
+  pickupCache.set(type, set);
+  return set;
+}
+export const PICKUP_SPRITE_TYPES = new Set(['coin', 'heart', 'gem', 'xp_orb', 'spark_cell', 'overcharge', 'crate']);
+
 export const MOB_SPRITE_TYPES = new Set([
   'slime', 'bat', 'golem', 'imp', 'wisp', 'pod', 'mite', 'sentry_shard',
   'seedmother', 'rift_mine', 'shieldback', 'pyre_moth', 'phantom', 'wraith',
