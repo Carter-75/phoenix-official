@@ -17,7 +17,7 @@ import * as THREE from 'three';
 import { GameStateService, STAMINA } from '../../services/game-state.service';
 import { PhoenixState } from './phoenix-state';
 import { HOSTILE_SKIN, phoenixSkinById } from './phoenix-skins';
-import { PARKED_TARGETING } from '../../data/balance.constants';
+import { TURNING } from '../../data/balance.constants';
 import { PHOENIX_ANCHOR_NZ, ensureAshFrames, flapFrameIndex, getPhoenixFrames } from './phoenix-sprite';
 
 // The shipped speed stat is anchored at 2.0 (BASE_STATS.speed): before
@@ -249,6 +249,10 @@ updateBirdPhysics(bird: PhoenixState, targetWaypoint: THREE.Vector3, baseSpeed: 
 
               // Cruise speed for this bird in world units per second.
               const cruiseSpeed = baseSpeed * speedMult;
+              // Published for the turning controller's speed
+              // weighting (Fix Round 4): aim versus velocity is
+              // blended as a fraction of this live cruise speed.
+              bird.cruiseSpeedNow = cruiseSpeed;
 
               const speedNow = bird.velocity.length();
               const currentDir = speedNow > 1e-4
@@ -427,57 +431,97 @@ updateBirdPhysics(bird: PhoenixState, targetWaypoint: THREE.Vector3, baseSpeed: 
             this.host.gameState.phoenixScreenPos.set({x: x2d, y: y2d});
         }
 
-        // Heading and bank for the sprite (screen space: the drawn
-        // bird's up is its heading). The heading turns smoothly
-        // toward the velocity direction while the bird is moving.
-        // Flight lore (Oct 28, 2026): the phoenix only flies up, so
-        // when it is parked (hovering at its target, pointer released
-        // or still) the heading settles back to straight up-screen
-        // and the bird glides there nose-up, even if it parked while
-        // banked from a hard sideways dodge. Banking stays a tilt
-        // away from the up heading while moving; there is no
-        // sustained sideways-facing pose.
+        // Unified turning controller (Fix Round 4, Carter's spec,
+        // Oct 29, 2026). ONE method turns the bird in every case:
+        // manual steering, auto-aim while moving, and parked
+        // targeting. It replaces the old center-pivot heading ease
+        // (velocity follow at a fixed smoothing factor) and the
+        // Fix Round 3 parked-only capped rotation.
+        //
+        // The HEAD leads: bird.headingAngle is the head angle. It
+        // turns toward the desired facing at TURNING
+        // .headTurnRateDegPerSec (620 deg/s: a 180 degree face
+        // change lands in about 0.29 s, as fast as the player can
+        // steer). The BODY (bird.bodyAngle) follows through a
+        // rate-capped spring, and the render write bends the
+        // sprite's spine by their difference, so mid-turn the head
+        // is already turned with the body curved behind it.
+        //
+        // Desired facing: while a mob is inside the auto-fire
+        // range (the game publishes its angle on aimTargetAngle),
+        // the aim direction and the velocity direction blend by
+        // speed as a fraction of live cruise: at or below
+        // fullAimSpeedRatio the aim owns the facing (the bird can
+        // face and shoot a mob behind it while drifting, flying
+        // backwards while shooting forwards at the mob); at or
+        // above fullVelocitySpeedRatio the velocity owns it (at
+        // speed the bird faces where it flies); smoothstep between.
+        // No mob in range: the velocity direction. Parked with
+        // nothing in range: straight up, Carter's door-stopper
+        // settle from the flight lore and Fix Round 3, now through
+        // this same controller. While falling, the facing follows
+        // the fall velocity, as the shipped death flow read.
         const velLen = bird.velocity.length();
-        if (velLen > 0.6) {
-            const targetAngle = Math.atan2(bird.velocity.y, bird.velocity.x);
-            let dA = targetAngle - bird.headingAngle;
-            while (dA > Math.PI) dA -= Math.PI * 2;
-            while (dA < -Math.PI) dA += Math.PI * 2;
-            bird.headingAngle += dA * (1 - Math.pow(0.92, frameScale));
-        } else if (bird.hovering && this.host.gameState.playerDownPhase() === 'none') {
-            // Parked heading. Flight lore (Oct 28, 2026): a parked
-            // phoenix glides nose-up. Parked targeting (Carter, Fix
-            // Round 3, Oct 29, 2026) amends the rule: the nearest
-            // enemy inside the auto-fire range pulls the parked
-            // heading toward it at a capped slow turn rate (full
-            // 360 degree freedom, shortest arc, no snapping), so the
-            // A1 facing cone sweeps onto it and auto-fire engages;
-            // with nothing in range the heading works back to
-            // straight up at the return rate, the lore settle kept
-            // as the no-influence case. The game publishes the
-            // target angle (world space) on gameState
-            // .parkedTargetAngle; the AI bird never takes the
-            // influence, only the return. Both moves are capped
-            // rates, not eases: the rotation reads at a steady slow
-            // pace and cannot snap.
-            let desiredAngle = Math.PI / 2;
-            let rateDegPerSec = PARKED_TARGETING.returnRateDegPerSec;
-            if (!isAi && this.host.gameState.parkedTargetAngle !== null) {
-                desiredAngle = this.host.gameState.parkedTargetAngle;
-                rateDegPerSec = PARKED_TARGETING.turnRateDegPerSec;
+        const gsT = this.host.gameState;
+        const velAngle = velLen > 1e-3 ? Math.atan2(bird.velocity.y, bird.velocity.x) : null;
+        let desired: number | null = null;
+        if (!isAi && gsT.playerDownPhase() === 'falling') {
+            desired = velAngle;
+        } else {
+            const aim = (!isAi && gsT.activeScreen() === 'game' && !gsT.isPaused() && !gsT.isDeadMenuOpen())
+                ? gsT.aimTargetAngle : null;
+            if (aim !== null) {
+                const cruise = Math.max(1, bird.cruiseSpeedNow || baseSpeed);
+                const ratio = velLen / cruise;
+                if (velAngle === null || ratio <= TURNING.fullAimSpeedRatio) {
+                    desired = aim;
+                } else if (ratio >= TURNING.fullVelocitySpeedRatio) {
+                    desired = velAngle;
+                } else {
+                    const t = (ratio - TURNING.fullAimSpeedRatio) / (TURNING.fullVelocitySpeedRatio - TURNING.fullAimSpeedRatio);
+                    const w = t * t * (3 - 2 * t);
+                    let dAim = velAngle - aim;
+                    while (dAim > Math.PI) dAim -= Math.PI * 2;
+                    while (dAim < -Math.PI) dAim += Math.PI * 2;
+                    desired = aim + dAim * w;
+                }
+            } else if (velLen > 0.6 && velAngle !== null) {
+                desired = velAngle;
+            } else if (bird.hovering) {
+                desired = Math.PI / 2;
+            } else {
+                // Nearly still but not parked (a reversal passing
+                // through zero): the heading holds, as the shipped
+                // model read, instead of blipping toward up.
+                desired = velAngle;
             }
-            let dA = desiredAngle - bird.headingAngle;
-            while (dA > Math.PI) dA -= Math.PI * 2;
-            while (dA < -Math.PI) dA += Math.PI * 2;
-            const maxStep = rateDegPerSec * (Math.PI / 180) * (frameScale / 60);
-            bird.headingAngle += Math.max(-maxStep, Math.min(maxStep, dA));
+        }
+        if (desired !== null) {
+            let dH = desired - bird.headingAngle;
+            while (dH > Math.PI) dH -= Math.PI * 2;
+            while (dH < -Math.PI) dH += Math.PI * 2;
+            const maxHeadStep = TURNING.headTurnRateDegPerSec * (Math.PI / 180) * dt;
+            bird.headingAngle += Math.max(-maxHeadStep, Math.min(maxHeadStep, dH));
+        }
+        // Body follow: an exponential approach (bodyFollowTauSec)
+        // capped at bodyTurnRateDegPerSec, so the body trails the
+        // head through every fast turn and settles onto it after.
+        {
+            let dB = bird.headingAngle - bird.bodyAngle;
+            while (dB > Math.PI) dB -= Math.PI * 2;
+            while (dB < -Math.PI) dB += Math.PI * 2;
+            const springStep = dB * (1 - Math.exp(-dt / TURNING.bodyFollowTauSec));
+            const maxBodyStep = TURNING.bodyTurnRateDegPerSec * (Math.PI / 180) * dt;
+            bird.bodyAngle += Math.max(-maxBodyStep, Math.min(maxBodyStep, springStep));
         }
         const headingVec = new THREE.Vector3(Math.cos(bird.headingAngle), Math.sin(bird.headingAngle), 0);
-        // Publish the player bird's heading for the auto-fire
-        // facing cone (Fix Round 2 A1): screen space flips y, so
-        // the world-space heading (cos, sin) reads (cos, -sin) in
-        // the screen terms the game logic uses. The AI bird does
-        // not publish: the cone governs the player's auto-fire.
+        // Publish the player bird's HEAD angle for the auto-fire
+        // facing cone (Fix Round 2 A1; Fix Round 4: the cone
+        // centers on the head, since the head is what aims):
+        // screen space flips y, so the world-space heading
+        // (cos, sin) reads (cos, -sin) in the screen terms the
+        // game logic uses. The AI bird does not publish: the cone
+        // governs the player's auto-fire.
         if (!isAi) {
             this.host.gameState.phoenixHeading.x = headingVec.x;
             this.host.gameState.phoenixHeading.y = -headingVec.y;
@@ -647,6 +691,42 @@ updateBirdPhysics(bird: PhoenixState, targetWaypoint: THREE.Vector3, baseSpeed: 
       const anchorBack = (0.5 - PHOENIX_ANCHOR_NZ) * len;
       const headingVec = new THREE.Vector3(Math.cos(bird.headingAngle), Math.sin(bird.headingAngle), 0);
       const inPlane = bird.headingAngle - Math.PI / 2 + bird.currentBank * 0.5 + extraRoll + bird.drillSpin;
+
+      // Spine bend (Fix Round 4): the main and ash planes share
+      // the bird's segmented bend geometry. Each vertex row below
+      // the neck pivot is rotated in the plane's local frame by a
+      // share of the head-to-body angle difference that grows
+      // toward the tail (bendCurveExponent), so the drawn body
+      // curves behind the head while the head rows stay exact:
+      // the head stays pinned on the physics position and leads
+      // the turn, the body bends after it. The deflection clamps
+      // at bendMaxDeg so extreme reversals stay readable.
+      if (bird.bendGeo && bird.bendBase) {
+          let bend = bird.bodyAngle - bird.headingAngle;
+          while (bend > Math.PI) bend -= Math.PI * 2;
+          while (bend < -Math.PI) bend += Math.PI * 2;
+          const maxBend = TURNING.bendMaxDeg * Math.PI / 180;
+          bend = Math.max(-maxBend, Math.min(maxBend, bend));
+          const neckY = (0.5 - TURNING.bendNeckNz) * 1.25;
+          const posAttr = bird.bendGeo.attributes['position'] as THREE.BufferAttribute;
+          const arr = posAttr.array as Float32Array;
+          const base = bird.bendBase;
+          for (let i = 0; i < arr.length; i += 3) {
+              const bx = base[i], by = base[i + 1];
+              if (by >= neckY || bend === 0) {
+                  arr[i] = bx; arr[i + 1] = by; arr[i + 2] = base[i + 2];
+                  continue;
+              }
+              const t = (neckY - by) / (neckY + 0.625);
+              const th = bend * Math.pow(t, TURNING.bendCurveExponent);
+              const cos = Math.cos(th), sin = Math.sin(th);
+              const dy = by - neckY;
+              arr[i] = bx * cos - dy * sin;
+              arr[i + 1] = neckY + bx * sin + dy * cos;
+              arr[i + 2] = base[i + 2];
+          }
+          posAttr.needsUpdate = true;
+      }
 
       // Hover bob (render only): a gentle vertical settle while
       // parked, a subtler one in cruise, nearly none mid-dash.

@@ -257,8 +257,18 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
             const b = this.bird;
             let deg = (b.headingAngle * 180 / Math.PI) % 360;
             if (deg < 0) deg += 360;
+            // Fix Round 4: headingDeg is the HEAD angle; bodyDeg
+            // is the lagging body angle and bendDeg their signed
+            // shortest-arc difference, for the turning proofs.
+            let bodyDeg = (b.bodyAngle * 180 / Math.PI) % 360;
+            if (bodyDeg < 0) bodyDeg += 360;
+            let bendDeg = (b.bodyAngle - b.headingAngle) * 180 / Math.PI;
+            while (bendDeg > 180) bendDeg -= 360;
+            while (bendDeg < -180) bendDeg += 360;
             return {
               headingDeg: Math.round(deg * 10) / 10,
+              bodyDeg: Math.round(bodyDeg * 10) / 10,
+              bendDeg: Math.round(bendDeg * 10) / 10,
               flapTime: Math.round(b.flapTime * 1000) / 1000,
               hovering: b.hovering,
               bankDeg: Math.round(b.currentBank * 180 / Math.PI * 10) / 10,
@@ -796,7 +806,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       phoenixCount: 4000, currentBank: 0, flapTime: 0, position: new THREE.Vector3(0, -5, -15),
       velocity: new THREE.Vector3(0, 1, 0), previousVelocity: new THREE.Vector3(0, 1, 0),
       targetWaypoint: new THREE.Vector3(), historyPos: [], historyQuat: [],
-      headingAngle: Math.PI / 2, drillSpin: 0, trailFade: 1, renderOpacity: 1, renderTint: new THREE.Color(1, 1, 1), renderAshMix: 0, hovering: false
+      headingAngle: Math.PI / 2, bodyAngle: Math.PI / 2, cruiseSpeedNow: 0, bendGeo: null, bendBase: null, drillSpin: 0, trailFade: 1, renderOpacity: 1, renderTint: new THREE.Color(1, 1, 1), renderAshMix: 0, hovering: false
     };
   }
 
@@ -1263,19 +1273,27 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     // toggle covers the whole rig at once.
     const frames = getPhoenixFrames(skin);
     const geo = new THREE.PlaneGeometry(1, 1.25);
-    const makePlane = (renderOrder: number): THREE.Mesh => {
+    // Fix Round 4 bend geometry: the main and ash planes get their
+    // own segmented copy (12 height segments), whose vertices the
+    // render write bends along the spine each frame so the body
+    // visibly curves behind the head in a turn. The ghost ribbon
+    // keeps the flat shared geometry (faint trail copies).
+    const bendGeo = new THREE.PlaneGeometry(1, 1.25, 1, 12);
+    bird.bendGeo = bendGeo;
+    bird.bendBase = (bendGeo.attributes['position'].array as Float32Array).slice();
+    const makePlane = (renderOrder: number, planeGeo: THREE.BufferGeometry = geo): THREE.Mesh => {
       const mat = new THREE.MeshBasicMaterial({
         map: frames.frames[0], transparent: true, opacity: 0.95,
         depthWrite: false, depthTest: false, side: THREE.DoubleSide,
       });
-      const mesh = new THREE.Mesh(geo, mat);
+      const mesh = new THREE.Mesh(planeGeo, mat);
       mesh.renderOrder = renderOrder;
       mesh.frustumCulled = false;
       mesh.position.copy(bird.position);
       return mesh;
     };
-    bird.sprite = makePlane(3);
-    bird.ashSprite = makePlane(3);
+    bird.sprite = makePlane(3, bendGeo);
+    bird.ashSprite = makePlane(3, bendGeo);
     bird.ashSprite.visible = false;
     bird.ghostSprites = [];
     for (let gi = 0; gi < 8; gi++) {

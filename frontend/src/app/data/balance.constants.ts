@@ -46,32 +46,57 @@ export const AUTO_FIRE = {
   dpsAtBaseStats: 6.67, // the PI anchor: 10 damage per 1.5 s by definition; shipped auto-fire is 10 per 1.0 s (see note above)
   // Targeting (Carter's rule, Fix Round 2 A1, Oct 28, 2026):
   // auto-fire engages only enemies inside a facing cone of
-  // half-angle 45 degrees around the phoenix's current heading
-  // (the parked heading settles nose-up), nearest first inside
-  // the cone; with nothing in the cone it holds fire. TTK figures
-  // in this sheet were measured against targets the bird faces,
-  // which remains the measured case.
+  // half-angle 45 degrees around the phoenix's current heading,
+  // nearest first inside the cone; with nothing in the cone it
+  // holds fire. Since Fix Round 4 the heading is the HEAD angle
+  // of the unified turning controller (TURNING below), which
+  // aims the head at in-range mobs whenever speed is low. TTK
+  // figures in this sheet were measured against targets the bird
+  // faces, which remains the measured case.
   targeting: 'facing cone, 45 degree half-angle, nearest in cone',
 };
 
-// Parked targeting rotation (Carter's rule, Fix Round 3, Oct 29,
-// 2026): amends the flight lore's parked rule. A parked phoenix no
-// longer only settles nose-up: the nearest enemy inside the
-// auto-fire range pulls the parked heading toward it at a capped
-// slow turn rate, with full 360 degree freedom (shortest arc, no
-// snapping), so the A1 facing cone sweeps onto the target and
-// auto-fire engages once it is inside the cone. With nothing in
-// range the heading works back to straight up at the return rate,
-// the shipped nose-up settle kept as the no-influence case.
-// Carter's image: a door stopper you can pull all the way around
-// that slowly works back to straight when nothing is influencing
-// it. The influence range is not a separate number: it is the
-// shipped auto-fire gate itself (attackRange stat x speedScale),
-// so anything that can pull the heading is something auto-fire can
-// reach once the cone sweeps onto it.
-export const PARKED_TARGETING = {
-  turnRateDegPerSec: 50,
-  returnRateDegPerSec: 45,
+// Unified turning (Carter's spec, Fix Round 4, Oct 29, 2026;
+// replaces the Fix Round 3 parked-only rotation law and the old
+// center-pivot heading ease). ONE controller turns the phoenix in
+// every case: manual steering, auto-aim while moving, and parked
+// targeting. The HEAD leads: the head angle turns toward the
+// desired facing at headTurnRateDegPerSec, fast enough that a 180
+// degree face change completes well under a second, and the BODY
+// follows behind it (rate-capped spring), so mid-turn the sprite
+// visibly bends: head already turned, body curved after it. The
+// sprite bends geometrically along the spine (bird-physics), it
+// is not just two angles in state. The A1 facing cone centers on
+// the HEAD angle, because the head is what aims.
+//
+// Desired facing while a mob is in auto-fire range blends the aim
+// direction (toward the nearest in-range mob) and the velocity
+// direction, weighted by speed as a fraction of the bird's live
+// cruise speed: at or below fullAimSpeedRatio the aim owns the
+// facing outright (the phoenix can face and shoot a mob behind
+// it while drifting, even flying backwards while shooting
+// forwards at the mob); at or above fullVelocitySpeedRatio the
+// velocity owns it (at speed the bird faces where it flies and
+// ends up flying the other way rather than shooting backwards);
+// between them the blend is smoothstep, monotonic in speed. With
+// no mob in range the facing is the velocity direction, and
+// parked with no mob it settles back to straight up: Carter's
+// door-stopper behavior from Fix Round 3, kept as the no-
+// influence case but now turning through this same fast
+// controller instead of the old slow caps (50 and 45 deg/s are
+// retired). The aim influence range is not a separate number: it
+// is the shipped auto-fire gate itself (attackRange stat x
+// speedScale), so anything that can pull the facing is something
+// auto-fire can reach once the cone sweeps onto it.
+export const TURNING = {
+  headTurnRateDegPerSec: 620,
+  bodyTurnRateDegPerSec: 400,
+  bodyFollowTauSec: 0.09,
+  fullAimSpeedRatio: 0.18,
+  fullVelocitySpeedRatio: 0.62,
+  bendMaxDeg: 75,
+  bendNeckNz: 0.24,
+  bendCurveExponent: 1.35,
   rangeGate: 'attackRange stat x speedScale (the auto-fire range gate)',
 };
 

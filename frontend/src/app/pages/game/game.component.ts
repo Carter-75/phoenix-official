@@ -1451,21 +1451,23 @@ export class GameComponent implements OnInit, OnDestroy {
   }
 
 
-  // Parked targeting publisher (Fix Round 3): the game owns the
-  // enemy list and the auto-fire range gate, so it publishes the
-  // nearest in-range enemy's heading angle on gameState (world
-  // space, the bird physics atan2 convention, y flipped from
-  // screen space); the parked branch in bird-physics owns turning
-  // the heading toward it at the capped rate. Mirrors the
-  // executor's range gate exactly (attackRange stat x speedScale)
-  // and its body set (this.enemies), so anything that can pull the
-  // parked heading is something auto-fire can reach once the cone
-  // sweeps onto it. Bodies at point-blank range are skipped: no
-  // meaningful direction, and contact handles them.
-  private publishParkedTarget() {
+  // Aim publisher (Fix Round 4, unified turning; Fix Round 3's
+  // parked-only publisher generalized): the game owns the enemy
+  // list and the auto-fire range gate, so it publishes the
+  // nearest in-range living enemy's heading angle on gameState
+  // (world space, the bird physics atan2 convention, y flipped
+  // from screen space); the turning controller in bird-physics
+  // blends that aim against the velocity direction by speed and
+  // turns the head toward it. Mirrors the executor's range gate
+  // exactly (attackRange stat x speedScale) and its body set
+  // (this.enemies), so anything that can pull the facing is
+  // something auto-fire can reach once the cone sweeps onto it.
+  // Bodies at point-blank range are skipped: no meaningful
+  // direction, and contact handles them.
+  private publishAimTarget() {
     const gs = this.gameState;
     if (this.gameEnded() || this.isDead() || !this.playerBody || !this.enemies) {
-      gs.parkedTargetAngle = null;
+      gs.aimTargetAngle = null;
       return;
     }
     const range = gs.currentStats().attackRange * this.speedScale;
@@ -1481,7 +1483,7 @@ export class GameComponent implements OnInit, OnDestroy {
       const dist = Math.hypot(dx, dy);
       if (dist >= 2 && dist <= range && dist < bestDist) { best = e; bestDist = dist; }
     }
-    gs.parkedTargetAngle = best
+    gs.aimTargetAngle = best
       ? Math.atan2(-(best.position.y - py), best.position.x - px)
       : null;
   }
@@ -1941,7 +1943,7 @@ export class GameComponent implements OnInit, OnDestroy {
       // The charge stamp resets too, so paused wall time is never
       // banked into the hold charge on resume (Fix Round 1, Part 3).
       if (this.gameState.isPaused()) { this.lastChargeStamp = 0; return; }
-      this.publishParkedTarget();
+      this.publishAimTarget();
       const now = Date.now();
       // Fixed-step driver: event.delta is the step size in ms (always
       // 1000/60), identical on every device and refresh rate.

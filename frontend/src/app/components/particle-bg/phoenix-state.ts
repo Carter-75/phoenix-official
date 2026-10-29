@@ -52,6 +52,21 @@ export interface PhoenixState {
   // material state the physics writes; the component's visual-state
   // machine (flash, death, rebirth) composes over them.
   headingAngle: number;
+  // Unified turning (Fix Round 4): headingAngle is the HEAD angle
+  // (what the sprite's head faces, what the auto-fire cone centers
+  // on, what phoenixHeading publishes). bodyAngle is the body's
+  // own angle, following the head through the rate-capped spring
+  // in bird-physics; the rendered spine bends by their difference.
+  // cruiseSpeedNow is the bird's live cruise speed (world units
+  // per second, multipliers included), written by the steering
+  // each substep so the turning controller can weight aim against
+  // velocity as a fraction of cruise. bendGeo and bendBase are
+  // the main and ash planes' segmented geometry and its pristine
+  // vertex positions, bent per frame by the render write.
+  bodyAngle: number;
+  cruiseSpeedNow: number;
+  bendGeo: THREE.PlaneGeometry | null;
+  bendBase: Float32Array | null;
   drillSpin: number;
   trailFade: number; // ghost ribbon strength from live speed (0 parked, 1 at pace)
   renderOpacity: number;

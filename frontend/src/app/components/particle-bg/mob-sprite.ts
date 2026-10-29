@@ -49,8 +49,14 @@ function liftBody(c: Rgb): Rgb {
 const BASE: Record<string, { core: Rgb; body: Rgb; accent: Rgb }> = {
   // Ember Glob: white-yellow molten core, deep orange-red membrane.
   slime: { core: [1.0, 0.88, 0.5], body: [0.78, 0.24, 0.05], accent: [1.0, 0.55, 0.15] },
-  // Gloomwing: dark crimson mass, purple-edged wings, red eyes.
-  bat: { core: [1.0, 0.16, 0.1], body: [0.36, 0.07, 0.14], accent: [0.55, 0.2, 0.72] },
+  // Gloomwing: violet wings (the points-era bat rendered violet:
+  // root about (0.25, 0.05, 0.55) opening to (0.2, 0.07, 0.85) at
+  // the edge, entity-builder's shipped gradient), dark violet
+  // body mass, red eyes. Fix Round 4: the A5 sprite's first
+  // palette made the wings dark crimson (body luminance 0.14)
+  // and Carter's phone read the bat as black; the violet family
+  // is restored and brightened toward the luminance cap.
+  bat: { core: [1.0, 0.16, 0.1], body: [0.38, 0.16, 0.78], accent: [0.62, 0.35, 1.0] },
   // Bastion Golem: magma core, matte dark rock.
   golem: { core: [1.0, 0.52, 0.12], body: [0.3, 0.26, 0.24], accent: [1.0, 0.68, 0.25] },
   // Cinder Imp: white-hot heart, flame skin, ember horns.
@@ -182,7 +188,13 @@ const PAINTERS: Record<string, Painter> = {
   bat(ctx, cx, cy, u, pal, frame) {
     const lift = frame === 0 ? -0.55 : 0.25; // wing tip height by flap frame
     for (const s of [-1, 1]) {
-      ctx.fillStyle = css(pal.body);
+      // Wing membrane: a violet gradient, body color at the root
+      // opening to the bright accent at the tip (the points-era
+      // bat's shipped root-to-edge gradient, Fix Round 4).
+      const grad = ctx.createLinearGradient(cx, cy, cx + s * 0.98 * u, cy + lift * u);
+      grad.addColorStop(0, css(pal.body));
+      grad.addColorStop(1, css(pal.accent));
+      ctx.fillStyle = grad;
       poly(ctx, [
         [cx + s * 0.12 * u, cy - 0.1 * u],
         [cx + s * 0.98 * u, cy + lift * u],
