@@ -1110,6 +1110,7 @@ export class GameComponent implements OnInit, OnDestroy {
     this.annihilationModeActive.set(false);
     this.infiniteBurnActive.set(false);
     this.entranceActive.set(false);
+    this.gameState.entranceScrollHold.set(false);
     // S3 gadget run state: the Feather Charm is unused and the Aegis
     // Charm's single charge is armed when it is the equipped gadget.
     this.featherUsedThisRun = false;

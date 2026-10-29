@@ -268,6 +268,12 @@ export class GameStateService {
   // only: nothing here is persisted. Battle keeps its own defeat
   // behavior and never sets this.
   public playerDownPhase = signal<'none' | 'falling' | 'ko' | 'return' | 'blast'>('none');
+  // Fix Round 2 (A3): held true for the whole Battle entrance
+  // (flight plus standoff). The background renderer reads it to
+  // freeze the world scroll during the entrance, so Battle starts
+  // with the same framing (walls, background alignment) as Normal
+  // and Endless instead of landing mid-scroll.
+  public entranceScrollHold = signal<boolean>(false);
   public activeEntities = signal<PhysicsEntity[]>([]);
 
   // AI vs AI Scoreboard

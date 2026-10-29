@@ -1399,7 +1399,10 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
             && !this.gameState.isPaused() && !this.gameState.isDeadMenuOpen()
             && this.gameState.playerDownPhase() === 'none';
           this.scrollRateNow = this.scrollScreenRate();
-          if (inRun && !this.scrollFrozen) this.scrollScreens += this.scrollRateNow * dt;
+          // A3: the Battle entrance holds the scroll at phase zero,
+          // so Battle's first controllable frame is framed like the
+          // other modes instead of landing mid-scroll.
+          if (inRun && !this.scrollFrozen && !this.gameState.entranceScrollHold()) this.scrollScreens += this.scrollRateNow * dt;
           const visFrac = (2 * this.boundY * (49 / 20)) / 130;
           this.backdropTex.offset.y = (this.scrollScreens * visFrac) % 1;
           const wallOff = this.scrollScreens % 1;

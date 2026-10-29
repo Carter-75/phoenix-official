@@ -79,6 +79,9 @@ initBattleMode() {
       // Entrance is LIVE (not a hard pause): physics keeps running, but AI logic/attacks are
       // disabled and the player can't move or take damage until the intro finishes.
       this.host.entranceActive.set(true);
+      // A3: the world scroll holds for the whole entrance so the
+      // first controllable Battle frame matches the other modes.
+      this.host.gameState.entranceScrollHold.set(true);
       this.host.gameState.isPaused.set(false);
 
       // Spawn AI Phoenix off-screen top
@@ -157,6 +160,7 @@ initBattleMode() {
               setTimeout(() => {
                   if (!this.host.gameEnded() && !this.host.isDead()) {
                       this.host.entranceActive.set(false);
+                      this.host.gameState.entranceScrollHold.set(false);
                       this.host.lastClickTime = Date.now();
                   }
               }, 1000);

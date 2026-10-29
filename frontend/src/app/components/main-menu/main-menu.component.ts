@@ -375,6 +375,9 @@ export class MainMenuComponent {
     if (this.holdFired && mode === 'battle') return; // Prevent click firing after hold
 
     this.audio.playSFX('click');
+    // A3: Battle's entrance scroll hold is set before the game
+    // screen activates, so not even the first frames scroll.
+    if (mode === 'battle' || mode === 'ai_vs_ai') this.gameState.entranceScrollHold.set(true);
     this.gameState.currentGameMode.set(mode);
     if (mode === 'campaign' || mode === 'endless') {
         this.gameState.selectedWorldIndex.set(this.currentWorld().id);
