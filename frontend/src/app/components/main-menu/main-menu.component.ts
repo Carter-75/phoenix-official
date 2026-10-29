@@ -15,6 +15,37 @@ import { AdsService } from '../../services/ads.service';
     /* Safety net: a menu screen may scroll rather than clip content. */
     .menu-screen { overflow-y: auto; }
 
+    /* A16 redesign surface: one ember-glass material for every menu
+       panel (wallet pills, nav cluster, realm selector, mode track),
+       a soft vignette over the living backdrop, and a slow pulse
+       ring behind the play medallion. */
+    .glass {
+      background: rgba(10, 7, 12, 0.55);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    }
+    .vignette {
+      background: radial-gradient(ellipse 92% 66% at 50% 42%, transparent 52%, rgba(0, 0, 0, 0.52) 100%);
+    }
+    .play-ring {
+      position: absolute; inset: -0.6rem; border-radius: 9999px;
+      border: 2px solid rgba(255, 120, 40, 0.38);
+      animation: playPulse 2.6s ease-out infinite;
+      pointer-events: none;
+    }
+    .play-ring.ring-violet { border-color: rgba(167, 139, 250, 0.42); }
+    .play-ring.ring-red { border-color: rgba(248, 113, 113, 0.48); }
+    @keyframes playPulse {
+      0% { transform: scale(0.94); opacity: 0.9; }
+      70% { transform: scale(1.13); opacity: 0; }
+      100% { transform: scale(1.13); opacity: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .play-ring { animation: none; opacity: 0.45; }
+    }
+
     /* Boost pill label: short form on narrow screens (Bug 2). */
     .boost-label-short { display: none; }
     @media (max-width: 560px) {
@@ -60,32 +91,35 @@ import { AdsService } from '../../services/ads.service';
     }
   `],
   template: `
-    <!-- Global Header (Currencies & Navigation) - Fixed to screen -->
-    <div class="menu-header screen-in fixed top-0 left-0 w-full p-4 md:p-6 flex flex-col md:flex-row justify-between items-start gap-4 pointer-events-none z-50 text-white">
-      <div class="menu-header-row flex items-center gap-2 md:gap-4 w-full md:w-auto justify-center md:justify-start pointer-events-auto">
+    <!-- Global Header (Currencies & Navigation) - Fixed to screen.
+         A16: one ember-glass material across the wallet pills and the
+         nav cluster. The shop lives in the plus buttons inside the
+         currency pills (A15); there is no chest button. -->
+    <div class="menu-header screen-in fixed top-0 left-0 w-full p-3 md:p-5 flex flex-col md:flex-row justify-between items-center gap-2.5 pointer-events-none z-50 text-white">
+      <div class="menu-header-row flex items-center gap-2 md:gap-3 w-full md:w-auto justify-center md:justify-start pointer-events-auto">
         <!-- Coins -->
-        <div class="flex items-center gap-2 bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/10">
+        <div class="glass flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-full">
           <img src="assets/coin_icon.png" alt="Coins" class="w-6 h-6 object-contain" />
-          <span class="text-xl font-bold text-orange-400">{{ gameState.coins() }}</span>
+          <span class="text-lg font-black text-orange-400 tabular-nums">{{ gameState.coins() }}</span>
           <button (click)="openShopCoins()" aria-label="Open the upgrade shop" class="press w-6 h-6 rounded-full bg-orange-500 text-black text-lg font-black leading-none flex items-center justify-center hover:brightness-110 active:scale-90 transition shadow-[0_0_10px_rgba(255,77,0,0.55)]">+</button>
         </div>
         <!-- Gems -->
-        <div class="flex items-center gap-2 bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/10">
+        <div class="glass flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-full">
           <img src="assets/gem_icon.png" alt="Gems" class="w-6 h-6 object-contain" />
-          <span class="text-xl font-bold text-white">{{ gameState.gems() }}</span>
+          <span class="text-lg font-black text-white tabular-nums">{{ gameState.gems() }}</span>
           <button (click)="openShopGems()" aria-label="Open the premium shop" class="press w-6 h-6 rounded-full bg-violet-500 text-white text-lg font-black leading-none flex items-center justify-center hover:brightness-110 active:scale-90 transition shadow-[0_0_10px_rgba(168,85,247,0.55)]">+</button>
         </div>
       </div>
-      
+
       <!-- Navigation -->
-      <div class="menu-header-nav flex flex-wrap items-center justify-center md:justify-end gap-2 md:gap-4 w-full md:w-auto pointer-events-auto">
-        <button (click)="openCodex()" class="press px-3 py-1.5 md:px-4 md:py-2 text-sm md:text-base bg-white/5 hover:bg-white/10 border border-white/10 rounded-full font-semibold transition backdrop-blur-md text-white">
+      <div class="menu-header-nav glass flex items-center gap-1 p-1 rounded-full pointer-events-auto">
+        <button (click)="openCodex()" class="press px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-widest text-white/70 hover:text-white hover:bg-white/10 transition">
           Codex
         </button>
-        <button (click)="openLeaderboard()" class="press px-3 py-1.5 md:px-4 md:py-2 text-sm md:text-base bg-white/5 hover:bg-white/10 border border-white/10 rounded-full font-semibold transition backdrop-blur-md text-white">
+        <button (click)="openLeaderboard()" class="press px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-widest text-white/70 hover:text-white hover:bg-white/10 transition">
           Leaderboard
         </button>
-        <button (click)="openProfile()" class="press px-3 py-1.5 md:px-4 md:py-2 text-sm md:text-base bg-white/5 hover:bg-white/10 border border-white/10 rounded-full font-semibold transition backdrop-blur-md text-white">
+        <button (click)="openProfile()" class="press px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-widest text-white/70 hover:text-white hover:bg-white/10 transition">
           {{ auth.currentUser() ? (auth.currentUser()!.isTemp ? 'Finish Signup' : auth.currentUser()!.username) : 'Sign In' }}
         </button>
       </div>
@@ -98,7 +132,7 @@ import { AdsService } from '../../services/ads.service';
          The centre of the row stays empty for the mode toggle. -->
     <div class="screen-in fixed bottom-0 inset-x-0 z-50 flex items-end justify-between gap-3 p-4 md:p-6 pointer-events-none">
       <!-- Deliberate 2x boost (rewarded ad, opt-in only) -->
-      <button (click)="watchBoostAd()" class="press pointer-events-auto px-4 py-2 rounded-full border font-bold transition max-w-[52vw]"
+      <button (click)="watchBoostAd()" class="press pointer-events-auto px-4 py-2 rounded-full border font-bold transition max-w-[52vw] shadow-[0_10px_30px_rgba(0,0,0,0.45)]"
               [ngClass]="gameState.tempCoinMultiplier() > 1 ? 'bg-orange-500/25 border-orange-400/50 text-white' : 'bg-orange-500/10 border-orange-400/30 text-orange-200 hover:bg-orange-500/20'">
          @if (gameState.tempCoinMultiplier() > 1) {
             ⚡ 2x Boost Active
@@ -109,29 +143,38 @@ import { AdsService } from '../../services/ads.service';
       </button>
 
       <!-- Settings Button -->
-      <button (click)="showSettings = true" class="press pointer-events-auto shrink-0 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-white/50 hover:text-white font-bold transition">
+      <button (click)="showSettings = true" class="press glass pointer-events-auto shrink-0 px-4 py-2 rounded-full text-white/60 hover:text-white font-bold transition">
          SETTINGS ⚙️
       </button>
     </div>
 
     <div class="fixed inset-0 w-full h-[200vh] transition-transform duration-500 ease-in-out"
          [style.transform]="activeMenuMode === 'campaign' ? 'translateY(0)' : 'translateY(-50%)'">
-         
+
       <!-- Campaign Screen (top 100vh) -->
       <div class="menu-screen w-full h-[100vh] relative flex flex-col items-center justify-center text-white pointer-events-none">
+        <div class="vignette absolute inset-0 pointer-events-none"></div>
 
         <!-- Center Content -->
-        <div class="menu-center flex flex-col items-center gap-4 pointer-events-auto transform mt-24 md:-translate-y-8 md:mt-0">
-          <h1 class="menu-title stagger-in text-6xl md:text-9xl font-black tracking-tighter bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(255,100,0,0.5)] transition-all duration-500 bg-gradient-to-b text-center"
-              [ngClass]="currentWorld().textColorClass">
-            PHOENIX<br/>FALL
-          </h1>
+        <div class="menu-center relative flex flex-col items-center gap-4 pointer-events-auto transform mt-24 md:-translate-y-8 md:mt-0">
+          <div class="flex flex-col items-center">
+            <div class="stagger-in text-[10px] font-black uppercase tracking-[0.45em] text-orange-300/80 mb-2" style="--d: 0">Ten realms, one flame</div>
+            <h1 class="menu-title stagger-in text-6xl md:text-9xl font-black tracking-tighter bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(255,100,0,0.5)] transition-all duration-500 bg-gradient-to-b text-center"
+                [ngClass]="currentWorld().textColorClass">
+              PHOENIX<br/>FALL
+            </h1>
+            <div class="stagger-in mt-3 flex items-center gap-2" style="--d: 0">
+              <div class="h-px w-16 bg-gradient-to-r from-transparent to-orange-500/80"></div>
+              <div class="w-1.5 h-1.5 rotate-45 bg-orange-400 shadow-[0_0_8px_rgba(255,120,40,0.9)]"></div>
+              <div class="h-px w-16 bg-gradient-to-l from-transparent to-orange-500/80"></div>
+            </div>
+          </div>
 
           <!-- World Selector -->
-          <div class="menu-selector stagger-in flex items-center gap-6 mt-4 bg-black/40 backdrop-blur-md px-6 py-3 rounded-full border border-white/10" style="--d: 1">
-            <button (click)="prevWorld()" class="press text-white/50 hover:text-white transition text-2xl hover:-translate-x-1">&larr;</button>
-            <div class="w-48 text-center flex flex-col items-center justify-center">
-              <span class="text-sm text-white/50 uppercase tracking-widest font-bold">Realm {{ currentWorld().id + 1 }}</span>
+          <div class="menu-selector stagger-in glass flex items-center gap-5 mt-2 px-4 py-2.5 rounded-2xl" style="--d: 1">
+            <button (click)="prevWorld()" class="press w-9 h-9 shrink-0 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/60 hover:text-white transition text-xl hover:-translate-x-0.5">&larr;</button>
+            <div class="w-48 relative text-center flex flex-col items-center justify-center">
+              <span class="text-[11px] text-white/50 uppercase tracking-[0.3em] font-bold">Realm {{ currentWorld().id + 1 }}</span>
               <span class="text-xl font-black tracking-wider transition-colors duration-300 text-transparent bg-clip-text bg-gradient-to-r"
                     [ngClass]="currentWorld().textColorClass">
                 {{ currentWorld().name }}
@@ -140,7 +183,7 @@ import { AdsService } from '../../services/ads.service';
                 <span class="absolute -top-3 -right-6 text-xs text-orange-400 font-bold uppercase tracking-widest animate-pulse border border-orange-500/30 bg-black/50 px-2 py-1 rounded-md">Soon</span>
               }
             </div>
-            <button (click)="nextWorld()" class="press text-white/50 hover:text-white transition text-2xl hover:translate-x-1">&rarr;</button>
+            <button (click)="nextWorld()" class="press w-9 h-9 shrink-0 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/60 hover:text-white transition text-xl hover:translate-x-0.5">&rarr;</button>
           </div>
 
           <!-- Mode Toggle (mode trio): ONE segmented control for
@@ -151,7 +194,7 @@ import { AdsService } from '../../services/ads.service';
                highlight is a sliding indicator behind the labels
                (UI animation pass): it glides between segments over
                300 ms instead of the background swapping instantly. -->
-          <div class="stagger-in relative grid grid-cols-3 gap-2 mt-3 bg-black/40 backdrop-blur-md px-2 py-1.5 rounded-full border border-white/10" style="--d: 2">
+          <div class="stagger-in glass relative grid grid-cols-3 gap-2 mt-1 px-2 py-1.5 rounded-full" style="--d: 2">
             <div class="absolute top-1.5 bottom-1.5 left-2 rounded-full transition-all duration-300 ease-out"
                  style="width: calc((100% - 2rem) / 3)"
                  [style.transform]="'translateX(calc(' + (campaignPlayMode() === 'endless' ? 1 : 0) + ' * (100% + 0.5rem)))'"
@@ -181,6 +224,7 @@ import { AdsService } from '../../services/ads.service';
                   class="menu-play stagger-in relative group mt-8 transition-transform hover:scale-105 active:scale-95" style="--d: 3"
                   [class.opacity-50]="!isWorldUnlocked()"
                   [class.grayscale]="!isWorldUnlocked()">
+            <div class="play-ring" [class.ring-violet]="campaignPlayMode() === 'endless'"></div>
             <div class="absolute inset-0 rounded-full blur-2xl opacity-50 group-hover:opacity-80 transition-opacity"
                  [ngClass]="campaignPlayMode() === 'endless' ? 'bg-violet-500/25' : 'bg-orange-500/25'"></div>
             <img src="assets/play_button.png" alt="Play" class="relative w-32 h-32 md:w-40 md:h-40"
@@ -193,20 +237,29 @@ import { AdsService } from '../../services/ads.service';
         </div>
 
       </div>
-      
+
       <!-- Battle Screen (bottom 100vh) -->
       <div class="menu-screen w-full h-[100vh] relative flex flex-col items-center justify-center text-white pointer-events-none">
+         <div class="vignette absolute inset-0 pointer-events-none"></div>
          <!-- Center Content for Battle Mode -->
-         <div class="menu-center flex flex-col items-center gap-4 pointer-events-auto transform mt-24 md:-translate-y-8 md:mt-0">
-          <h1 class="menu-title stagger-in text-6xl md:text-9xl font-black tracking-tighter bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(255,0,0,0.5)] transition-all duration-500 bg-gradient-to-b text-center from-red-500 to-red-900">
-            BATTLE<br/>MODE
-          </h1>
+         <div class="menu-center relative flex flex-col items-center gap-4 pointer-events-auto transform mt-24 md:-translate-y-8 md:mt-0">
+          <div class="flex flex-col items-center">
+            <div class="stagger-in text-[10px] font-black uppercase tracking-[0.45em] text-red-300/80 mb-2" style="--d: 0">Face the rival phoenix</div>
+            <h1 class="menu-title stagger-in text-6xl md:text-9xl font-black tracking-tighter bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(255,0,0,0.5)] transition-all duration-500 bg-gradient-to-b text-center from-red-500 to-red-900">
+              BATTLE<br/>MODE
+            </h1>
+            <div class="stagger-in mt-3 flex items-center gap-2" style="--d: 0">
+              <div class="h-px w-16 bg-gradient-to-r from-transparent to-red-500/80"></div>
+              <div class="w-1.5 h-1.5 rotate-45 bg-red-400 shadow-[0_0_8px_rgba(248,113,113,0.9)]"></div>
+              <div class="h-px w-16 bg-gradient-to-l from-transparent to-red-500/80"></div>
+            </div>
+          </div>
 
           <!-- World Selector -->
-          <div class="menu-selector stagger-in flex items-center gap-6 mt-4 bg-black/40 backdrop-blur-md px-6 py-3 rounded-full border border-red-500/20 shadow-[0_0_15px_rgba(255,0,0,0.2)]" style="--d: 1">
-            <button (click)="prevBattleWorld()" class="press text-red-500/50 hover:text-red-400 transition text-2xl hover:-translate-x-1">&larr;</button>
-            <div class="w-48 text-center flex flex-col items-center justify-center">
-              <span class="text-sm text-red-400/50 uppercase tracking-widest font-bold">Realm {{ currentBattleWorld().id + 1 }}</span>
+          <div class="menu-selector stagger-in glass flex items-center gap-5 mt-2 px-4 py-2.5 rounded-2xl shadow-[0_0_15px_rgba(255,0,0,0.2)]" style="--d: 1">
+            <button (click)="prevBattleWorld()" class="press w-9 h-9 shrink-0 rounded-full bg-white/5 border border-red-500/20 flex items-center justify-center text-red-400/60 hover:text-red-300 transition text-xl hover:-translate-x-0.5">&larr;</button>
+            <div class="w-48 relative text-center flex flex-col items-center justify-center">
+              <span class="text-[11px] text-red-400/50 uppercase tracking-[0.3em] font-bold">Realm {{ currentBattleWorld().id + 1 }}</span>
               <span class="text-xl font-black tracking-wider transition-colors duration-300 text-transparent bg-clip-text bg-gradient-to-r"
                     [ngClass]="currentBattleWorld().textColorClass">
                 {{ currentBattleWorld().name }}
@@ -215,7 +268,7 @@ import { AdsService } from '../../services/ads.service';
                 <span class="absolute -top-3 -right-6 text-xs text-orange-400 font-bold uppercase tracking-widest animate-pulse border border-orange-500/30 bg-black/50 px-2 py-1 rounded-md">Soon</span>
               }
             </div>
-            <button (click)="nextBattleWorld()" class="press text-red-500/50 hover:text-red-400 transition text-2xl hover:translate-x-1">&rarr;</button>
+            <button (click)="nextBattleWorld()" class="press w-9 h-9 shrink-0 rounded-full bg-white/5 border border-red-500/20 flex items-center justify-center text-red-400/60 hover:text-red-300 transition text-xl hover:translate-x-0.5">&rarr;</button>
           </div>
 
           <!-- Mode Toggle (same segmented control as the campaign
@@ -223,7 +276,7 @@ import { AdsService } from '../../services/ads.service';
                Endless switch back to the campaign screen with that
                play mode selected. Same sliding indicator (UI
                animation pass), parked on the Battle segment. -->
-          <div class="stagger-in relative grid grid-cols-3 gap-2 mt-3 bg-black/40 backdrop-blur-md px-2 py-1.5 rounded-full border border-red-500/20" style="--d: 2">
+          <div class="stagger-in glass relative grid grid-cols-3 gap-2 mt-1 px-2 py-1.5 rounded-full" style="--d: 2">
             <div class="absolute top-1.5 bottom-1.5 left-2 rounded-full bg-red-500/80 transition-all duration-300 ease-out"
                  style="width: calc((100% - 2rem) / 3); transform: translateX(calc(2 * (100% + 0.5rem)))"></div>
             <button (click)="campaignPlayMode.set('campaign'); activeMenuMode = 'campaign'"
@@ -247,6 +300,7 @@ import { AdsService } from '../../services/ads.service';
                   class="menu-play stagger-in relative group mt-8 transition-transform hover:scale-105 active:scale-95" style="--d: 3"
                   [class.opacity-50]="!isBattleWorldUnlocked()"
                   [class.grayscale]="!isBattleWorldUnlocked()">
+            <div class="play-ring ring-red"></div>
             <div class="absolute inset-0 bg-red-600/20 rounded-full blur-2xl opacity-50 group-hover:opacity-80 transition-opacity"></div>
             <img src="assets/play_button.png" alt="Play" class="relative w-32 h-32 md:w-40 md:h-40 drop-shadow-[0_0_30px_rgba(255,0,0,0.8)]" style="filter: hue-rotate(320deg) saturate(2)" />
             <p class="absolute -bottom-8 left-1/2 -translate-x-1/2 text-red-400 font-bold tracking-widest uppercase text-sm w-max">
@@ -255,9 +309,9 @@ import { AdsService } from '../../services/ads.service';
           </button>
         </div>
       </div>
-      
+
     </div>
-    
+
     <!-- Settings Overlay (must be outside the sliding container) -->
     @if(showSettings) {
        <app-settings (close)="showSettings = false" class="relative z-50 pointer-events-auto"></app-settings>
