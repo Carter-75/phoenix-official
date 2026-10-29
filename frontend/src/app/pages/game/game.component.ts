@@ -44,7 +44,7 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
            <span class="text-white font-bold tracking-widest uppercase drop-shadow-md text-xl">{{ gameState.currentGameMode() === 'ai_vs_ai' ? 'AI VS AI' : 'BATTLE MODE' }}</span>
            <span class="text-white/90 font-mono text-2xl font-bold">{{ formatTime(battleTimer()) }}</span>
 
-           <span class="text-white font-bold tracking-widest uppercase drop-shadow-md mt-4">AI PHOENIX</span>
+           <span class="text-white font-bold tracking-widest uppercase drop-shadow-md mt-4">{{ rivalName() }}</span>
            <div class="hp-track relative w-full h-4 border border-white/20 rounded-full overflow-hidden shadow-[0_0_15px_rgba(255,0,0,0.2)]">
               <div class="hp-ghost absolute inset-y-0 left-0 rounded-full" [style.width]="bossGhostPercent() + '%'"></div>
               <div class="hp-fill-boss absolute inset-y-0 left-0 rounded-full" [style.width]="bossHealthPercent() + '%'"></div>
@@ -132,7 +132,7 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
         <div class="flex items-center justify-center pointer-events-auto">
           <div class="flex items-center gap-3">
             @if (gameState.currentGameMode() === 'ai_vs_ai') {
-                <span class="text-white font-bold tracking-widest uppercase drop-shadow-md text-xs shrink-0">AI Phoenix</span>
+                <span class="text-white font-bold tracking-widest uppercase drop-shadow-md text-xs shrink-0">{{ rivalName() }}</span>
             }
             <div class="hp-track relative h-3.5 border border-white/15 rounded-full overflow-hidden shrink-0" style="width: 38vw">
                <div class="hp-ghost absolute inset-y-0 left-0 rounded-full" [style.width]="hpGhostPercent() + '%'"></div>
@@ -408,7 +408,7 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
             <span class="text-zinc-500 mt-2 font-mono text-sm">R.I.P</span>
           </div>
           <h2 class="text-5xl font-black text-red-500 mb-2 drop-shadow-lg tracking-wide">YOU DIED</h2>
-              <p class="text-red-500 text-xl font-bold mb-8 uppercase text-center max-w-md">The AI Phoenix emerges victorious.</p>
+              <p class="text-red-500 text-xl font-bold mb-8 uppercase text-center max-w-md">The {{ rivalName() }} emerges victorious.</p>
               <div class="flex flex-col gap-4 w-full max-w-sm">
                 <button (click)="quitGame()" class="press w-full mt-4 py-4 bg-red-950/60 hover:bg-red-900/50 border border-red-500/40 rounded-2xl text-white font-bold transition">
                   Accept Fate
@@ -574,6 +574,11 @@ export class GameComponent implements OnInit, OnDestroy {
   public Math = Math;
 
   public currentWorld = computed(() => this.gameState.worlds[this.gameState.selectedWorldIndex()]);
+  // The Battle opponent's name for the selected world (Carter,
+  // Oct 28, 2026): each world record carries a flush rival name
+  // echoing its boss. Falls back to the old generic label if a
+  // record ever lacks one.
+  public rivalName = computed(() => this.currentWorld().battleRivalName ?? 'AI Phoenix');
 
   
   get screenScale() {

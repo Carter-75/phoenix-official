@@ -147,6 +147,11 @@ export interface World {
   // Boss identity ported from Temp-phoenix (see data/temp-catalog.ts)
   bossName?: string;
   bossTheme?: string;
+  // The Battle mode rival for this world (Carter, Oct 28, 2026):
+  // a flush name echoing the world's boss but weaker. Names the
+  // opponent on the Battle rival bar and in Battle results text.
+  // Display only; rival stats and scaling live in balance data.
+  battleRivalName?: string;
   // The phoenix skin this world assigns to the player bird (visual
   // spec addendum, Oct 25, 2026): skins are automatic per world, never
   // player-selected and never stored. The id resolves through
