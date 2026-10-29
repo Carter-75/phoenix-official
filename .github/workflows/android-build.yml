@@ -15,6 +15,22 @@ jobs:
       - name: Check out the repo
         uses: actions/checkout@v4
 
+      # Fixed debug signing (Fix Round 4): decode the project debug
+      # keystore from the repo secret when it is set, so every CI
+      # debug APK is signed with the same certificate and installs
+      # over the previous test build on Carter's phone. Without the
+      # secret the step is skipped and Gradle falls back to the
+      # runner's throwaway debug key (the build stays green; the
+      # APK then needs a fresh uninstall, which the fingerprint
+      # verification below would flag by its absence).
+      - name: Restore the fixed debug keystore
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+        if: env.DEBUG_KEYSTORE_BASE64 != ''
+        run: |
+          echo "$DEBUG_KEYSTORE_BASE64" | base64 --decode > frontend/android/app/debug.keystore
+          echo "DEBUG_KEYSTORE_RESTORED=true" >> "$GITHUB_ENV"
+
       - name: Set up Node 22
         uses: actions/setup-node@v4
         with:
@@ -43,6 +59,25 @@ jobs:
       - name: Build debug APK
         working-directory: frontend/android
         run: bash gradlew assembleDebug --console=plain
+
+      # Proof of the fixed signing: the built APK's signer
+      # certificate SHA-256 must equal the project debug
+      # keystore's fingerprint (recorded in
+      # ~/workspace/phoenix-playtest/FIX-ROUND-4.md). Runs only
+      # when the keystore was restored above; a mismatch fails
+      # the build rather than shipping a wrongly signed APK.
+      - name: Verify the debug APK signing fingerprint
+        if: env.DEBUG_KEYSTORE_RESTORED == 'true'
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)
+          FP=$("$APKSIGNER" verify --print-certs frontend/android/app/build/outputs/apk/debug/app-debug.apk | grep -i 'SHA-256 digest' | head -n 1 | awk '{print $NF}' | tr -d ':' | tr 'A-F' 'a-f')
+          echo "Debug APK signer SHA-256: $FP"
+          EXPECTED="c98d91187090f67de67752704f5aa39e37f2757a2aa74dabd455229be6da2a1d"
+          if [ "$FP" != "$EXPECTED" ]; then
+            echo "Fingerprint mismatch: expected $EXPECTED"
+            exit 1
+          fi
+          echo "Fingerprint matches the fixed project debug keystore."
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4

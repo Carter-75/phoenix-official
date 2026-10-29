@@ -16,7 +16,33 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        // Fixed debug signing (Fix Round 4): CI decodes the
+        // DEBUG_KEYSTORE_BASE64 secret to android/app/debug.keystore
+        // before building, so every CI debug APK carries the SAME
+        // debug certificate and Carter can install each new test
+        // build over the last one (a fresh throwaway keystore per
+        // runner used to force an uninstall, wiping his local save,
+        // on every build). Standard Android debug credentials; a
+        // debug key is not a production secret. When the file is
+        // absent (local builds), the debug build type falls back to
+        // the default debug signing untouched. Release signing is
+        // NOT wired here: Play App Signing owns it later.
+        fixedDebug {
+            if (file('debug.keystore').exists()) {
+                storeFile file('debug.keystore')
+                storePassword 'android'
+                keyAlias 'androiddebugkey'
+                keyPassword 'android'
+            }
+        }
+    }
     buildTypes {
+        debug {
+            if (file('debug.keystore').exists()) {
+                signingConfig signingConfigs.fixedDebug
+            }
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
