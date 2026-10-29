@@ -15,6 +15,22 @@ import { AdsService } from '../../services/ads.service';
     /* Safety net: a menu screen may scroll rather than clip content. */
     .menu-screen { overflow-y: auto; }
 
+    /* Safe-area lift for the fixed menu chrome (Fix Round 3):
+       the app runs edge-to-edge in the Android WebView
+       (viewport-fit=cover), so plain top-0 / bottom-0 chrome sits
+       inside the status-bar zone at the top and the gesture-bar
+       zone at the bottom on device (Carter's phone: wallet pills
+       half cut at the top edge, bottom row text cut at the bottom
+       edge). The base values keep the shipped p-3 / p-4 / md
+       paddings exactly; the env() term adds the device inset on
+       top of them and resolves to 0 where there are no insets. */
+    .menu-header { padding-top: calc(0.75rem + env(safe-area-inset-top, 0px)); }
+    .menu-bottombar { padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px)); }
+    @media (min-width: 768px) {
+      .menu-header { padding-top: calc(1.25rem + env(safe-area-inset-top, 0px)); }
+      .menu-bottombar { padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px)); }
+    }
+
     /* A16 redesign surface: one ember-glass material for every menu
        panel (wallet pills, nav cluster, realm selector, mode track),
        a soft vignette over the living backdrop, and a slow pulse
@@ -79,7 +95,7 @@ import { AdsService } from '../../services/ads.service';
          title. Collapse it into one compact row here, and reserve the
          space above the centred menu content so the two can never
          meet. */
-      .menu-header { flex-direction: row !important; align-items: center !important; padding: 0.5rem 0.75rem !important; gap: 0.5rem !important; }
+      .menu-header { flex-direction: row !important; align-items: center !important; padding: calc(0.5rem + env(safe-area-inset-top, 0px)) 0.75rem 0.5rem !important; gap: 0.5rem !important; }
       .menu-header-row { width: auto !important; justify-content: flex-start !important; gap: 0.4rem !important; }
       .menu-header-row > div { padding: 0.2rem 0.55rem !important; gap: 0.35rem !important; }
       .menu-header-row img { width: 1rem !important; height: 1rem !important; }
@@ -130,7 +146,7 @@ import { AdsService } from '../../services/ads.service';
          (playtest round 1, Bug 2: the wide free-floating pill covered
          part of SETTINGS and the Battle Mode chevron at phone widths).
          The centre of the row stays empty for the mode toggle. -->
-    <div class="screen-in fixed bottom-0 inset-x-0 z-50 flex items-end justify-between gap-3 p-4 md:p-6 pointer-events-none">
+    <div class="menu-bottombar screen-in fixed bottom-0 inset-x-0 z-50 flex items-end justify-between gap-3 p-4 md:p-6 pointer-events-none">
       <!-- Deliberate 2x boost (rewarded ad, opt-in only) -->
       <button (click)="watchBoostAd()" class="press pointer-events-auto px-4 py-2 rounded-full border font-bold transition max-w-[52vw] shadow-[0_10px_30px_rgba(0,0,0,0.45)]"
               [ngClass]="gameState.tempCoinMultiplier() > 1 ? 'bg-orange-500/25 border-orange-400/50 text-white' : 'bg-orange-500/10 border-orange-400/30 text-orange-200 hover:bg-orange-500/20'">
@@ -148,11 +164,20 @@ import { AdsService } from '../../services/ads.service';
       </button>
     </div>
 
-    <div class="fixed inset-0 w-full h-[200vh] transition-transform duration-500 ease-in-out"
+    <!-- Slide geometry (Fix Round 3): the track is 200% of the
+         viewport height and each screen is half of it, so both
+         screens tile the exact frame the fixed chrome anchors to.
+         The old 200vh / 100vh units resolve against the large
+         viewport on the Android WebView (system-bar areas
+         included), which let the visible composition sit offset
+         from the chrome's frame and read as a vertical shift when
+         switching screens. Percentages of the fixed containing
+         block cannot drift that way. -->
+    <div class="fixed inset-0 w-full h-[200%] transition-transform duration-500 ease-in-out"
          [style.transform]="activeMenuMode === 'campaign' ? 'translateY(0)' : 'translateY(-50%)'">
 
-      <!-- Campaign Screen (top 100vh) -->
-      <div class="menu-screen w-full h-[100vh] relative flex flex-col items-center justify-center text-white pointer-events-none">
+      <!-- Campaign Screen (top half: one viewport tall) -->
+      <div class="menu-screen w-full h-1/2 relative flex flex-col items-center justify-center text-white pointer-events-none">
         <div class="vignette absolute inset-0 pointer-events-none"></div>
 
         <!-- Center Content -->
@@ -238,8 +263,8 @@ import { AdsService } from '../../services/ads.service';
 
       </div>
 
-      <!-- Battle Screen (bottom 100vh) -->
-      <div class="menu-screen w-full h-[100vh] relative flex flex-col items-center justify-center text-white pointer-events-none">
+      <!-- Battle Screen (bottom half: one viewport tall) -->
+      <div class="menu-screen w-full h-1/2 relative flex flex-col items-center justify-center text-white pointer-events-none">
          <div class="vignette absolute inset-0 pointer-events-none"></div>
          <!-- Center Content for Battle Mode -->
          <div class="menu-center relative flex flex-col items-center gap-4 pointer-events-auto transform mt-24 md:-translate-y-8 md:mt-0">
