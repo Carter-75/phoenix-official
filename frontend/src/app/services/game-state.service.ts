@@ -795,20 +795,48 @@ export class GameStateService {
       state.stamina = Math.min(STAMINA.max, state.stamina + amount);
   }
 
+  // Achievement toast queue (UI animation pass): unlocks show one
+  // at a time so simultaneous awards never pile up on the same spot.
+  // The card slides in from the right edge with an overshoot and a
+  // scale pop, holds about 2.5 seconds, then slides back out right;
+  // the motion CSS lives in styles.css (.trophy-toast).
+  private trophyToastQueue: string[] = [];
+  private trophyToastShowing = false;
+
   public awardTrophy(name: string) {
       const current = this.trophies();
       if (!current.includes(name)) {
           this.trophies.set([...current, name]);
-          // Simple visual notification
-          const el = document.createElement('div');
-          // bottom-36 keeps the toast clear of the in-game bottom HUD
-          // rail (Fix Round 1, Part 6): it must never cover the ability
-          // tiles while it is on screen.
-          el.className = 'fixed bottom-36 right-4 bg-zinc-950/95 text-orange-300 border border-orange-500/40 px-5 py-2 rounded-xl font-bold shadow-[0_0_15px_rgba(255,100,0,0.2)] z-50 flex items-center gap-2 animate-fade-in transition-opacity duration-500';
-          el.innerHTML = `<span class="text-2xl">🏆</span> <span>${name} Unlocked</span>`;
-          document.body.appendChild(el);
-          setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 500); }, 3000);
+          this.trophyToastQueue.push(name);
+          this.showNextTrophyToast();
       }
+  }
+
+  private showNextTrophyToast() {
+      if (this.trophyToastShowing) return;
+      const name = this.trophyToastQueue.shift();
+      if (name === undefined) return;
+      this.trophyToastShowing = true;
+      const reduced = typeof window !== 'undefined'
+          && typeof window.matchMedia === 'function'
+          && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const el = document.createElement('div');
+      // The resting spot is the one the old fade banner used
+      // (right-4, bottom-36): clear of the bottom HUD rail, the HP
+      // cluster, the ability tiles, and the pause button.
+      el.className = 'trophy-toast' + (reduced ? ' trophy-toast-reduced' : '');
+      el.innerHTML = `<span class="trophy-toast-icon">🏆</span> <span>${name} Unlocked</span>`;
+      document.body.appendChild(el);
+      // Visible for about 2.8 s in total: the entry takes 0.48 s of
+      // that, the exit starts at 2.75 s and runs 0.38 s.
+      setTimeout(() => {
+          el.classList.add('trophy-toast-exit');
+          setTimeout(() => {
+              el.remove();
+              this.trophyToastShowing = false;
+              this.showNextTrophyToast();
+          }, reduced ? 80 : 400);
+      }, reduced ? 2600 : 2750);
   }
 
   public async syncProgressToServer(battleStats?: Record<string, number>) {
