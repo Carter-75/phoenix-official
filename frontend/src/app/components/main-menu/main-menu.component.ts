@@ -156,7 +156,7 @@ import { AdsService } from '../../services/ads.service';
             <div class="absolute top-1.5 bottom-1.5 left-2 rounded-full transition-all duration-300 ease-out"
                  style="width: calc((100% - 2rem) / 3)"
                  [style.transform]="'translateX(calc(' + (campaignPlayMode() === 'endless' ? 1 : 0) + ' * (100% + 0.5rem)))'"
-                 [ngClass]="campaignPlayMode() === 'endless' ? 'bg-red-500/80' : 'bg-orange-500/80'"></div>
+                 [ngClass]="campaignPlayMode() === 'endless' ? 'bg-violet-500/80' : 'bg-orange-500/80'"></div>
             <button (click)="campaignPlayMode.set('campaign')"
                     class="relative z-10 px-4 py-1 rounded-full text-xs font-black tracking-widest uppercase transition-colors"
                     [ngClass]="campaignPlayMode() === 'campaign' ? 'text-white' : 'text-white/50 hover:text-white'">
@@ -173,14 +173,21 @@ import { AdsService } from '../../services/ads.service';
             </button>
           </div>
 
-          <!-- Play Button -->
+          <!-- Play Button (Fix Round 2, A4: each mode owns a
+               distinct play button scheme and label color. Normal is
+               fire orange, Endless is violet, Battle (below) is red.
+               Before this, Normal and Endless shared the same gold
+               family button and near-white label.) -->
           <button (click)="startGame(campaignPlayMode())"
                   class="menu-play stagger-in relative group mt-8 transition-transform hover:scale-105 active:scale-95" style="--d: 3"
                   [class.opacity-50]="!isWorldUnlocked()"
                   [class.grayscale]="!isWorldUnlocked()">
-            <div class="absolute inset-0 bg-white/20 rounded-full blur-2xl opacity-50 group-hover:opacity-80 transition-opacity"></div>
-            <img src="assets/play_button.png" alt="Play" class="relative w-32 h-32 md:w-40 md:h-40 drop-shadow-2xl" />
-            <p class="absolute -bottom-8 left-1/2 -translate-x-1/2 text-white/80 font-bold tracking-widest uppercase text-sm w-max">
+            <div class="absolute inset-0 rounded-full blur-2xl opacity-50 group-hover:opacity-80 transition-opacity"
+                 [ngClass]="campaignPlayMode() === 'endless' ? 'bg-violet-500/25' : 'bg-orange-500/25'"></div>
+            <img src="assets/play_button.png" alt="Play" class="relative w-32 h-32 md:w-40 md:h-40"
+                 [style.filter]="campaignPlayMode() === 'endless' ? 'hue-rotate(245deg) saturate(1.7) drop-shadow(0 0 30px rgba(139,92,246,0.55))' : 'drop-shadow(0 0 30px rgba(255,77,0,0.45))'" />
+            <p class="absolute -bottom-8 left-1/2 -translate-x-1/2 font-bold tracking-widest uppercase text-sm w-max"
+               [ngClass]="campaignPlayMode() === 'endless' ? 'text-violet-300' : 'text-orange-300'">
               {{ !isWorldUnlocked() ? 'Coming Soon' : (campaignPlayMode() === 'endless' ? 'Click to Survive' : 'Click to Ascend') }}
             </p>
           </button>
@@ -233,7 +240,8 @@ import { AdsService } from '../../services/ads.service';
             </button>
           </div>
 
-          <!-- Play Button -->
+          <!-- Play Button (A4: Battle's scheme is red, against
+               Normal orange and Endless violet above.) -->
           <button (mousedown)="startBattleHold()" (mouseup)="endBattleHold()" (mouseleave)="endBattleHold()"
                   (touchstart)="startBattleHold()" (touchend)="endBattleHold()" (touchcancel)="endBattleHold()"
                   (click)="startGame('battle')"
