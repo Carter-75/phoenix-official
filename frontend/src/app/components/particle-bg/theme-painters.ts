@@ -217,13 +217,20 @@ export function paintEmberWall(ctx: CanvasRenderingContext2D, w: number, h: numb
       + Math.sin((y / h) * Math.PI * 2 * 5 + ph3) * w * 0.018;
     // Cut the channel side of the profile back to transparent:
     // the wall plane is transparent there, so the scrolling
-    // backdrop shows through between the spike tips.
+    // backdrop shows through between the spike tips. All four
+    // profile paths (this cut, the clip, the wash, the rim)
+    // sample the periodic profile past both canvas edges (from
+    // -20 to h + 20), so their closing segments fall off-canvas:
+    // sampling only to h + 4 in steps of 16 used to end the
+    // paths at y = h - 4 and cut a diagonal wedge across the
+    // strip's last rows, which the wrap seam gate caught on the
+    // Worlds 2 to 10 walls with bright content in those rows.
     ctx.save();
     ctx.globalCompositeOperation = 'destination-out';
     ctx.beginPath();
-    ctx.moveTo(0, -4);
-    for (let y = -4; y <= h + 4; y += 16) ctx.lineTo(profileX(y), y);
-    ctx.lineTo(0, h + 4);
+    ctx.moveTo(0, -20);
+    for (let y = -20; y <= h + 20; y += 16) ctx.lineTo(profileX(y), y);
+    ctx.lineTo(0, h + 20);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
@@ -231,9 +238,9 @@ export function paintEmberWall(ctx: CanvasRenderingContext2D, w: number, h: numb
     // so nothing floats in the transparent channel zone.
     ctx.save();
     ctx.beginPath();
-    ctx.moveTo(w + 4, -4);
-    for (let y = -4; y <= h + 4; y += 16) ctx.lineTo(profileX(y), y);
-    ctx.lineTo(w + 4, h + 4);
+    ctx.moveTo(w + 4, -20);
+    for (let y = -20; y <= h + 20; y += 16) ctx.lineTo(profileX(y), y);
+    ctx.lineTo(w + 4, h + 20);
     ctx.closePath();
     ctx.clip();
     // The feature lists are generated ONCE and drawn identically
@@ -315,9 +322,9 @@ export function paintEmberWall(ctx: CanvasRenderingContext2D, w: number, h: numb
     ctx.globalAlpha = 0.16;
     ctx.fillStyle = silColor(P.mid, 0.8);
     ctx.beginPath();
-    ctx.moveTo(w + 4, -4);
-    for (let y = -4; y <= h + 4; y += 16) ctx.lineTo(profileX(y), y);
-    for (let y = h + 4; y >= -4; y -= 16) ctx.lineTo(profileX(y) + w * 0.16, y);
+    ctx.moveTo(w + 4, -20);
+    for (let y = -20; y <= h + 20; y += 16) ctx.lineTo(profileX(y), y);
+    for (let y = h + 20; y >= -20; y -= 16) ctx.lineTo(profileX(y) + w * 0.16, y);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
@@ -353,9 +360,9 @@ export function paintEmberWall(ctx: CanvasRenderingContext2D, w: number, h: numb
     ctx.strokeStyle = silColor(P.bright, 0.9, 0.6);
     ctx.lineWidth = 3;
     ctx.beginPath();
-    for (let y = -4; y <= h + 4; y += 16) {
+    for (let y = -20; y <= h + 20; y += 16) {
       const x = profileX(y);
-      if (y === -4) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      if (y === -20) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.stroke();
     ctx.strokeStyle = silColor(P.mid, 0.9, 0.30);
@@ -404,17 +411,17 @@ function paintRockWall(ctx: CanvasRenderingContext2D, w: number, h: number, td: 
     ctx.save();
     ctx.globalCompositeOperation = 'destination-out';
     ctx.beginPath();
-    ctx.moveTo(0, -4);
-    for (let y = -4; y <= h + 4; y += 16) ctx.lineTo(profileX(y), y);
-    ctx.lineTo(0, h + 4);
+    ctx.moveTo(0, -20);
+    for (let y = -20; y <= h + 20; y += 16) ctx.lineTo(profileX(y), y);
+    ctx.lineTo(0, h + 20);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
     ctx.save();
     ctx.beginPath();
-    ctx.moveTo(w + 4, -4);
-    for (let y = -4; y <= h + 4; y += 16) ctx.lineTo(profileX(y), y);
-    ctx.lineTo(w + 4, h + 4);
+    ctx.moveTo(w + 4, -20);
+    for (let y = -20; y <= h + 20; y += 16) ctx.lineTo(profileX(y), y);
+    ctx.lineTo(w + 4, h + 20);
     ctx.closePath();
     ctx.clip();
     cfg.features(ctx, w, h, td, rnd);
@@ -424,9 +431,9 @@ function paintRockWall(ctx: CanvasRenderingContext2D, w: number, h: number, td: 
     ctx.globalAlpha = cfg.washAlpha;
     ctx.fillStyle = silColor(P.mid, cfg.washFactor);
     ctx.beginPath();
-    ctx.moveTo(w + 4, -4);
-    for (let y = -4; y <= h + 4; y += 16) ctx.lineTo(profileX(y), y);
-    for (let y = h + 4; y >= -4; y -= 16) ctx.lineTo(profileX(y) + w * 0.16, y);
+    ctx.moveTo(w + 4, -20);
+    for (let y = -20; y <= h + 20; y += 16) ctx.lineTo(profileX(y), y);
+    for (let y = h + 20; y >= -20; y -= 16) ctx.lineTo(profileX(y) + w * 0.16, y);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
@@ -436,9 +443,9 @@ function paintRockWall(ctx: CanvasRenderingContext2D, w: number, h: number, td: 
     ctx.strokeStyle = silColor(P.bright, cfg.rimBright, cfg.rimBrightAlpha);
     ctx.lineWidth = 3;
     ctx.beginPath();
-    for (let y = -4; y <= h + 4; y += 16) {
+    for (let y = -20; y <= h + 20; y += 16) {
       const x = profileX(y);
-      if (y === -4) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      if (y === -20) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.stroke();
     ctx.strokeStyle = silColor(P.mid, cfg.rimMid, cfg.rimMidAlpha);
