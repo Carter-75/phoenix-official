@@ -45,9 +45,9 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
            <span class="text-white/90 font-mono text-2xl font-bold">{{ formatTime(battleTimer()) }}</span>
 
            <span class="text-white font-bold tracking-widest uppercase drop-shadow-md mt-4">AI PHOENIX</span>
-           <div class="w-full h-4 bg-black/50 border border-white/20 rounded-full overflow-hidden shadow-[0_0_15px_rgba(255,0,0,0.2)]">
-              <div class="h-full bg-gradient-to-r from-red-600 to-red-400 transition-all duration-300"
-                   [style.width]="bossHealthPercent() + '%'"></div>
+           <div class="hp-track relative w-full h-4 border border-white/20 rounded-full overflow-hidden shadow-[0_0_15px_rgba(255,0,0,0.2)]">
+              <div class="hp-ghost absolute inset-y-0 left-0 rounded-full" [style.width]="bossGhostPercent() + '%'"></div>
+              <div class="hp-fill-boss absolute inset-y-0 left-0 rounded-full" [style.width]="bossHealthPercent() + '%'"></div>
            </div>
         } @else if (gameState.currentGameMode() === 'endless') {
            <span class="text-white font-bold tracking-widest uppercase drop-shadow-md">
@@ -70,9 +70,9 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
                <span class="text-white font-bold tracking-widest uppercase drop-shadow-md mt-4">
                   BOSS HEALTH @if (bossEnraged()) { <span class="text-red-400">- ENRAGED</span> }
                </span>
-               <div class="w-full h-3 bg-black/50 border border-white/20 rounded-full overflow-hidden shadow-[0_0_15px_rgba(255,0,0,0.1)]">
-                  <div class="h-full bg-gradient-to-r from-red-600 to-red-400 transition-all duration-1000"
-                       [style.width]="bossHealthPercent() + '%'"></div>
+               <div class="hp-track relative w-full h-3 border border-white/20 rounded-full overflow-hidden shadow-[0_0_15px_rgba(255,0,0,0.1)]">
+                  <div class="hp-ghost absolute inset-y-0 left-0 rounded-full" [style.width]="bossGhostPercent() + '%'"></div>
+                  <div class="hp-fill-boss absolute inset-y-0 left-0 rounded-full" [style.width]="bossHealthPercent() + '%'"></div>
                </div>
                @if (bossShieldHealth() > 0) {
                <div class="w-full h-1.5 bg-black/40 border border-white/10 rounded-full overflow-hidden">
@@ -134,9 +134,13 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
             @if (gameState.currentGameMode() === 'ai_vs_ai') {
                 <span class="text-white font-bold tracking-widest uppercase drop-shadow-md text-xs shrink-0">AI Phoenix</span>
             }
-            <div class="h-3.5 bg-black/50 border border-white/15 rounded-full overflow-hidden shrink-0" style="width: 38vw">
-               <div class="h-full bg-gradient-to-r from-red-600 to-orange-500 transition-all duration-300"
-                    [style.width]="(currentHealth() / maxHealth()) * 100 + '%'"></div>
+            <div class="hp-track relative h-3.5 border border-white/15 rounded-full overflow-hidden shrink-0" style="width: 38vw">
+               <div class="hp-ghost absolute inset-y-0 left-0 rounded-full" [style.width]="hpGhostPercent() + '%'"></div>
+               <div class="hp-fill absolute inset-y-0 left-0 rounded-full"
+                    [class.hp-low-pulse]="hpPercent() <= 25 && hpPercent() > 0"
+                    [style.width]="hpPercent() + '%'"></div>
+               <div class="absolute inset-0 bg-white/70 rounded-full pointer-events-none transition-opacity duration-200"
+                    [style.opacity]="hpHitFlash() ? 0.45 : 0"></div>
             </div>
             <span class="text-red-300 font-bold text-sm shrink-0">{{ currentHealth() }} / {{ maxHealth() }}</span>
             <!-- Account level in the HUD (S6 level audit), a badge
@@ -298,15 +302,15 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
       }
 
       <!-- Pause Button -->
-      <button (click)="togglePause()" class="absolute top-4 right-4 md:right-8 w-11 h-11 md:w-12 md:h-12 bg-zinc-950/70 backdrop-blur-md border border-white/15 rounded-full flex items-center justify-center pointer-events-auto hover:bg-white/10 transition z-20">
+      <button (click)="togglePause()" class="press absolute top-4 right-4 md:right-8 w-11 h-11 md:w-12 md:h-12 bg-zinc-950/70 backdrop-blur-md border border-white/15 rounded-full flex items-center justify-center pointer-events-auto hover:bg-white/10 transition z-20">
         <span class="text-white font-bold text-xl">||</span>
       </button>
 
       <!-- Pause Screen (Fix Round 1, Part 6: a proper obsidian panel
            with the shared button system, not floating text). -->
       @if (gameState.isPaused()) {
-        <div class="absolute inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center pointer-events-auto z-40 px-6">
-          <div class="w-full max-w-xs bg-zinc-950/90 border border-white/10 rounded-3xl p-6 flex flex-col items-center shadow-2xl">
+        <div class="backdrop-in absolute inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center pointer-events-auto z-40 px-6">
+          <div class="panel-in w-full max-w-xs bg-zinc-950/90 border border-white/10 rounded-3xl p-6 flex flex-col items-center shadow-2xl">
             <h2 (click)="onPauseTextClick()"
                 class="text-4xl font-black mb-6 tracking-widest cursor-pointer select-none transition-all duration-300"
                 [class.text-red-500]="cheatPrepared()"
@@ -315,18 +319,18 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
                 [class.drop-shadow-lg]="!cheatPrepared()">PAUSED</h2>
 
             <div class="flex flex-col gap-3 w-full">
-              <button (click)="togglePause()" class="w-full py-3.5 bg-gradient-to-r from-orange-500 to-red-600 hover:brightness-110 active:scale-95 rounded-2xl text-white font-bold text-lg transition shadow-lg shadow-orange-900/40">
+              <button (click)="togglePause()" class="btn-sheen w-full py-3.5 bg-gradient-to-r from-orange-500 to-red-600 hover:brightness-110 active:scale-95 rounded-2xl text-white font-bold text-lg transition shadow-lg shadow-orange-900/40">
                 Resume
               </button>
-              <button (click)="showSettings = true" class="w-full py-3.5 bg-white/5 hover:bg-white/10 border border-white/15 rounded-2xl text-white font-bold text-lg transition">
+              <button (click)="showSettings = true" class="press w-full py-3.5 bg-white/5 hover:bg-white/10 border border-white/15 rounded-2xl text-white font-bold text-lg transition">
                 Settings
               </button>
               @if (gameState.currentGameMode() === 'ai_vs_ai') {
-                  <button (click)="mlAi.downloadWeights()" class="w-full py-3.5 bg-white/5 hover:bg-white/10 border border-orange-500/40 rounded-2xl text-white font-bold text-lg transition">
+                  <button (click)="mlAi.downloadWeights()" class="press w-full py-3.5 bg-white/5 hover:bg-white/10 border border-orange-500/40 rounded-2xl text-white font-bold text-lg transition">
                     Download AI Weights
                   </button>
               }
-              <button (click)="quitFromPause()" class="w-full py-3.5 bg-transparent hover:bg-white/5 border border-transparent rounded-2xl text-red-300/70 hover:text-red-300 font-semibold transition">
+              <button (click)="quitFromPause()" class="press w-full py-3.5 bg-transparent hover:bg-white/5 border border-transparent rounded-2xl text-red-300/70 hover:text-red-300 font-semibold transition">
                 Quit to Menu
               </button>
             </div>
@@ -351,8 +355,9 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
            (koPanelOpen); Battle and the annihilation phase keep
            their immediate defeat panels. -->
       @if (isDead() && (gameState.currentGameMode() === 'battle' || annihilationModeActive() || koPanelOpen())) {
-        <div class="absolute inset-0 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto z-50 px-6">
+        <div class="backdrop-in absolute inset-0 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto z-50 px-6">
           @if (!annihilationModeActive() && gameState.currentGameMode() !== 'battle') {
+          <div class="panel-in w-full flex flex-col items-center">
           <h2 class="text-5xl font-black text-red-500 mb-2 drop-shadow-lg tracking-wide">KNOCKED OUT</h2>
           <p class="text-white/80 text-lg font-semibold mb-8 text-center max-w-md">Your phoenix is down. It only truly dies if you give up.</p>
 
@@ -361,20 +366,20 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
                         [disabled]="adReviveInFlight || gameState.gems() < getReviveCost()"
                         [class.opacity-50]="adReviveInFlight || gameState.gems() < getReviveCost()"
                         [class.cursor-not-allowed]="adReviveInFlight || gameState.gems() < getReviveCost()"
-                        class="w-full py-4 bg-gradient-to-r from-orange-500 to-red-600 hover:brightness-110 border border-orange-400/50 rounded-2xl flex justify-center items-center gap-3 transition shadow-lg shadow-orange-900/40">
+                        class="btn-sheen press w-full py-4 bg-gradient-to-r from-orange-500 to-red-600 hover:brightness-110 border border-orange-400/50 rounded-2xl flex justify-center items-center gap-3 transition shadow-lg shadow-orange-900/40">
                   <span class="text-white font-bold text-xl">Instant Revive</span>
                   <img src="assets/gem_icon.png" class="w-6 h-6"/>
                   <span class="text-white font-bold text-xl">{{ getReviveCost() }}</span>
                 </button>
                 @if (adRevivesUsed < maxAdRevivesPerRun) {
-                <button (click)="reviveWithAd()" [disabled]="adReviveInFlight" [class.opacity-50]="adReviveInFlight" class="w-full mt-2 py-4 bg-white/5 hover:bg-white/10 border border-white/25 rounded-2xl flex justify-center items-center gap-3 transition">
+                <button (click)="reviveWithAd()" [disabled]="adReviveInFlight" [class.opacity-50]="adReviveInFlight" class="press w-full mt-2 py-4 bg-white/5 hover:bg-white/10 border border-white/25 rounded-2xl flex justify-center items-center gap-3 transition">
                   <span class="text-white font-bold text-xl">Watch Ad to Revive</span>
                   <span class="text-white/60 font-semibold text-base">({{ maxAdRevivesPerRun - adRevivesUsed }} left)</span>
                   <span class="text-2xl">📺</span>
                 </button>
                 }
                 @if (gameState.reviveTokens() > 0) {
-                <button (click)="reviveWithToken()" [disabled]="adReviveInFlight" [class.opacity-50]="adReviveInFlight" class="w-full mt-2 py-4 bg-white/5 hover:bg-white/10 border border-orange-500/40 rounded-2xl flex justify-center items-center gap-3 transition">
+                <button (click)="reviveWithToken()" [disabled]="adReviveInFlight" [class.opacity-50]="adReviveInFlight" class="press w-full mt-2 py-4 bg-white/5 hover:bg-white/10 border border-orange-500/40 rounded-2xl flex justify-center items-center gap-3 transition">
                   <span class="text-white font-bold text-xl">Use Revive Token</span>
                   <span class="text-white font-bold text-xl">({{ gameState.reviveTokens() }})</span>
                   <span class="text-2xl">🪶</span>
@@ -391,11 +396,13 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
                   <span class="text-white font-semibold text-base">Phoenix Feather Charm spent</span>
                 </div>
                 }
-                <button (click)="giveUpFromKo()" [disabled]="adReviveInFlight" [class.opacity-50]="adReviveInFlight" class="w-full mt-4 py-4 bg-transparent hover:bg-white/5 border border-transparent rounded-2xl text-red-300/70 hover:text-red-300 font-semibold transition">
+                <button (click)="giveUpFromKo()" [disabled]="adReviveInFlight" [class.opacity-50]="adReviveInFlight" class="press w-full mt-4 py-4 bg-transparent hover:bg-white/5 border border-transparent rounded-2xl text-red-300/70 hover:text-red-300 font-semibold transition">
                   Give Up
                 </button>
               </div>
+          </div>
           } @else if (gameState.currentGameMode() === 'battle') {
+          <div class="panel-in w-full flex flex-col items-center">
           <div class="w-28 h-36 bg-zinc-900 border-2 border-zinc-700 rounded-t-full flex flex-col items-center justify-center mb-6 shadow-[0_0_50px_rgba(0,0,0,1)]">
             <span class="text-5xl text-zinc-500">✝</span>
             <span class="text-zinc-500 mt-2 font-mono text-sm">R.I.P</span>
@@ -403,11 +410,13 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
           <h2 class="text-5xl font-black text-red-500 mb-2 drop-shadow-lg tracking-wide">YOU DIED</h2>
               <p class="text-red-500 text-xl font-bold mb-8 uppercase text-center max-w-md">The AI Phoenix emerges victorious.</p>
               <div class="flex flex-col gap-4 w-full max-w-sm">
-                <button (click)="quitGame()" class="w-full mt-4 py-4 bg-red-950/60 hover:bg-red-900/50 border border-red-500/40 rounded-2xl text-white font-bold transition">
+                <button (click)="quitGame()" class="press w-full mt-4 py-4 bg-red-950/60 hover:bg-red-900/50 border border-red-500/40 rounded-2xl text-white font-bold transition">
                   Accept Fate
                 </button>
               </div>
+          </div>
           } @else {
+          <div class="panel-in w-full flex flex-col items-center">
           <div class="w-28 h-36 bg-zinc-900 border-2 border-zinc-700 rounded-t-full flex flex-col items-center justify-center mb-6 shadow-[0_0_50px_rgba(0,0,0,1)]">
             <span class="text-5xl text-zinc-500">✝</span>
             <span class="text-zinc-500 mt-2 font-mono text-sm">R.I.P</span>
@@ -415,10 +424,11 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
           <h2 class="text-5xl font-black text-red-500 mb-2 drop-shadow-lg tracking-wide">YOU DIED</h2>
               <p class="text-red-500 text-xl font-bold mb-8 uppercase text-center max-w-md">Your flames have been permanently extinguished.</p>
               <div class="flex flex-col gap-4 w-full max-w-sm">
-                <button (click)="quitGame()" class="w-full mt-4 py-4 bg-red-950/60 hover:bg-red-900/50 border border-red-500/40 rounded-2xl text-white font-bold transition">
+                <button (click)="quitGame()" class="press w-full mt-4 py-4 bg-red-950/60 hover:bg-red-900/50 border border-red-500/40 rounded-2xl text-white font-bold transition">
                   Accept Fate
                 </button>
               </div>
+          </div>
           }
         </div>
       }
@@ -439,7 +449,8 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
 
       <!-- End Game Screen -->
       @if (gameEnded() && !isDead()) {
-        <div class="absolute inset-0 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto z-50 px-6">
+        <div class="backdrop-in absolute inset-0 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto z-50 px-6">
+          <div class="panel-in flex flex-col items-center">
           <h2 class="text-6xl font-black text-white mb-4 drop-shadow-lg tracking-wide" [ngClass]="gameWon() ? 'text-orange-400' : 'text-red-500'">
             {{ gameWon() ? 'VICTORY' : 'DEFEAT' }}
           </h2>
@@ -450,9 +461,10 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
               <img src="assets/gem_icon.png" class="w-8 h-8"/>
             </div>
           }
-          <button (click)="quitGame()" class="px-8 py-3.5 bg-gradient-to-r from-orange-500 to-red-600 hover:brightness-110 active:scale-95 border border-orange-400/40 rounded-full text-white font-bold transition shadow-lg shadow-orange-900/40">
+          <button (click)="quitGame()" class="btn-sheen px-8 py-3.5 bg-gradient-to-r from-orange-500 to-red-600 hover:brightness-110 active:scale-95 border border-orange-400/40 rounded-full text-white font-bold transition shadow-lg shadow-orange-900/40">
             Return to Menu
           </button>
+          </div>
         </div>
       }
 
@@ -593,6 +605,19 @@ export class GameComponent implements OnInit, OnDestroy {
 
   public currentHealth = signal<number>(100);
 
+  // Animated HP bar state (UI animation pass): the displayed
+  // percent, a trailing damage ghost that holds the pre-hit width
+  // and then drains, and a brief hit flash. The ghost timer logic
+  // lives in the constructor effects; the motion itself is CSS
+  // (.hp-fill / .hp-ghost in styles.css).
+  public hpPercent = computed(() => Math.max(0, Math.min(100, (this.currentHealth() / Math.max(1, this.maxHealth())) * 100)));
+  public hpGhostPercent = signal<number>(100);
+  public hpHitFlash = signal<boolean>(false);
+  private hpGhostValue = 100;
+  private hpLastPct = 100;
+  private hpGhostTimer: ReturnType<typeof setTimeout> | null = null;
+  private hpFlashTimer: ReturnType<typeof setTimeout> | null = null;
+
   public damageFlash = signal<boolean>(false);
 
   public reviveCount = 0;
@@ -722,6 +747,12 @@ export class GameComponent implements OnInit, OnDestroy {
   public bossShieldBarColor = computed(() => bossDefFor(this.gameState.selectedWorldIndex()).shieldColorHex);
 
   public bossHealthPercent = computed(() => (this.bossHealth() / this.bossMaxHealth()) * 100);
+
+  // Boss bar damage ghost (UI animation pass): same trail-and-drain
+  // treatment as the player bar, driven by the constructor effect.
+  public bossGhostPercent = signal<number>(100);
+  private bossGhostValue = 100;
+  private bossGhostTimer: ReturnType<typeof setTimeout> | null = null;
 
   
   public showSettings = false;
@@ -970,6 +1001,52 @@ export class GameComponent implements OnInit, OnDestroy {
                       this.triggerRageMode();
                   }
               }, 0);
+          }
+      });
+
+      // HP bar damage ghost (UI animation pass): when health drops,
+      // the ghost keeps the pre-hit width for about 450 ms, then its
+      // signal steps to the live width and the CSS transition drains
+      // it. Further hits during the hold simply extend the ghost.
+      // A heal to or past the ghost snaps it shut at once. The hit
+      // flash rides the same drop detection.
+      effect(() => {
+          const pct = this.hpPercent();
+          if (pct < this.hpLastPct) {
+              this.hpHitFlash.set(true);
+              if (this.hpFlashTimer) clearTimeout(this.hpFlashTimer);
+              this.hpFlashTimer = setTimeout(() => { this.hpFlashTimer = null; this.hpHitFlash.set(false); }, 140);
+          }
+          this.hpLastPct = pct;
+          if (pct >= this.hpGhostValue) {
+              if (this.hpGhostTimer) { clearTimeout(this.hpGhostTimer); this.hpGhostTimer = null; }
+              if (this.hpGhostValue !== pct) { this.hpGhostValue = pct; this.hpGhostPercent.set(pct); }
+          } else if (!this.hpGhostTimer) {
+              this.hpGhostTimer = setTimeout(() => {
+                  this.hpGhostTimer = null;
+                  this.hpGhostValue = this.hpPercent();
+                  this.hpGhostPercent.set(this.hpGhostValue);
+              }, 450);
+          }
+      });
+
+      // Boss bar damage ghost: the same trail-and-drain on the boss
+      // percent. Before any boss exists the percent is meaningless
+      // (zero max), so only finite values drive the ghost.
+      effect(() => {
+          const pct = this.bossHealthPercent();
+          if (!Number.isFinite(pct)) return;
+          const clamped = Math.max(0, Math.min(100, pct));
+          if (clamped >= this.bossGhostValue) {
+              if (this.bossGhostTimer) { clearTimeout(this.bossGhostTimer); this.bossGhostTimer = null; }
+              if (this.bossGhostValue !== clamped) { this.bossGhostValue = clamped; this.bossGhostPercent.set(clamped); }
+          } else if (!this.bossGhostTimer) {
+              this.bossGhostTimer = setTimeout(() => {
+                  this.bossGhostTimer = null;
+                  const now = this.bossHealthPercent();
+                  this.bossGhostValue = Number.isFinite(now) ? Math.max(0, Math.min(100, now)) : 100;
+                  this.bossGhostPercent.set(this.bossGhostValue);
+              }, 450);
           }
       });
   }
