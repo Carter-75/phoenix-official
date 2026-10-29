@@ -3313,7 +3313,10 @@ export class GameComponent implements OnInit, OnDestroy {
                      elite: data.elite || undefined,
                      bossForm: data.type === 'boss' ? data.bossState?.formIdx : undefined,
                      bossFormFlow: data.type === 'boss' && data.bossState ? this.bossFormFlow(data.bossState) : undefined,
-                     wash: data.type === 'boss' ? this.bossWash(data) : undefined
+                     wash: data.type === 'boss' ? this.bossWash(data) : undefined,
+                     // A6: travel direction for the bolt renderer.
+                     vx: body.velocity.x,
+                     vy: body.velocity.y
                  });
              }
          }

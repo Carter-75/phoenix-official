@@ -9,7 +9,7 @@ import { GameStateService } from '../../services/game-state.service';
 import { PhysicsEntity, WorldTheme } from '../../models/game.models';
 import { WORLDS, HOSTILE_RGB } from '../../constants/game.constants';
 import { buildEntityGeometry } from './entity-builder';
-import { MOB_SPRITE_TYPES, getMobSpriteSet, getBossFormSets } from './mob-sprite';
+import { MOB_SPRITE_TYPES, getMobSpriteSet, getBossFormSets, getBoltSpriteSet } from './mob-sprite';
 import { bossDefFor } from '../../data/boss-rig';
 import { PhoenixState, ParticleEntity, DyingBurst } from './phoenix-state';
 import { Rgb3 } from './phoenix-skins';
@@ -934,10 +934,13 @@ updateSpriteEntity(entity: ParticleEntity, data: PhysicsEntity, nowMs: number, d
     const off = entity.timeOffset || 0;
     const charge = data.attackCharge ?? 0;
 
-    // Heading: published facing wins; the boss faces the player;
-    // everyone else turns by their motion.
+    // Heading: player bolts read their travel velocity directly;
+    // published facing wins for the aimed types; the boss faces
+    // the player; everyone else turns by their motion.
     let heading = spr.heading;
-    if (typeof data.facing === 'number') {
+    if (data.type === 'projectile_player' && (data.vx || data.vy)) {
+      heading = Math.atan2(data.vy!, data.vx!);
+    } else if (typeof data.facing === 'number') {
       heading = data.facing;
     } else if ((data.type === 'boss' || data.type === 'boss_shadow') && this.host.bird) {
       const dx = this.host.bird.position.x - mesh.position.x;
@@ -953,7 +956,9 @@ updateSpriteEntity(entity: ParticleEntity, data: PhysicsEntity, nowMs: number, d
     let dh = heading - spr.heading;
     while (dh > Math.PI) dh -= Math.PI * 2;
     while (dh < -Math.PI) dh += Math.PI * 2;
-    spr.heading += dh * Math.min(1, dtSec * 12);
+    // Bolts snap to their travel direction (they spawn moving);
+    // mobs ease into theirs.
+    spr.heading += dh * (data.type === 'projectile_player' ? 1 : Math.min(1, dtSec * 12));
     heading = spr.heading;
 
     // Rotation: only the aimed types turn (drawn facing up, so a
@@ -961,7 +966,7 @@ updateSpriteEntity(entity: ParticleEntity, data: PhysicsEntity, nowMs: number, d
     // The Golem's rock orbit becomes a whole-body spin at the
     // shipped orbit rate; the Wisp ring and the Chanter spark
     // ring rotate slowly so their gaps travel.
-    if (EntitySync.SPRITE_TURN_TYPES.has(data.type)) {
+    if (EntitySync.SPRITE_TURN_TYPES.has(data.type) || data.type === 'projectile_player') {
       mesh.rotation.z = Math.atan2(-Math.cos(heading), -Math.sin(heading));
     } else if (data.type === 'golem') {
       entity.orbitAngle = (entity.orbitAngle || 0) + dtSec * 0.96 * (1 + 2.2 * charge * charge);
@@ -1042,9 +1047,12 @@ updateSpriteEntity(entity: ParticleEntity, data: PhysicsEntity, nowMs: number, d
     if (flashEnv > 0) { const f = 1 + flashEnv * 1.15; r *= f; g *= f; b *= f; }
     mat.color.setRGB(r, g, b);
 
-    // Opacity: spawn fade, then the phase reads.
+    // Opacity: spawn fade, then the phase reads. Bolts skip the
+    // fade: they live about a second and must read instantly.
     let op = 0.9;
-    if (entity.bornMs !== undefined) {
+    if (data.type === 'projectile_player') {
+      op = 0.95;
+    } else if (entity.bornMs !== undefined) {
       const age = (nowMs - entity.bornMs) / 300;
       op *= Math.min(1, Math.max(0, age));
     }
@@ -1154,7 +1162,7 @@ createEntityMesh(data: PhysicsEntity): ParticleEntity {
     // codex shares it, and its extents size the sprite plane, so
     // the mob keeps exactly its shipped footprint). Effects,
     // projectiles, pickups, and zones keep the points path below.
-    if (MOB_SPRITE_TYPES.has(data.type)) {
+    if (MOB_SPRITE_TYPES.has(data.type) || data.type === 'projectile_player') {
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
       const bp = built.positions;
       for (let i = 0; i < bp.length; i += 3) {
@@ -1165,15 +1173,21 @@ createEntityMesh(data: PhysicsEntity): ParticleEntity {
       }
       const extentX = Math.max(0.15, (maxX - minX) / 2);
       const extentY = Math.max(0.15, (maxY - minY) / 2);
+      // A6: the player's basic shots are elongated flame bolts
+      // (the watched bird in ai_vs_ai fires the violet family, the
+      // same ownership colors the points build used).
+      const isBolt = data.type === 'projectile_player';
       const sets = data.type === 'boss'
         ? getBossFormSets(buildCtx.worldIndex, extentX, extentY)
-        : [getMobSpriteSet(data.type, buildCtx.worldIndex, extentX, extentY)];
+        : isBolt
+          ? [getBoltSpriteSet(data.ownerId === 'player' && buildCtx.gameMode === 'ai_vs_ai' ? 'violet' : 'amber')]
+          : [getMobSpriteSet(data.type, buildCtx.worldIndex, extentX, extentY)];
       const set = sets[0];
       const mat = new THREE.MeshBasicMaterial({ map: set.maps[0], transparent: true, opacity: 0.9, depthWrite: false });
       const plane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
       plane.frustumCulled = false;
-      const baseScaleX = extentX * 2 * 1.06;
-      const baseScaleY = extentY * 2 * 1.06;
+      const baseScaleX = extentX * 2 * (isBolt ? 1.3 : 1.06);
+      const baseScaleY = extentY * 2 * (isBolt ? 2.4 : 1.06);
       plane.scale.set(baseScaleX, baseScaleY, 1);
       return {
         mesh: plane,

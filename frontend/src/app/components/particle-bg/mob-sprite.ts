@@ -733,6 +733,59 @@ export function getBossFormSets(worldIndex: number, extentX: number, extentY: nu
   return [0, 1, 2].map(f => getMobSpriteSet('boss', worldIndex, extentX, extentY, f));
 }
 
+// ------------------------------------------------------------------
+// Player flame bolts (Fix Round 2, A6): the player's basic shots
+// are elongated flame bolts, drawn pointing up and rotated to
+// their travel direction by entity-sync, so they can never be
+// confused with the enemies' round orbs. Two color families match
+// the shipped ownership colors: amber for the player's fire, and
+// the violet family for the watched bird's fire in ai_vs_ai. The
+// player's own fire is NOT luminance capped (it is the player's).
+// ------------------------------------------------------------------
+const BOLT_PALETTES: Record<string, MobPalette> = {
+  amber: { core: [1.0, 0.97, 0.85], body: [1.0, 0.55, 0.1], accent: [1.0, 0.8, 0.3], deep: [0.85, 0.25, 0.02] },
+  violet: { core: [1.0, 0.95, 1.0], body: [0.85, 0.28, 0.94], accent: [0.95, 0.6, 1.0], deep: [0.45, 0.1, 0.6] },
+};
+const boltCache = new Map<string, MobSpriteSet>();
+export function getBoltSpriteSet(variant: 'amber' | 'violet'): MobSpriteSet {
+  const hit = boltCache.get(variant);
+  if (hit) return hit;
+  const pal = BOLT_PALETTES[variant];
+  const W = 128, H = 288;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+  const cx = W / 2, cy = H / 2, u = W / 2 * 0.94;
+  // Flame body: fat bright head at the top, tapering tail below.
+  const grad = ctx.createLinearGradient(0, cy - 1.35 * u, 0, cy + 1.45 * u);
+  grad.addColorStop(0, css(pal.core));
+  grad.addColorStop(0.35, css(pal.accent));
+  grad.addColorStop(0.7, css(pal.body));
+  grad.addColorStop(1, css(pal.deep, 0.9));
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - 1.42 * u);
+  ctx.bezierCurveTo(cx + 0.52 * u, cy - 0.7 * u, cx + 0.42 * u, cy + 0.1 * u, cx + 0.16 * u, cy + 0.75 * u);
+  ctx.bezierCurveTo(cx + 0.08 * u, cy + 1.1 * u, cx + 0.05 * u, cy + 1.3 * u, cx, cy + 1.45 * u);
+  ctx.bezierCurveTo(cx - 0.05 * u, cy + 1.3 * u, cx - 0.08 * u, cy + 1.1 * u, cx - 0.16 * u, cy + 0.75 * u);
+  ctx.bezierCurveTo(cx - 0.42 * u, cy + 0.1 * u, cx - 0.52 * u, cy - 0.7 * u, cx, cy - 1.42 * u);
+  ctx.fill();
+  // Side flickers at the tail.
+  for (const s of [-1, 1]) {
+    ctx.fillStyle = css(pal.body, 0.85);
+    poly(ctx, [[cx + s * 0.2 * u, cy + 0.55 * u], [cx + s * 0.55 * u, cy + 1.05 * u], [cx + s * 0.12 * u, cy + 0.95 * u]]); ctx.fill();
+  }
+  // White-hot core at the head.
+  glow(ctx, cx, cy - 0.72 * u, 0.42 * u, pal.core, 0.95);
+  ctx.fillStyle = css(pal.core);
+  ctx.beginPath(); ctx.ellipse(cx, cy - 0.72 * u, 0.17 * u, 0.3 * u, 0, 0, Math.PI * 2); ctx.fill();
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const set: MobSpriteSet = { maps: [tex], burstPositions: new Float32Array(0), burstColors: new Float32Array(0) };
+  boltCache.set(variant, set);
+  return set;
+}
+
 export const MOB_SPRITE_TYPES = new Set([
   'slime', 'bat', 'golem', 'imp', 'wisp', 'pod', 'mite', 'sentry_shard',
   'seedmother', 'rift_mine', 'shieldback', 'pyre_moth', 'phantom', 'wraith',

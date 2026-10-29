@@ -80,6 +80,11 @@ export interface PhysicsEntity {
   bossForm?: number;
   bossFormFlow?: number;
   wash?: [number, number, number];
+  // Fix Round 2 (A6): body velocity in screen px per physics step,
+  // published so the renderer can align the player's flame bolts
+  // to their travel direction. Display only.
+  vx?: number;
+  vy?: number;
 }
 
 export type Rgb = [number, number, number];
