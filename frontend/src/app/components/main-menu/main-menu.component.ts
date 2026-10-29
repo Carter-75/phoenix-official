@@ -67,11 +67,13 @@ import { AdsService } from '../../services/ads.service';
         <div class="flex items-center gap-2 bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/10">
           <img src="assets/coin_icon.png" alt="Coins" class="w-6 h-6 object-contain" />
           <span class="text-xl font-bold text-orange-400">{{ gameState.coins() }}</span>
+          <button (click)="openShopCoins()" aria-label="Open the upgrade shop" class="press w-6 h-6 rounded-full bg-orange-500 text-black text-lg font-black leading-none flex items-center justify-center hover:brightness-110 active:scale-90 transition shadow-[0_0_10px_rgba(255,77,0,0.55)]">+</button>
         </div>
         <!-- Gems -->
         <div class="flex items-center gap-2 bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/10">
           <img src="assets/gem_icon.png" alt="Gems" class="w-6 h-6 object-contain" />
           <span class="text-xl font-bold text-white">{{ gameState.gems() }}</span>
+          <button (click)="openShopGems()" aria-label="Open the premium shop" class="press w-6 h-6 rounded-full bg-violet-500 text-white text-lg font-black leading-none flex items-center justify-center hover:brightness-110 active:scale-90 transition shadow-[0_0_10px_rgba(168,85,247,0.55)]">+</button>
         </div>
       </div>
       
@@ -85,9 +87,6 @@ import { AdsService } from '../../services/ads.service';
         </button>
         <button (click)="openProfile()" class="press px-3 py-1.5 md:px-4 md:py-2 text-sm md:text-base bg-white/5 hover:bg-white/10 border border-white/10 rounded-full font-semibold transition backdrop-blur-md text-white">
           {{ auth.currentUser() ? (auth.currentUser()!.isTemp ? 'Finish Signup' : auth.currentUser()!.username) : 'Sign In' }}
-        </button>
-        <button (click)="openShop()" class="transition hover:scale-110 active:scale-95 text-white">
-          <img src="assets/shop_icon.png" alt="Shop" class="w-12 h-12 md:w-16 md:h-16 drop-shadow-xl" />
         </button>
       </div>
     </div>
@@ -343,7 +342,18 @@ export class MainMenuComponent {
     this.gameState.selectedWorldIndex.set(idx);
   }
 
-  openShop() {
+  // Shop entry (A15): the treasure chest button is gone. The coins
+  // plus opens the shop on the last tab the player visited (the shop
+  // restores phoenix_shop_last_tab itself, defaulting to Passives);
+  // the gems plus asks for the Premium tab explicitly through the
+  // one-shot phoenix_shop_open_tab request key.
+  openShopCoins() {
+    try { localStorage.removeItem('phoenix_shop_open_tab'); } catch { /* storage unavailable */ }
+    this.gameState.activeScreen.set('shop');
+  }
+
+  openShopGems() {
+    try { localStorage.setItem('phoenix_shop_open_tab', 'gems'); } catch { /* storage unavailable */ }
     this.gameState.activeScreen.set('shop');
   }
   

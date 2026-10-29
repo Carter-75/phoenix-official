@@ -1021,18 +1021,28 @@ export class ShopComponent implements OnInit {
   }
 
   ngOnInit() {
+      // Opening tab resolution (A15): an explicit one-shot request
+      // from a menu plus button (phoenix_shop_open_tab, set by the
+      // gems plus) wins and becomes the remembered tab. Otherwise the
+      // last visited tab (phoenix_shop_last_tab, written by setTab)
+      // reopens, which is what the coins plus relies on. With nothing
+      // remembered, the shop opens on Passives.
       let savedTab: string | null = null;
+      let pendingTab: string | null = null;
       if (typeof window !== 'undefined' && window.localStorage) {
           savedTab = localStorage.getItem('phoenix_shop_last_tab');
+          pendingTab = localStorage.getItem('phoenix_shop_open_tab');
+          if (pendingTab) localStorage.removeItem('phoenix_shop_open_tab');
       }
+      const valid = (t: string | null): t is 'passives' | 'abilities' | 'gems' =>
+          t === 'passives' || t === 'abilities' || t === 'gems';
 
-      if (savedTab === 'passives' || savedTab === 'abilities' || savedTab === 'gems') {
+      if (valid(pendingTab)) {
+          this.setTab(pendingTab);
+      } else if (valid(savedTab)) {
           this.activeTab.set(savedTab);
       } else {
-          this.activeTab.set('gems');
-          if (typeof window !== 'undefined' && window.localStorage) {
-              localStorage.setItem('phoenix_shop_last_tab', 'gems');
-          }
+          this.activeTab.set('passives');
       }
   }
 
