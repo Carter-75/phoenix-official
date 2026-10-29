@@ -248,6 +248,11 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
           // live orientation and flight state, read from the bird
           // record itself. headingDeg is the sprite heading in
           // screen terms (90 = straight up-screen).
+          // The player bird's live screen position (the same
+          // signal bird-physics maintains), for harness framing
+          // and UI-tap checks on screens where the game component
+          // (and its __phoenixS1 hook) is not mounted.
+          screenPos: () => ({ ...this.gameState.phoenixScreenPos() }),
           birdState: () => {
             const b = this.bird;
             let deg = (b.headingAngle * 180 / Math.PI) % 360;
@@ -728,12 +733,25 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
   }
 
 
+  // Fix Round 2 (A11, Carter's rule): input that lands on a UI
+  // control is consumed by the UI and never becomes a flight
+  // target, on every screen. This handler is the bird's steering
+  // source and is bound to window touchstart, so a tap on the
+  // pause button used to park the phoenix on the button.
+  private isUiTarget(event: Event): boolean {
+    const t = event.target as HTMLElement | null;
+    return !!t && typeof t.closest === 'function'
+      && !!t.closest('button, a, input, select, textarea, [data-ui]');
+  }
+
   private onMouseMove(event: MouseEvent) {
+    if (this.isUiTarget(event)) return;
     if (this.gameState.isPaused() || this.gameState.isDeadMenuOpen()) return;
     this.updateMouseTarget(event.clientX, event.clientY, false);
   }
 
   private onTouchMove(event: TouchEvent) {
+    if (this.isUiTarget(event)) return;
     if (this.gameState.isPaused() || this.gameState.isDeadMenuOpen()) return;
     if (event.touches.length > 0) {
       // Prevent the WebView from scrolling / rubber-banding while the finger drives the Phoenix,

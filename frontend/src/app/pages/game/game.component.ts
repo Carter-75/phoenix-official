@@ -309,7 +309,7 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
       <!-- Pause Screen (Fix Round 1, Part 6: a proper obsidian panel
            with the shared button system, not floating text). -->
       @if (gameState.isPaused()) {
-        <div class="backdrop-in absolute inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center pointer-events-auto z-40 px-6">
+        <div data-ui class="backdrop-in absolute inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center pointer-events-auto z-40 px-6">
           <div class="panel-in w-full max-w-xs bg-zinc-950/90 border border-white/10 rounded-3xl p-6 flex flex-col items-center shadow-2xl">
             <h2 (click)="onPauseTextClick()"
                 class="text-4xl font-black mb-6 tracking-widest cursor-pointer select-none transition-all duration-300"
@@ -355,7 +355,7 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
            (koPanelOpen); Battle and the annihilation phase keep
            their immediate defeat panels. -->
       @if (isDead() && (gameState.currentGameMode() === 'battle' || annihilationModeActive() || koPanelOpen())) {
-        <div class="backdrop-in absolute inset-0 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto z-50 px-6">
+        <div data-ui class="backdrop-in absolute inset-0 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto z-50 px-6">
           @if (!annihilationModeActive() && gameState.currentGameMode() !== 'battle') {
           <div class="panel-in w-full flex flex-col items-center">
           <h2 class="text-5xl font-black text-red-500 mb-2 drop-shadow-lg tracking-wide">KNOCKED OUT</h2>
@@ -449,7 +449,7 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
 
       <!-- End Game Screen -->
       @if (gameEnded() && !isDead()) {
-        <div class="backdrop-in absolute inset-0 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto z-50 px-6">
+        <div data-ui class="backdrop-in absolute inset-0 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto z-50 px-6">
           <div class="panel-in flex flex-col items-center">
           <h2 class="text-6xl font-black text-white mb-4 drop-shadow-lg tracking-wide" [ngClass]="gameWon() ? 'text-orange-400' : 'text-red-500'">
             {{ gameWon() ? 'VICTORY' : 'DEFEAT' }}
@@ -4596,9 +4596,25 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   }
 
 
-  private onMouseMove(event: MouseEvent) { this.updateMouseInput(event.clientX, event.clientY, false); }
+  // Fix Round 2 (A11, Carter's rule): a tap that lands on a UI
+  // control belongs to the UI and never becomes a flight target,
+  // a hold session, or a tap-chain press, on any screen. The
+  // handlers below are window-level, so without this gate every
+  // button tap (pause, resume, menu buttons) also steered the
+  // phoenix to the button.
+  private isUiTarget(event: Event): boolean {
+      const t = event.target as HTMLElement | null;
+      return !!t && typeof t.closest === 'function'
+          && !!t.closest('button, a, input, select, textarea, [data-ui]');
+  }
+
+  private onMouseMove(event: MouseEvent) {
+      if (this.isUiTarget(event)) return;
+      this.updateMouseInput(event.clientX, event.clientY, false);
+  }
 
   private onTouchMove(event: TouchEvent) {
+      if (this.isUiTarget(event)) return;
       event.preventDefault();
       if (event.touches.length > 0) this.updateMouseInput(event.touches[0].clientX, event.touches[0].clientY, true);
   }
@@ -4619,6 +4635,9 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       // Right mouse button is the Feather Brake (spec Section 2.4).
       if (event.button === 2) { this.rawBrakeHeld = true; return; }
       if (event.button !== 0) return;
+      // A11: UI presses are consumed by the UI; they also disarm
+      // the flick parser so the matching release cannot dash.
+      if (this.isUiTarget(event)) { this.pressT = 0; return; }
       this.pressX = event.clientX;
       this.pressY = event.clientY;
       this.pressT = Date.now();
@@ -4627,6 +4646,10 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
   private onTouchStart(event: TouchEvent) {
       // Do not prevent default here, as it blocks UI clicks (like the pause button)
+      // A11: a touch that starts on a UI control is the UI's alone:
+      // it never steers, never brakes, and a single-finger UI press
+      // disarms the flick parser so its release cannot dash.
+      if (this.isUiTarget(event)) { if (event.touches.length === 1) this.pressT = 0; return; }
       if (event.touches.length >= 2) {
           // Second finger: Feather Brake while it is held; a quick
           // release becomes an Air Roll in onTouchEnd (spec Sections
