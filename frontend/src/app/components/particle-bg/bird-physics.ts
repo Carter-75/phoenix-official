@@ -770,6 +770,18 @@ updateBirdPhysics(bird: PhoenixState, targetWaypoint: THREE.Vector3, baseSpeed: 
       // The ribbon is a motion trail: its strength follows the live
       // speed (trailFade), so a parked bird carries no ribbon at
       // all instead of a frozen smear along its arrival path.
+      //
+      // Worlds pass (Carter, Oct 29, 2026): the ribbon used to keep
+      // its own heading, derived from the recorded path, on flat
+      // geometry, so while the main body turned to aim the shadow
+      // layer underneath kept pointing along the old flight path
+      // and never bent. The ghosts now take the main plane's exact
+      // rotation for this frame (same head angle, same bank, same
+      // roll and drill spin) and share its bend geometry (assigned
+      // at creation), so the layer carries the same head direction
+      // and spine bend as the body it trails: one bird, echoed.
+      // Only the positions still come from the path history, which
+      // is what makes it a trail.
       const ghostStep = this.host.birdScale * 0.66;
       const histTotal = histCum.length > 0 ? histCum[histCum.length - 1] : 0;
       for (let i = 0; i < bird.ghostSprites.length; i++) {
@@ -785,22 +797,15 @@ updateBirdPhysics(bird: PhoenixState, targetWaypoint: THREE.Vector3, baseSpeed: 
               if (histCum[mid] <= distBack) lo = mid; else hi = mid - 1;
           }
           const hPos = bird.historyPos[lo];
-          let gAngle = bird.headingAngle;
-          if (lo > 0 && bird.historyPos[lo - 1]) {
-              const dx = bird.historyPos[lo - 1].x - hPos.x;
-              const dy = bird.historyPos[lo - 1].y - hPos.y;
-              if (dx * dx + dy * dy > 1e-8) gAngle = Math.atan2(dy, dx);
-          }
-          const gHeading = new THREE.Vector3(Math.cos(gAngle), Math.sin(gAngle), 0);
           const gSpan = span * (1 - 0.055 * (i + 1));
           if (gm.map !== frameTex) { gm.map = frameTex; gm.needsUpdate = true; }
           gm.color.copy(bird.renderTint);
           gm.opacity = opacity;
           ghost.position.set(
-              hPos.x - gHeading.x * anchorBack * (gSpan / span),
-              hPos.y + bobY * (1 - i * 0.08) - gHeading.y * anchorBack * (gSpan / span),
+              hPos.x - headingVec.x * anchorBack * (gSpan / span),
+              hPos.y + bobY * (1 - i * 0.08) - headingVec.y * anchorBack * (gSpan / span),
               bird.position.z);
-          ghost.rotation.set(0, 0, gAngle - Math.PI / 2 + bird.currentBank * 0.5 * (1 - i * 0.06) + extraRoll);
+          ghost.rotation.set(0, 0, inPlane);
           ghost.scale.set(gSpan, gSpan, gSpan);
           ghost.visible = true;
       }

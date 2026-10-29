@@ -1273,11 +1273,10 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     // toggle covers the whole rig at once.
     const frames = getPhoenixFrames(skin);
     const geo = new THREE.PlaneGeometry(1, 1.25);
-    // Fix Round 4 bend geometry: the main and ash planes get their
-    // own segmented copy (12 height segments), whose vertices the
+    // Fix Round 4 bend geometry: the main and ash planes share a
+    // segmented copy (12 height segments), whose vertices the
     // render write bends along the spine each frame so the body
-    // visibly curves behind the head in a turn. The ghost ribbon
-    // keeps the flat shared geometry (faint trail copies).
+    // visibly curves behind the head in a turn.
     const bendGeo = new THREE.PlaneGeometry(1, 1.25, 1, 12);
     bird.bendGeo = bendGeo;
     bird.bendBase = (bendGeo.attributes['position'].array as Float32Array).slice();
@@ -1297,7 +1296,11 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     bird.ashSprite.visible = false;
     bird.ghostSprites = [];
     for (let gi = 0; gi < 8; gi++) {
-      const g = makePlane(2);
+      // Worlds pass (Carter, Oct 29, 2026): the ghost ribbon planes
+      // share the SAME bend geometry instance as the main and ash
+      // planes, so every layer of the bird carries the identical
+      // spine deformation the render write applies each frame.
+      const g = makePlane(2, bendGeo);
       g.visible = false;
       bird.ghostSprites.push(g);
     }
