@@ -1,5 +1,5 @@
-<div class="codex-container">
-  <button class="back-btn" (click)="close()">⮜ Back</button>
+<div class="codex-container screen-in">
+  <button class="back-btn press" (click)="close()">⮜ Back</button>
 
   <h1 class="title">Codex & Guide</h1>
 
@@ -22,7 +22,7 @@
     <!-- Realms List -->
     <div class="realms-list">
       <h2>Realms</h2>
-      <div *ngFor="let realm of realms" class="realm-card" [class.locked]="!isRealmUnlocked(realm.id)">
+      <div *ngFor="let realm of realms; let i = index" class="realm-card stagger-in" [style.--d]="i < 8 ? i : 8" [class.locked]="!isRealmUnlocked(realm.id)">
         <h3>Realm {{ realm.id + 1 }}: {{ realm.name }}</h3>
         <span class="status" *ngIf="!isRealmUnlocked(realm.id)">Locked: clear the previous realm</span>
         <p class="boss-line">Boss: <strong>{{ realm.bossName }}</strong> ({{ realm.bossTheme }})</p>
@@ -68,7 +68,7 @@
     <div *ngFor="let group of moveTypes">
       <h3>{{ group.label }}</h3>
       <div class="move-grid">
-        <div *ngFor="let move of moveArchive[group.key]" class="move-card">
+        <div *ngFor="let move of moveArchive[group.key]; let i = index" class="move-card stagger-in" [style.--d]="i % 8">
           <strong>{{ move.name }}</strong>
           <span>{{ move.description }}</span>
           <span class="move-stats">DMG {{ move.damage }} · CD {{ (move.cooldownMs / 1000) }}s<span *ngIf="move.cost > 0"> · {{ move.cost }} coins</span></span>

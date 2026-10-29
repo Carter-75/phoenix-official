@@ -13,28 +13,28 @@ import { TrioMode } from '../../data/mode-records';
   imports: [CommonModule],
   template: `
     <div class="fixed inset-0 flex flex-col items-center p-4 md:p-8 z-50 overflow-y-auto">
-      <button (click)="goBack()" class="absolute top-4 left-4 md:top-6 md:left-6 text-white/50 hover:text-white transition flex items-center gap-2">
+      <button (click)="goBack()" class="press absolute top-4 left-4 md:top-6 md:left-6 text-white/50 hover:text-white transition flex items-center gap-2">
         <span class="text-2xl">←</span> Back
       </button>
 
-      <div class="bg-black/60 backdrop-blur-xl border border-white/10 rounded-3xl p-4 md:p-8 w-full max-w-3xl mt-16 md:mt-12 shadow-[0_0_50px_rgba(255,100,0,0.1)]">
+      <div class="screen-in bg-black/60 backdrop-blur-xl border border-white/10 rounded-3xl p-4 md:p-8 w-full max-w-3xl mt-16 md:mt-12 shadow-[0_0_50px_rgba(255,100,0,0.1)]">
         <h2 class="text-3xl md:text-4xl font-black text-center mb-6 md:mb-8 text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-orange-500">
           {{ activeTab() === 'world' ? 'PER-WORLD RECORDS' : 'GLOBAL LEADERBOARD' }}
         </h2>
         <div class="flex gap-3 md:gap-4 justify-center mb-6 flex-wrap">
             <button (click)="switchTab('survival')"
                     [ngClass]="activeTab() === 'survival' ? 'border-orange-500 text-white' : 'border-white/10 text-white/50'"
-                    class="px-5 py-2 rounded-full border-2 bg-white/5 hover:bg-white/10 transition font-bold tracking-widest">
+                    class="press px-5 py-2 rounded-full border-2 bg-white/5 hover:bg-white/10 transition font-bold tracking-widest">
                 SURVIVAL
             </button>
             <button (click)="switchTab('battle')"
                     [ngClass]="activeTab() === 'battle' ? 'border-orange-500 text-white' : 'border-white/10 text-white/50'"
-                    class="px-5 py-2 rounded-full border-2 bg-white/5 hover:bg-white/10 transition font-bold tracking-widest">
+                    class="press px-5 py-2 rounded-full border-2 bg-white/5 hover:bg-white/10 transition font-bold tracking-widest">
                 BATTLE MODE
             </button>
             <button (click)="switchTab('world')"
                     [ngClass]="activeTab() === 'world' ? 'border-orange-500 text-white' : 'border-white/10 text-white/50'"
-                    class="px-5 py-2 rounded-full border-2 bg-white/5 hover:bg-white/10 transition font-bold tracking-widest">
+                    class="press px-5 py-2 rounded-full border-2 bg-white/5 hover:bg-white/10 transition font-bold tracking-widest">
                 PER-WORLD
             </button>
         </div>
@@ -43,23 +43,23 @@ import { TrioMode } from '../../data/mode-records';
             <!-- Per-world grid (mode trio): one board per world per
                  mode, 30 boards, next to the two global boards. -->
             <div class="flex items-center justify-center gap-4 mb-4">
-                <button (click)="prevWorld()" class="text-white/50 hover:text-white transition text-2xl">&larr;</button>
+                <button (click)="prevWorld()" class="press text-white/50 hover:text-white transition text-2xl">&larr;</button>
                 <div class="w-52 text-center">
                     <div class="text-xs text-white/50 uppercase tracking-widest font-bold">Realm {{ boardWorld() + 1 }}</div>
                     <div class="text-lg font-black tracking-wider text-white">{{ worlds[boardWorld()].name }}</div>
                 </div>
-                <button (click)="nextWorld()" class="text-white/50 hover:text-white transition text-2xl">&rarr;</button>
+                <button (click)="nextWorld()" class="press text-white/50 hover:text-white transition text-2xl">&rarr;</button>
             </div>
             <div class="flex gap-2 justify-center mb-4">
                 <button (click)="switchWorldMode('normal')"
                         [ngClass]="worldMode() === 'normal' ? 'bg-orange-500/80 text-white' : 'bg-white/5 text-white/50 hover:text-white'"
-                        class="px-4 py-1.5 rounded-full text-xs font-black tracking-widest uppercase transition">Normal</button>
+                        class="press px-4 py-1.5 rounded-full text-xs font-black tracking-widest uppercase transition">Normal</button>
                 <button (click)="switchWorldMode('endless')"
                         [ngClass]="worldMode() === 'endless' ? 'bg-orange-500/80 text-white' : 'bg-white/5 text-white/50 hover:text-white'"
-                        class="px-4 py-1.5 rounded-full text-xs font-black tracking-widest uppercase transition">Endless</button>
+                        class="press px-4 py-1.5 rounded-full text-xs font-black tracking-widest uppercase transition">Endless</button>
                 <button (click)="switchWorldMode('battle')"
                         [ngClass]="worldMode() === 'battle' ? 'bg-orange-500/80 text-white' : 'bg-white/5 text-white/50 hover:text-white'"
-                        class="px-4 py-1.5 rounded-full text-xs font-black tracking-widest uppercase transition">Battle</button>
+                        class="press px-4 py-1.5 rounded-full text-xs font-black tracking-widest uppercase transition">Battle</button>
             </div>
             @if (ownRecordText()) {
                 <div class="text-center text-white/60 text-sm mb-4">Your best here: <span class="text-white font-bold">{{ ownRecordText() }}</span></div>
@@ -73,7 +73,8 @@ import { TrioMode } from '../../data/mode-records';
         } @else {
             <div class="space-y-3 overflow-x-auto">
                 @for (player of players(); track player.username; let i = $index) {
-                    <div class="flex items-center gap-2 md:gap-4 bg-white/5 border border-white/5 p-3 md:p-4 rounded-xl hover:bg-white/10 transition min-w-[300px]">
+                    <div class="stagger-in flex items-center gap-2 md:gap-4 bg-white/5 border border-white/5 p-3 md:p-4 rounded-xl hover:bg-white/10 transition min-w-[300px]"
+                         [style.--d]="i < 10 ? i : 10">
                         <div class="w-8 md:w-12 text-center font-black text-xl md:text-2xl"
                              [class.text-orange-400]="i === 0"
                              [class.text-gray-300]="i === 1"

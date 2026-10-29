@@ -47,11 +47,11 @@ const TROPHY_CATALOG: RealmTrophies[] = [
   imports: [CommonModule, FormsModule],
   template: `
     <div class="fixed inset-0 flex flex-col items-center p-8 z-50 overflow-y-auto">
-      <button (click)="goBack()" class="absolute top-6 left-6 text-white/50 hover:text-white transition flex items-center gap-2">
+      <button (click)="goBack()" class="press absolute top-6 left-6 text-white/50 hover:text-white transition flex items-center gap-2">
         <span class="text-2xl">←</span> Back
       </button>
 
-      <div class="bg-black/60 backdrop-blur-xl border border-white/10 rounded-3xl p-8 w-full max-w-2xl mt-12 shadow-[0_0_50px_rgba(255,100,0,0.1)]">
+      <div class="screen-in bg-black/60 backdrop-blur-xl border border-white/10 rounded-3xl p-8 w-full max-w-2xl mt-12 shadow-[0_0_50px_rgba(255,100,0,0.1)]">
         
         @if (auth.currentUser()) {
           <div class="flex items-center gap-6 mb-12">
@@ -71,7 +71,7 @@ const TROPHY_CATALOG: RealmTrophies[] = [
               </div>
             </div>
             
-            <button (click)="logout()" class="ml-auto px-4 py-2 bg-red-500/20 text-red-400 hover:bg-red-500/40 rounded-lg transition font-bold border border-red-500/20">
+            <button (click)="logout()" class="press ml-auto px-4 py-2 bg-red-500/20 text-red-400 hover:bg-red-500/40 rounded-lg transition font-bold border border-red-500/20">
               Logout
             </button>
           </div>
@@ -82,9 +82,9 @@ const TROPHY_CATALOG: RealmTrophies[] = [
           </div>
           
           <div class="space-y-8">
-             @for (realm of filteredTrophies(); track realm.realmName) {
+             @for (realm of filteredTrophies(); track realm.realmName; let ri = $index) {
                 @if (realm.trophies.length > 0) {
-                    <div>
+                    <div class="stagger-in" [style.--d]="ri < 6 ? ri : 6">
                         <h4 class="text-xl font-bold text-orange-400 mb-3 border-b border-white/10 pb-2">{{ realm.realmName }}</h4>
                         <div class="flex flex-wrap gap-3">
                            @for (trophy of realm.trophies; track trophy.id) {

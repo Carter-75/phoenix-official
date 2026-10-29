@@ -9,8 +9,8 @@ import { GameStateService } from '../../services/game-state.service';
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="settings-modal" (click)="onBackdropClick($event)">
-        <div class="settings-content window-panel">
+    <div class="settings-modal backdrop-in" (click)="onBackdropClick($event)">
+        <div class="settings-content window-panel panel-in">
             <h2 class="title text-4xl mb-6">SETTINGS</h2>
             
             <div class="sliders-container flex flex-col gap-4 overflow-y-auto max-h-[60vh] pr-2 pb-2 custom-scrollbar">
@@ -118,7 +118,7 @@ import { GameStateService } from '../../services/game-state.service';
                     <div class="flex justify-between items-center">
                         <label>Touch Offset</label>
                         <button (click)="gameState.setTouchOffsetEnabled(!gameState.touchOffsetEnabled())"
-                                class="px-3 py-1 rounded bg-white/10 border border-white/20 text-white/90 font-bold text-sm hover:bg-white/20 transition">
+                                class="press px-3 py-1 rounded bg-white/10 border border-white/20 text-white/90 font-bold text-sm hover:bg-white/20 transition">
                             {{ gameState.touchOffsetEnabled() ? 'On' : 'Off' }}
                         </button>
                     </div>
@@ -129,7 +129,7 @@ import { GameStateService } from '../../services/game-state.service';
                     <div class="flex justify-between items-center">
                         <label>Screen Shake</label>
                         <button (click)="cycleShake()"
-                                class="px-3 py-1 rounded bg-white/10 border border-white/20 text-white/90 font-bold text-sm hover:bg-white/20 transition">
+                                class="press px-3 py-1 rounded bg-white/10 border border-white/20 text-white/90 font-bold text-sm hover:bg-white/20 transition">
                             {{ gameState.screenShakeSetting() === 'on' ? 'On' : gameState.screenShakeSetting() === 'reduced' ? 'Reduced' : 'Off' }}
                         </button>
                     </div>
@@ -140,7 +140,7 @@ import { GameStateService } from '../../services/game-state.service';
                     <div class="flex justify-between items-center">
                         <label>Damage Numbers</label>
                         <button (click)="gameState.setDamageNumbersEnabled(!gameState.damageNumbersEnabled())"
-                                class="px-3 py-1 rounded bg-white/10 border border-white/20 text-white/90 font-bold text-sm hover:bg-white/20 transition">
+                                class="press px-3 py-1 rounded bg-white/10 border border-white/20 text-white/90 font-bold text-sm hover:bg-white/20 transition">
                             {{ gameState.damageNumbersEnabled() ? 'On' : 'Off' }}
                         </button>
                     </div>
@@ -174,7 +174,7 @@ import { GameStateService } from '../../services/game-state.service';
                 </div>
             </div>
             
-            <button class="btn btn-primary mt-8 w-full" (click)="close.emit()">DONE</button>
+            <button class="btn btn-primary btn-sheen press mt-8 w-full" (click)="close.emit()">DONE</button>
         </div>
     </div>
   `,

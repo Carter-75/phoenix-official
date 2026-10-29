@@ -10,11 +10,11 @@ import { FormsModule } from '@angular/forms';
   imports: [FormsModule],
   template: `
     <div class="fixed inset-0 flex flex-col items-center justify-center p-4 z-50">
-      <button (click)="goBack()" class="absolute top-6 left-6 text-white/50 hover:text-white transition flex items-center gap-2">
+      <button (click)="goBack()" class="press absolute top-6 left-6 text-white/50 hover:text-white transition flex items-center gap-2">
         <span class="text-2xl">←</span> Back
       </button>
 
-      <div class="bg-black/60 backdrop-blur-xl border border-white/10 rounded-3xl p-8 w-full max-w-md shadow-[0_0_50px_rgba(255,100,0,0.1)]">
+      <div class="panel-in bg-black/60 backdrop-blur-xl border border-white/10 rounded-3xl p-8 w-full max-w-md shadow-[0_0_50px_rgba(255,100,0,0.1)]">
         <h2 class="text-3xl font-black text-center mb-8 text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-red-500">
            {{ mode() === 'email' ? 'ACCOUNT ACCESS' : 'CHOOSE USERNAME' }}
         </h2>
@@ -28,7 +28,7 @@ import { FormsModule } from '@angular/forms';
         <div class="space-y-4">
           @if (mode() === 'email') {
               <button (click)="loginWithGoogle()" 
-                      class="w-full p-4 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center hover:bg-white/10 transition-colors text-white font-semibold gap-3">
+                      class="press w-full p-4 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center hover:bg-white/10 transition-colors text-white font-semibold gap-3">
                 <svg class="w-5 h-5" viewBox="0 0 24 24">
                   <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                   <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
@@ -75,7 +75,7 @@ import { FormsModule } from '@angular/forms';
           }
           
           <button (click)="submit()"
-                  class="w-full mt-4 p-4 bg-gradient-to-r from-orange-500 to-red-600 text-white rounded-xl font-bold hover:brightness-110 active:scale-95 transition-all shadow-lg shadow-orange-500/20 disabled:opacity-50 disabled:grayscale">
+                  class="btn-sheen w-full mt-4 p-4 bg-gradient-to-r from-orange-500 to-red-600 text-white rounded-xl font-bold hover:brightness-110 active:scale-95 transition-all shadow-lg shadow-orange-500/20 disabled:opacity-50 disabled:grayscale">
             {{ mode() === 'email' ? 'Continue' : 'Complete Signup' }}
           </button>
 
@@ -85,8 +85,8 @@ import { FormsModule } from '@angular/forms';
 
       <!-- Legal Document Reader (opened from the agreement links) -->
       @if (activeLegalDoc) {
-          <div class="fixed inset-0 bg-black/95 flex flex-col items-center justify-center z-[600] px-4 backdrop-blur-md">
-             <div class="w-full max-w-2xl bg-zinc-900 border border-orange-500/40 rounded-3xl p-8 flex flex-col max-h-[80vh]">
+          <div class="backdrop-in fixed inset-0 bg-black/95 flex flex-col items-center justify-center z-[600] px-4 backdrop-blur-md">
+             <div class="panel-in w-full max-w-2xl bg-zinc-900 border border-orange-500/40 rounded-3xl p-8 flex flex-col max-h-[80vh]">
                  <div class="flex justify-between items-center mb-6">
                     <h2 class="text-2xl font-bold text-white">{{ getLegalTitle() }}</h2>
                     <button (click)="activeLegalDoc = null" class="text-white/50 hover:text-white text-3xl font-black">&times;</button>
@@ -94,7 +94,7 @@ import { FormsModule } from '@angular/forms';
                  <div class="overflow-y-auto text-white/80 text-sm md:text-base space-y-4 pr-4 leading-relaxed">
                     {{ getLegalContent() }}
                  </div>
-                 <button (click)="activeLegalDoc = null" class="mt-8 w-full py-4 bg-orange-600/20 border border-orange-500 hover:bg-orange-600/40 rounded-xl font-bold text-orange-200 transition text-xl">Understood</button>
+                 <button (click)="activeLegalDoc = null" class="press mt-8 w-full py-4 bg-orange-600/20 border border-orange-500 hover:bg-orange-600/40 rounded-xl font-bold text-orange-200 transition text-xl">Understood</button>
              </div>
           </div>
       }

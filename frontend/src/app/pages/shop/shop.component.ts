@@ -15,10 +15,10 @@ import { CommonModule } from '@angular/common';
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="fixed inset-0 flex flex-col items-center justify-start w-full min-h-screen text-white bg-black/80 backdrop-blur-md p-6 overflow-y-auto">
+    <div class="screen-in fixed inset-0 flex flex-col items-center justify-start w-full min-h-screen text-white bg-black/80 backdrop-blur-md p-6 overflow-y-auto">
       <!-- Header -->
       <div class="w-full max-w-5xl flex flex-col md:flex-row justify-between items-center gap-4 md:gap-0 mb-8 mt-4">
-        <button (click)="closeShop()" class="text-white/70 hover:text-white flex items-center gap-2 transition px-4 py-2 bg-white/5 rounded-full border border-white/10 hover:bg-white/10 self-start md:self-auto">
+        <button (click)="closeShop()" class="press text-white/70 hover:text-white flex items-center gap-2 transition px-4 py-2 bg-white/5 rounded-full border border-white/10 hover:bg-white/10 self-start md:self-auto">
           <span class="text-xl">&larr;</span> Back
         </button>
         
@@ -61,21 +61,21 @@ import { CommonModule } from '@angular/common';
         <button (click)="setTab('passives')" 
                 [class.bg-white_10]="activeTab() === 'passives'"
                 [class.text-orange-400]="activeTab() === 'passives'"
-                class="flex-1 py-3 rounded-full font-bold transition-all"
+                class="press flex-1 py-3 rounded-full font-bold transition-all"
                 [ngClass]="activeTab() === 'passives' ? 'bg-white/10 text-orange-400 shadow-md' : 'text-white/50 hover:text-white'">
           Passives
         </button>
         <button (click)="setTab('abilities')" 
                 [class.bg-white_10]="activeTab() === 'abilities'"
                 [class.text-orange-400]="activeTab() === 'abilities'"
-                class="flex-1 py-3 rounded-full font-bold transition-all"
+                class="press flex-1 py-3 rounded-full font-bold transition-all"
                 [ngClass]="activeTab() === 'abilities' ? 'bg-white/10 text-orange-400 shadow-md' : 'text-white/50 hover:text-white'">
           Abilities
         </button>
         <button (click)="setTab('gems')" 
                 [class.bg-white_10]="activeTab() === 'gems'"
                 [class.text-orange-300]="activeTab() === 'gems'"
-                class="flex-1 py-3 rounded-full font-bold transition-all flex justify-center items-center gap-2"
+                class="press flex-1 py-3 rounded-full font-bold transition-all flex justify-center items-center gap-2"
                 [ngClass]="activeTab() === 'gems' ? 'bg-white/10 text-orange-300 shadow-md' : 'text-white/50 hover:text-white'">
           Premium
         </button>
@@ -95,7 +95,7 @@ import { CommonModule } from '@angular/common';
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-8">
 
           <!-- Damage Upgrade -->
-          <div class="bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50">
+          <div class="stagger-in bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50" style="--d: 0">
             <div class="w-20 h-20 bg-orange-500/20 rounded-full flex items-center justify-center border border-orange-500/30">
               <span class="text-4xl">🔥</span>
             </div>
@@ -140,7 +140,7 @@ import { CommonModule } from '@angular/common';
           </div>
 
           <!-- Attack Speed Upgrade -->
-          <div class="bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50">
+          <div class="stagger-in bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50" style="--d: 1">
             <div class="w-20 h-20 bg-orange-500/15 rounded-full flex items-center justify-center border border-orange-500/30">
               <span class="text-4xl">🏹</span>
             </div>
@@ -185,7 +185,7 @@ import { CommonModule } from '@angular/common';
           </div>
 
           <!-- Homing Bullets Upgrade -->
-          <div class="bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50">
+          <div class="stagger-in bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50" style="--d: 2">
             <div class="w-20 h-20 bg-indigo-500/20 rounded-full flex items-center justify-center border border-indigo-500/30">
               <span class="text-4xl">🎯</span>
             </div>
@@ -234,7 +234,7 @@ import { CommonModule } from '@angular/common';
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-8">
 
           <!-- Max Health Upgrade -->
-          <div class="bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50">
+          <div class="stagger-in bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50" style="--d: 0">
             <div class="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center border border-red-500/30">
               <span class="text-4xl">❤️</span>
             </div>
@@ -279,7 +279,7 @@ import { CommonModule } from '@angular/common';
           </div>
 
           <!-- Speed Upgrade -->
-          <div class="bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50">
+          <div class="stagger-in bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50" style="--d: 1">
             <div class="w-20 h-20 bg-orange-500/20 rounded-full flex items-center justify-center border border-orange-500/30">
               <span class="text-4xl">⚡</span>
             </div>
@@ -324,7 +324,7 @@ import { CommonModule } from '@angular/common';
           </div>
 
           <!-- Aegis Plating (new in S5, spec Section 5.2) -->
-          <div class="bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50">
+          <div class="stagger-in bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50" style="--d: 2">
             <div class="w-20 h-20 bg-slate-400/20 rounded-full flex items-center justify-center border border-slate-300/30">
               <span class="text-4xl">🛡️</span>
             </div>
@@ -373,7 +373,7 @@ import { CommonModule } from '@angular/common';
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-12">
 
           <!-- Magnetism Upgrade -->
-          <div class="bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50">
+          <div class="stagger-in bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50" style="--d: 0">
             <div class="w-20 h-20 bg-orange-500/20 rounded-full flex items-center justify-center border border-orange-500/30">
               <span class="text-4xl">🧲</span>
             </div>
@@ -418,7 +418,7 @@ import { CommonModule } from '@angular/common';
           </div>
 
           <!-- Attack Range Upgrade -->
-          <div class="bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50">
+          <div class="stagger-in bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50" style="--d: 1">
             <div class="w-20 h-20 bg-orange-500/20 rounded-full flex items-center justify-center border border-orange-500/30">
               <span class="text-4xl">🔭</span>
             </div>
@@ -463,7 +463,7 @@ import { CommonModule } from '@angular/common';
           </div>
 
           <!-- Aura Radius Upgrade -->
-          <div class="bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50">
+          <div class="stagger-in bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-lg shadow-black/50" style="--d: 2">
             <div class="w-20 h-20 bg-orange-500/20 rounded-full flex items-center justify-center border border-orange-500/30">
               <span class="text-4xl">🌀</span>
             </div>
@@ -528,8 +528,8 @@ import { CommonModule } from '@angular/common';
             </div>
          </div>
          <div class="w-full max-w-5xl grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6 animate-fade-in pb-12">
-            @for (ability of abilitiesList; track ability.id) {
-               <div class="bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col hover:bg-white/10 transition shadow-lg relative">
+            @for (ability of abilitiesList; track ability.id; let i = $index) {
+               <div class="stagger-in bg-white/5 border border-white/10 rounded-3xl p-6 flex flex-col hover:bg-white/10 transition shadow-lg relative" [style.--d]="i < 8 ? i : 8">
                   <!-- Equipped Badge -->
                   @if (gameState.currentStats().activeTapAbility === ability.id || gameState.currentStats().activeHoldAbility === ability.id || gameState.currentStats().activeDoubleAbility === ability.id || gameState.currentStats().activeTripleAbility === ability.id) {
                      <div class="absolute -top-3 right-4 bg-orange-500 text-black px-3 py-1 rounded-full text-xs font-bold uppercase shadow-lg">Equipped</div>
@@ -649,8 +649,8 @@ import { CommonModule } from '@angular/common';
          <div class="w-full max-w-5xl mb-6 animate-fade-in">
             <div class="text-xs font-bold text-white/50 uppercase tracking-widest mb-3">Gadget (one per run effect)</div>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pb-12">
-               @for (gadget of gadgetsList; track gadget.id) {
-                  <div class="bg-white/5 border border-white/10 rounded-3xl p-5 flex flex-col hover:bg-white/10 transition shadow-lg relative">
+               @for (gadget of gadgetsList; track gadget.id; let i = $index) {
+                  <div class="stagger-in bg-white/5 border border-white/10 rounded-3xl p-5 flex flex-col hover:bg-white/10 transition shadow-lg relative" [style.--d]="i">
                      @if (gameState.currentStats().activeGadget === gadget.id) {
                         <div class="absolute -top-3 right-4 bg-orange-500 text-black px-3 py-1 rounded-full text-xs font-bold uppercase shadow-lg">Equipped</div>
                      }
@@ -690,13 +690,13 @@ import { CommonModule } from '@angular/common';
         <div class="w-full max-w-4xl grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in">
           
           <!-- Package 1 -->
-          <div class="bg-white/5 border border-orange-500/25 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-[0_0_20px_rgba(168,85,247,0.1)] hover:shadow-[0_0_30px_rgba(168,85,247,0.2)] relative overflow-hidden">
+          <div class="bg-white/5 border border-orange-500/25 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-[0_0_20px_rgba(168,85,247,0.1)] hover:shadow-[0_0_30px_rgba(168,85,247,0.2)] relative overflow-hidden stagger-in" style="--d: 0">
             <img src="assets/gem_icon.png" class="w-24 h-24 object-contain drop-shadow-[0_0_15px_rgba(168,85,247,0.5)]" />
             <div class="text-center">
               <h3 class="text-2xl font-bold text-white">Single Gem</h3>
               <p class="text-orange-300 font-bold text-xl mt-1">{{ calculatedGems()[0] }} Gem</p>
             </div>
-            <button (click)="buyGems(calculatedGems()[0], 0)" class="mt-4 w-full py-3 bg-white/10 border border-orange-500/40 rounded-xl font-bold text-lg text-white hover:bg-orange-600/30 hover:border-orange-500/40 active:scale-95 transition flex justify-center gap-2" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
+            <button (click)="buyGems(calculatedGems()[0], 0)" class="btn-sheen mt-4 w-full py-3 bg-white/10 border border-orange-500/40 rounded-xl font-bold text-lg text-white hover:bg-orange-600/30 hover:border-orange-500/40 active:scale-95 transition flex justify-center gap-2" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
 &dollar;{{ basePrices[0] }}
             </button>
           </div>
@@ -716,14 +716,14 @@ import { CommonModule } from '@angular/common';
                   <h3 class="text-2xl font-bold text-white">Handful of Gems</h3>
                   <p class="text-orange-300 font-bold text-xl mt-1">{{ calculatedGems()[1] }} Gems</p>
                 </div>
-                <button (click)="buyGems(calculatedGems()[1], 1)" class="mt-4 w-full py-3 bg-gradient-to-r from-red-600 to-indigo-600 rounded-xl font-bold text-lg text-white hover:brightness-110 active:scale-95 transition shadow-lg shadow-orange-500/30 flex justify-center gap-2" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
+                <button (click)="buyGems(calculatedGems()[1], 1)" class="btn-sheen mt-4 w-full py-3 bg-gradient-to-r from-red-600 to-indigo-600 rounded-xl font-bold text-lg text-white hover:brightness-110 active:scale-95 transition shadow-lg shadow-orange-500/30 flex justify-center gap-2" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
 &dollar;{{ basePrices[1] }}
                 </button>
             </div>
           </div>
 
           <!-- Package 3 -->
-          <div class="bg-white/5 border border-orange-500/25 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-[0_0_20px_rgba(168,85,247,0.1)] hover:shadow-[0_0_30px_rgba(168,85,247,0.2)] relative overflow-hidden">
+          <div class="bg-white/5 border border-orange-500/25 rounded-3xl p-6 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-[0_0_20px_rgba(168,85,247,0.1)] hover:shadow-[0_0_30px_rgba(168,85,247,0.2)] relative overflow-hidden stagger-in" style="--d: 1">
             @if (!gameState.hasPurchasedGems()) {
                 <div class="absolute top-4 -right-8 bg-red-600 text-white text-xs font-bold py-1 px-10 rotate-45 shadow-lg z-10">2X BONUS</div>
             }
@@ -732,13 +732,13 @@ import { CommonModule } from '@angular/common';
               <h3 class="text-2xl font-bold text-white">Chest of Gems</h3>
               <p class="text-orange-300 font-bold text-xl mt-1">{{ calculatedGems()[2] }} Gems</p>
             </div>
-            <button (click)="buyGems(calculatedGems()[2], 2)" class="mt-4 w-full py-3 bg-white/10 border border-orange-500/40 rounded-xl font-bold text-lg text-white hover:bg-orange-600/30 hover:border-orange-500/40 active:scale-95 transition flex justify-center gap-2" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
+            <button (click)="buyGems(calculatedGems()[2], 2)" class="btn-sheen mt-4 w-full py-3 bg-white/10 border border-orange-500/40 rounded-xl font-bold text-lg text-white hover:bg-orange-600/30 hover:border-orange-500/40 active:scale-95 transition flex justify-center gap-2" [disabled]="iapService.isProcessing() || !iapService.purchasesEnabled()">
 &dollar;{{ basePrices[2] }}
             </button>
           </div>
 
           <!-- Currency Exchange -->
-          <div class="col-span-full md:col-span-3 bg-white/5 border border-orange-500/30 rounded-3xl p-6 mt-4 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-[0_0_20px_rgba(168,85,247,0.15)] relative overflow-hidden">
+          <div class="col-span-full md:col-span-3 bg-white/5 border border-orange-500/30 rounded-3xl p-6 mt-4 flex flex-col items-center gap-4 hover:bg-white/10 transition shadow-[0_0_20px_rgba(168,85,247,0.15)] relative overflow-hidden stagger-in" style="--d: 2">
             <div class="absolute inset-0 bg-gradient-to-r from-orange-900/20 to-transparent"></div>
             <div class="flex flex-col md:flex-row items-center justify-between w-full relative z-10 gap-6">
                <div class="flex items-center gap-4">
