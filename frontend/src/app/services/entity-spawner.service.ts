@@ -46,6 +46,8 @@ export interface SpawnerContext {
     gameEnded: () => boolean;
     isDead: () => boolean;
     bossSpawned: WritableSignal<boolean>;
+    // A13: the boss-approach banner's visibility (about 2 s).
+    bossWarningVisible?: WritableSignal<boolean>;
     bossMaxHealth?: WritableSignal<number>;
     bossHealth?: WritableSignal<number>;
     bossShieldHealth?: WritableSignal<number>;
@@ -107,6 +109,12 @@ export class EntitySpawnerService {
         // Growth base 1.42 per world is Carter's adopted decision (systems
         // spec decision log, Oct 25, 2026), read from the balance constants.
         ctx.bossSpawned.set(true);
+        // A13: the approach banner shows for about 2 s, then clears
+        // off the screen while the boss fight continues.
+        if (ctx.bossWarningVisible) {
+            ctx.bossWarningVisible.set(true);
+            setTimeout(() => ctx.bossWarningVisible!.set(false), 2000);
+        }
         ctx.clearEnemies();
 
         const worldIndex = ctx.gameState.selectedWorldIndex();

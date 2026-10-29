@@ -68,7 +68,7 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
            
            @if (bossSpawned()) {
                <span class="text-white font-bold tracking-widest uppercase drop-shadow-md mt-4">
-                  BOSS HEALTH @if (bossEnraged()) { <span class="text-red-400">- ENRAGED</span> }
+                  {{ currentWorld().bossName }} @if (bossEnraged()) { <span class="text-red-400">- ENRAGED</span> }
                </span>
                <div class="hp-track relative w-full h-3 border border-white/20 rounded-full overflow-hidden shadow-[0_0_15px_rgba(255,0,0,0.1)]">
                   <div class="hp-ghost absolute inset-y-0 left-0 rounded-full" [style.width]="bossGhostPercent() + '%'"></div>
@@ -287,8 +287,10 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
         </div>
       }
 
-      <!-- Boss Warning & Rage Mode -->
-      @if (bossSpawned() && !rageModeActive()) {
+      <!-- Boss Warning & Rage Mode (A13: the approach banner is
+           timed by the spawner at about 2 s; it no longer lingers
+           for the whole fight) -->
+      @if (bossWarningVisible() && !rageModeActive()) {
         <div class="absolute top-24 left-1/2 -translate-x-1/2 animate-pulse pointer-events-none z-20">
            <h2 class="text-4xl font-black text-red-600 drop-shadow-[0_0_20px_rgba(255,0,0,0.8)] tracking-widest uppercase">World Boss Approaching</h2>
         </div>
@@ -652,6 +654,12 @@ export class GameComponent implements OnInit, OnDestroy {
   public isDead = signal<boolean>(false);
 
   public bossSpawned = signal<boolean>(false);
+
+  // Fix Round 2 (A13): the "World Boss Approaching" banner shows
+  // for about 2 s at the spawn and then clears (it used to render
+  // for the entire fight). The spawner flips this on at spawn and
+  // times it out there.
+  public bossWarningVisible = signal<boolean>(false);
 
   public bossHealth = signal<number>(1000);
 
@@ -1064,6 +1072,7 @@ export class GameComponent implements OnInit, OnDestroy {
     this.adRevivesUsed = 0;
     this.runCountedForAds = false;
     this.bossSpawned.set(false);
+    this.bossWarningVisible.set(false);
     this.bossEnraged.set(false);
     this.bossShieldHealth.set(0);
     this.inBossDefeatSequence.set(false);
@@ -1337,6 +1346,7 @@ export class GameComponent implements OnInit, OnDestroy {
           gameEnded: () => this.gameEnded(),
           isDead: () => this.isDead(),
           bossSpawned: this.bossSpawned,
+          bossWarningVisible: this.bossWarningVisible,
           bossMaxHealth: this.bossMaxHealth,
           bossHealth: this.bossHealth,
           bossShieldHealth: this.bossShieldHealth,
