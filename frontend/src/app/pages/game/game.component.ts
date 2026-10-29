@@ -525,6 +525,15 @@ export class GameComponent implements OnInit, OnDestroy {
   public bossWash(data: EnemyData): [number, number, number] | undefined { return this.bossFight.bossWash(data); }
   public fireBossWaveAttack(pos: Matter.Vector, count: number = 12, angleOffset: number = 0) { return this.bossFight.fireBossWaveAttack(pos, count, angleOffset); }
   public fireProjectile() { return this.abilities.fireProjectile(); }
+  // Fix Round 2 (A7): true when any part of the body's bounds is
+  // inside the visible arena. Targeted attacks (charge telegraphs
+  // here; projectiles at their executor choke points) may not
+  // begin while the attacker is still off-screen.
+  private bodyOnScreen(body: Matter.Body): boolean {
+      const b = body.bounds;
+      return b.max.x > 0 && b.min.x < window.innerWidth && b.max.y > 0 && b.min.y < window.innerHeight;
+  }
+
   public fireEnemyProjectile(source: Matter.Vector, speedPerStep: number = 7.5, targetOverride?: { x: number, y: number }) { return this.abilities.fireEnemyProjectile(source, speedPerStep, targetOverride); }
   public fireWraithBolt(source: Matter.Body) { return this.abilities.fireWraithBolt(source); }
   public fireDarterSpread(source: Matter.Body) { return this.abilities.fireDarterSpread(source); }
@@ -2648,7 +2657,9 @@ export class GameComponent implements OnInit, OnDestroy {
           const distP = Math.hypot(force.x, force.y);
           const state = data.behaviorState || 'approach';
           if (state === 'approach') {
-            if (distP <= 0.42 * LU) {
+            // A7: a targeted attack may not begin until the body
+            // is inside the visible arena.
+            if (distP <= 0.42 * LU && this.bodyOnScreen(enemy)) {
               data.behaviorState = 'telegraph';
               data.telegraphStart = now;
               data.stateUntil = now + 500;
@@ -3030,7 +3041,7 @@ export class GameComponent implements OnInit, OnDestroy {
             const len = Math.hypot(wx, wy) || 1;
             desiredX = (wx / len) * 1.0 * LU;
             desiredY = (wy / len) * 1.0 * LU;
-            if (now >= (data.stateUntil || 0)) {
+            if (now >= (data.stateUntil || 0) && this.bodyOnScreen(enemy)) {
               data.behaviorState = 'coil';
               data.telegraphStart = now;
               data.stateUntil = now + 500;

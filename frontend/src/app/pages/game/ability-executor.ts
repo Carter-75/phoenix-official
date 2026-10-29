@@ -101,7 +101,20 @@ fireProjectile() {
   }
 
 
+// Fix Round 2 (A7, Carter's rule): an enemy may not fire until
+// its body is inside the visible arena. Carter was shot by slow
+// enemies still descending past the top edge. Every enemy shot
+// in the game flows through the three functions below (plus the
+// boss rig's own spawner in boss-fight.ts, gated there), so the
+// check lives at those choke points: the source point must be
+// inside the window, expanded by a small entry margin only.
+private canFireFrom(x: number, y: number, margin = 30): boolean {
+    return x >= -margin && x <= window.innerWidth + margin
+        && y >= -margin && y <= window.innerHeight + margin;
+}
+
 fireEnemyProjectile(source: Matter.Vector, speedPerStep: number = 7.5, targetOverride?: { x: number, y: number }) {
+    if (!this.canFireFrom(source.x, source.y)) return;
     // Use stale position for reaction delay (human-like ~150ms lag)
     const enemyPhoenix = this.host.enemies.find(e => e.plugin['data']?.type === 'enemy_phoenix');
     const eAny = enemyPhoenix as any;
@@ -136,6 +149,7 @@ fireEnemyProjectile(source: Matter.Vector, speedPerStep: number = 7.5, targetOve
   // passes through the player's fire (the projectile-clash branch
   // exempts it) and through the field until its life ends.
 fireWraithBolt(source: Matter.Body) {
+    if (!this.canFireFrom(source.position.x, source.position.y, 40)) return;
     const data = source.plugin['data'] as EnemyData;
     const dirX = data.aimDirX ?? 1;
     const dirY = data.aimDirY ?? 0;
@@ -158,6 +172,7 @@ fireWraithBolt(source: Matter.Body) {
   // across the pass direction, fired once at the pass midpoint at
   // standard enemy projectile speed and payload.
 fireDarterSpread(source: Matter.Body) {
+    if (!this.canFireFrom(source.position.x, source.position.y, 40)) return;
     const data = source.plugin['data'] as EnemyData;
     const base = Math.atan2(data.dashDirY ?? 0, data.dashDirX ?? 1);
     for (const off of [-0.18, 0, 0.18]) {

@@ -84,7 +84,10 @@ executeKillScreen() {
               clearInterval(this.host.annihilationInterval);
               return;
           }
-          
+          // A7: the barrage fires from the boss's body; while the
+          // boss is outside the arena it holds.
+          if (boss.position.x < -60 || boss.position.x > window.innerWidth + 60 || boss.position.y < -60 || boss.position.y > window.innerHeight + 60) return;
+
           const dir = Matter.Vector.normalise(Matter.Vector.sub(this.host.playerBody.position, boss.position));
           const angle = Math.atan2(dir.y, dir.x);
           const fireDir = { x: Math.cos(angle), y: Math.sin(angle) };
@@ -141,6 +144,10 @@ bossProjectileCount(): number {
   // the cap is reached the shot simply does not spawn, so a dodge
   // line always exists.
 fireBossProjectile(x: number, y: number, angle: number, speedPerStep: number, damage: number = 10, radius: number = 8): boolean {
+      // A7: no off-screen attacks. Boss patterns originate at the
+      // boss (or its in-arena copies); a source outside the arena
+      // plus a small entry margin does not fire.
+      if (x < -60 || x > window.innerWidth + 60 || y < -60 || y > window.innerHeight + 60) return false;
       if (this.bossProjectileCount() >= BOSS_PROJECTILE_CAP) return false;
       const proj = Matter.Bodies.circle(x, y, radius, {
           label: 'projectile', isSensor: true,
@@ -986,6 +993,7 @@ bossWash(data: EnemyData): [number, number, number] | undefined {
   }
 
 fireBossWaveAttack(pos: Matter.Vector, count: number = 12, angleOffset: number = 0) {
+      if (pos.x < -60 || pos.x > window.innerWidth + 60 || pos.y < -60 || pos.y > window.innerHeight + 60) return; // A7
       this.host.audioService.playSFX('shoot');
       for (let i = 0; i < count; i++) {
           if (this.bossProjectileCount() >= BOSS_PROJECTILE_CAP) break;
