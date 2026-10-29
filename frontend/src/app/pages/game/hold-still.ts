@@ -5,8 +5,10 @@
 // active on the steering surface AND its position is effectively
 // stationary, and accrual begins only after 0.5 s of continuous
 // stillness (the arming window). Any movement beyond the threshold
-// pauses accrual, and resuming requires a fresh 0.5 s of stillness.
-// Pointer lifted: no session, no accrual.
+// clears the charge to zero (Fix Round 2, A2: Carter replaced the
+// freeze-and-keep pause with a full reset), and resuming requires
+// a fresh 0.5 s of stillness. Pointer lifted: no session, no
+// accrual, and the charge clears.
 //
 // Stillness is measured as PATH LENGTH inside the trailing window,
 // not endpoint distance from a fixed origin: a slow continuous drag
@@ -71,5 +73,17 @@ export class HoldStillTracker {
     if (!this.held) return false;
     if (now - this.pressT < HOLD_ARM_MS) return false;
     return this.pathInWindow(now, HOLD_STILL_WINDOW_MS) <= HOLD_STILL_PATH_PX;
+  }
+
+  // Fix Round 2 (A2, Carter's rule): true while the held pointer
+  // has travelled past the stillness path budget inside the
+  // trailing window. The game reads this to CLEAR an in-progress
+  // charge the moment the player starts moving, replacing the
+  // Bird Rebuild freeze-and-keep pause Carter rejected on his
+  // phone. A later stop re-arms on its own, because isStill only
+  // turns true again after a fresh full stillness window.
+  movedBeyondBudget(now: number): boolean {
+    if (!this.held) return false;
+    return this.pathInWindow(now, HOLD_STILL_WINDOW_MS) > HOLD_STILL_PATH_PX;
   }
 }

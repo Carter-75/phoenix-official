@@ -2167,10 +2167,21 @@ export class GameComponent implements OnInit, OnDestroy {
             this.lastChargeStamp = now;
             if (this.holdStill.isStill(now)) {
                 this.holdTimer += stepMs;
+            } else if (this.holdStill.movedBeyondBudget(now)) {
+                // Fix Round 2 (A2, Carter's rule, played live on his
+                // phone): moving past the stillness budget CLEARS
+                // the charge to zero at once, and the indicator
+                // (bound to the progress signal set below) hides.
+                // The Bird Rebuild freeze-and-keep pause is gone.
+                // A later stop during the SAME touch re-arms by
+                // itself: isStill turns true again only after a
+                // fresh 0.5 s stillness window, and accrual then
+                // restarts from zero without lifting the finger.
+                this.holdTimer = 0;
             }
-            // While the pointer moves (or is still inside its 0.5 s
-            // arming window) the timer simply does not advance:
-            // progress is frozen, not lost.
+            // While the pointer sits inside its 0.5 s arming window
+            // (still, but not yet armed) the timer does not advance
+            // and is not cleared: there is nothing to clear yet.
             this.holdChargeProgress.set(Math.min(1, this.holdTimer / chargeMs));
             this.holdChargePos.set({ x: this.mouseX, y: this.mouseY });
             if (this.holdTimer >= chargeMs) {
