@@ -450,6 +450,15 @@ updateBirdPhysics(bird: PhoenixState, targetWaypoint: THREE.Vector3, baseSpeed: 
             bird.headingAngle += dA * (1 - Math.pow(0.955, frameScale));
         }
         const headingVec = new THREE.Vector3(Math.cos(bird.headingAngle), Math.sin(bird.headingAngle), 0);
+        // Publish the player bird's heading for the auto-fire
+        // facing cone (Fix Round 2 A1): screen space flips y, so
+        // the world-space heading (cos, sin) reads (cos, -sin) in
+        // the screen terms the game logic uses. The AI bird does
+        // not publish: the cone governs the player's auto-fire.
+        if (!isAi) {
+            this.host.gameState.phoenixHeading.x = headingVec.x;
+            this.host.gameState.phoenixHeading.y = -headingVec.y;
+        }
         const rightVec = new THREE.Vector3(headingVec.y, -headingVec.x, 0);
         const vDiff = bird.velocity.clone().sub(bird.previousVelocity);
         const bankGain = 10 / Math.max(0.2, Math.min(frameScale, 5));

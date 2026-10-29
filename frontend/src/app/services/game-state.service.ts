@@ -225,6 +225,13 @@ export class GameStateService {
   
   public mousePos = signal<{x: number, y: number}>({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
   public phoenixScreenPos = signal<{x: number, y: number}>({x: window.innerWidth / 2, y: window.innerHeight / 2});
+  // The player bird's current heading as a screen-space unit vector
+  // (x right, y down; straight up-screen is {x: 0, y: -1}), written
+  // every frame by the bird physics render tail, which owns the
+  // heading. A plain mutable record, not a signal: it is per-frame
+  // steering data read by the auto-fire targeting (the facing cone,
+  // Fix Round 2 A1), and nothing renders from it reactively.
+  public phoenixHeading = { x: 0, y: -1 };
   public phoenixOverridePosition = signal<{x: number, y: number} | null>(null);
   public aiPhoenixScreenPos = signal<{x: number, y: number}>({x: window.innerWidth / 2, y: 100});
   public aiMousePos = signal<{x: number, y: number}>({ x: window.innerWidth / 2, y: 100 });

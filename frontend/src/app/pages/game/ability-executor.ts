@@ -49,12 +49,33 @@ export class AbilityExecutor {
 fireProjectile() {
     if (this.host.enemies.length === 0) return;
 
-    let nearest = this.host.enemies[0];
+    // Facing cone (Carter's rule, Fix Round 2 A1, Oct 28, 2026):
+    // auto-fire engages ONLY enemies inside a cone around the
+    // direction the phoenix is facing, half-angle 45 degrees
+    // (facing north means northwest through north to northeast).
+    // Inside the cone the nearest enemy is the target; with no
+    // enemy in the cone, auto-fire holds and no shot is fired.
+    // The heading is the bird's live heading, published per frame
+    // by the renderer (parked birds settle nose-up, so a parked
+    // phoenix covers the sky above it, which is where bosses
+    // hover). Abilities keep their own targeting; this gate is
+    // only the basic auto-fire's.
+    const heading = this.host.gameState.phoenixHeading;
+    const COS_HALF_CONE = Math.SQRT1_2; // cos(45 degrees)
+    let nearestIdx = -1;
     let minDist = Infinity;
-    this.host.enemies.forEach(e => {
-      const dist = Matter.Vector.magnitude(Matter.Vector.sub(e.position, this.host.playerBody.position));
-      if (dist < minDist) { minDist = dist; nearest = e; }
+    this.host.enemies.forEach((e, i) => {
+      const dx = e.position.x - this.host.playerBody.position.x;
+      const dy = e.position.y - this.host.playerBody.position.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > 0) {
+        const cosAng = (dx * heading.x + dy * heading.y) / dist;
+        if (cosAng < COS_HALF_CONE - 1e-9) return; // outside the cone
+      }
+      if (dist < minDist) { minDist = dist; nearestIdx = i; }
     });
+    if (nearestIdx < 0) return; // nothing in the cone: hold fire
+    const nearest = this.host.enemies[nearestIdx];
 
     // Range gate wired to the attackRange stat (spec Sections 3.1
     // and 5.1): the shop passive finally feeds the auto-fire it names.

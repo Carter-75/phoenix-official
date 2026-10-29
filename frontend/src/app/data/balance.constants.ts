@@ -44,6 +44,14 @@ export const AUTO_FIRE = {
   // reads this record to time its shots.
   intervalMsAtBaseStats: 1500,
   dpsAtBaseStats: 6.67, // the PI anchor: 10 damage per 1.5 s by definition; shipped auto-fire is 10 per 1.0 s (see note above)
+  // Targeting (Carter's rule, Fix Round 2 A1, Oct 28, 2026):
+  // auto-fire engages only enemies inside a facing cone of
+  // half-angle 45 degrees around the phoenix's current heading
+  // (the parked heading settles nose-up), nearest first inside
+  // the cone; with nothing in the cone it holds fire. TTK figures
+  // in this sheet were measured against targets the bird faces,
+  // which remains the measured case.
+  targeting: 'facing cone, 45 degree half-angle, nearest in cone',
 };
 
 export const PLAYER_ANCHORS = {
