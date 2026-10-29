@@ -27,7 +27,11 @@ export class AudioService {
   public worldBgm = new Audio('assets/audio/world_1_bgm.wav');
   public intenseBgm = new Audio('assets/audio/world_1_intense_bgm.wav');
   
-  private sfxShoot = new Audio('assets/audio/hit.wav');
+  // Fix Round 2 (A9): the shoot element pointed at hit.wav, so
+  // shots played the impact sound and shoot.wav sat unused. Each
+  // combat sound now has its own refreshed file (see FIX-ROUND-2).
+  private sfxShoot = new Audio('assets/audio/shoot.wav');
+  private sfxHit = new Audio('assets/audio/hit.wav');
   private sfxExplosion = new Audio('assets/audio/explosion.wav');
   private sfxHeal = new Audio('assets/audio/heal.wav');
   private sfxBuy = new Audio('assets/audio/buy.wav');
@@ -449,15 +453,20 @@ export class AudioService {
   private lastShootTime = 0;
   private lastDropTime = 0;
 
-  playSFX(type: 'shoot' | 'explosion' | 'heal' | 'buy' | 'click' | 'boss' | 'drop') {
+  playSFX(type: 'shoot' | 'hit' | 'explosion' | 'heal' | 'buy' | 'click' | 'boss' | 'drop') {
     if (this.isMuted()) return;
-    
+
     const now = Date.now();
-    
+
     // Throttle overlapping spam for fast attacks/hits
     if (type === 'shoot') {
         if (now - this.lastShootTime < 40) return;
         this.lastShootTime = now;
+    } else if (type === 'hit') {
+        // Bullet impacts land in bursts (rings, fans, storms);
+        // 50 ms keeps the crack readable without stacking.
+        if (now - this.lastHitTime < 50) return;
+        this.lastHitTime = now;
     } else if (type === 'drop') {
         if (now - this.lastDropTime < 100) return; // Prevent speaker blowout when 100 coins drop/collect
         this.lastDropTime = now;
@@ -466,6 +475,7 @@ export class AudioService {
     let audio: HTMLAudioElement | null = null;
     switch(type) {
         case 'shoot': audio = this.sfxShoot; break;
+        case 'hit': audio = this.sfxHit; break;
         case 'explosion': audio = this.sfxExplosion; break;
         case 'heal': audio = this.sfxHeal; break;
         case 'buy': audio = this.sfxBuy; break;
@@ -477,7 +487,7 @@ export class AudioService {
     if (audio) {
         const clone = audio.cloneNode() as HTMLAudioElement;
         const isMenuSfx = (type === 'buy' || type === 'click');
-        const isCombatSfx = (type === 'shoot' || type === 'explosion' || type === 'boss');
+        const isCombatSfx = (type === 'shoot' || type === 'hit' || type === 'explosion' || type === 'boss');
         const channelVol = isMenuSfx ? this.sfxVolume() : (isCombatSfx ? this.attackVolume() : (type === 'drop' ? this.dropVolume() : this.sfxVolume()));
         clone.volume = 0.4 * this.masterVolume() * channelVol;
         

@@ -3665,6 +3665,11 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       }
     }
     data.health -= damage;
+    // Fix Round 2 (A9): the bullet-hit sound. Every path into this
+    // method is a player-side damage source, so one call here
+    // covers bolts, ability projectiles, zones, and contact moves;
+    // the service throttles it to a readable cadence.
+    if (damage > 0) this.audioService.playSFX('hit');
     // Damage numbers record player-dealt damage only; every path into
     // this method is a player-side source (spec Section 4.4).
     this.recordDamageNumber(data.id, enemy.position.x, enemy.position.y, damage, data.type === 'boss');
