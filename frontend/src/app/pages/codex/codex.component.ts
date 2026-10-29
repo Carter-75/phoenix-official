@@ -4,6 +4,7 @@ import { GameStateService } from '../../services/game-state.service';
 import { WORLDS } from '../../constants/game.constants';
 import { TEMP_WORLDS, TEMP_MOVES_BY_TYPE, TempMoveType } from '../../data/temp-catalog';
 import { buildEntityGeometry } from '../../components/particle-bg/entity-builder';
+import { getMobSpriteSet, getBossFormSets, MobSpriteSet } from '../../components/particle-bg/mob-sprite';
 import * as THREE from 'three';
 
 @Component({
@@ -70,7 +71,9 @@ export class CodexComponent implements OnInit, OnDestroy {
   private renderer!: THREE.WebGLRenderer;
   private scene!: THREE.Scene;
   private camera!: THREE.PerspectiveCamera;
-  private currentMesh?: THREE.Points;
+  private currentMesh?: THREE.Mesh;
+  private currentSet?: MobSpriteSet;
+  private currentType = '';
   private animationId!: number;
 
   ngOnInit() {
@@ -124,58 +127,83 @@ export class CodexComponent implements OnInit, OnDestroy {
       this.scene.remove(this.currentMesh);
       this.currentMesh.geometry.dispose();
       (this.currentMesh.material as THREE.Material).dispose();
+      // The sprite textures belong to the shared mob-sprite cache
+      // (the game owns them too), so they are never disposed here.
+      this.currentMesh = undefined;
+      this.currentSet = undefined;
     }
 
     const isUnlocked = this.isUnlocked(enemy.id);
-    // Shared entity builder (visual spec Section 3.1): the preview is
-    // built by the same definition the game renders from, so the two
-    // cannot drift apart. (The codex used to re-implement these shapes
-    // by hand, with palettes the game itself never actually showed.)
+    // Drawn sprite previews (Worlds 2 to 10 pass): the codex shows
+    // the same painted body the game renders (Fix Round 2, A5),
+    // never the old point cloud. The shared entity builder still
+    // runs first because its extents size the sprite plane, exactly
+    // as in entity-sync's mesh construction, so the preview keeps
+    // the mob's shipped footprint and aspect. The codex catalog is
+    // the Realm 1 bestiary, so previews use the World 1 variants,
+    // as the points previews used the World 1 hostile palette.
     const built = buildEntityGeometry(enemy.id, {
       r: enemy.size / 2,
       hostile: WORLDS[0].themeData.palette.hostile,
+      worldIndex: 0,
     });
-    const pos = built.positions;
-    const col = built.colors;
-
-    // Shadow colors if locked
-    if (!isUnlocked) {
-      for (let i = 0; i < built.count; i++) {
-        const s = 0.05 + Math.random() * 0.05; // very dark gray outline
-        col[i * 3] = s; col[i * 3 + 1] = s; col[i * 3 + 2] = s;
-      }
+    const bp = built.positions;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (let i = 0; i < bp.length; i += 3) {
+      if (bp[i] < minX) minX = bp[i];
+      if (bp[i] > maxX) maxX = bp[i];
+      if (bp[i + 1] < minY) minY = bp[i + 1];
+      if (bp[i + 1] > maxY) maxY = bp[i + 1];
     }
+    const extentX = Math.max(0.15, (maxX - minX) / 2);
+    const extentY = Math.max(0.15, (maxY - minY) / 2);
+    const sets = enemy.id === 'boss'
+      ? getBossFormSets(0, extentX, extentY)
+      : [getMobSpriteSet(enemy.id, 0, extentX, extentY)];
+    const set = sets[0];
+    this.currentSet = set;
+    this.currentType = enemy.id;
 
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-
-    const mat = new THREE.PointsMaterial({
-        size: enemy.id === 'boss' ? 0.3 : 0.5,
-        vertexColors: true,
-        // Preview gain: builder palettes are tuned for the game's
-        // additive stacking (roughly 15 to 30 sprites deep); this
-        // preview stacks only about 4 deep, so the material color
-        // multiplies the same builder colors back up to a comparable
-        // read. Same data, per-surface gain.
-        color: new THREE.Color(3, 3, 3),
-        transparent: true,
-        opacity: isUnlocked ? 0.9 : 0.5,
-        blending: isUnlocked ? THREE.AdditiveBlending : THREE.NormalBlending
+    const mat = new THREE.MeshBasicMaterial({
+      map: set.maps[0],
+      transparent: true,
+      opacity: isUnlocked ? 0.95 : 0.55,
+      depthWrite: false,
     });
-    
-    this.currentMesh = new THREE.Points(geo, mat);
-    
+    // Locked entries read as a dark silhouette of the real body
+    // (the points preview darkened its colors the same way).
+    if (!isUnlocked) mat.color.setScalar(0.07);
+
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+    plane.frustumCulled = false;
+    plane.scale.set(extentX * 2 * 1.06, extentY * 2 * 1.06, 1);
+    this.currentMesh = plane;
+
     // Scale camera to fit
     this.camera.position.z = Math.max(50, enemy.size * 2);
-    
+
     this.scene.add(this.currentMesh);
   }
 
   private animate() {
     this.animationId = requestAnimationFrame(() => this.animate());
-    if (this.currentMesh) {
-      this.currentMesh.rotation.y += 0.01;
+    if (this.currentMesh && this.currentSet) {
+      const t = Date.now();
+      const mat = this.currentMesh.material as THREE.MeshBasicMaterial;
+      // Flap frames (bat, mite, pyre moth) at the game's own
+      // cadence (entity-sync updateSpriteEntity).
+      if (this.currentSet.maps.length > 1) {
+        const period = this.currentType === 'mite' ? 95 : this.currentType === 'bat' ? 135 : 270;
+        const idx = Math.floor(t / period) % 2;
+        if (mat.map !== this.currentSet.maps[idx]) mat.map = this.currentSet.maps[idx];
+      }
+      // Idle motion mirrors the game's sprite reads: the Wisp ring
+      // and the Chanter spark ring rotate slowly, the Golem turns
+      // at its orbit rate, everything else sways gently.
+      if (this.currentType === 'wisp') this.currentMesh.rotation.z = t * 0.0011;
+      else if (this.currentType === 'chanter') this.currentMesh.rotation.z = t * 0.0007;
+      else if (this.currentType === 'golem') this.currentMesh.rotation.z = t * 0.00096;
+      else this.currentMesh.rotation.z = Math.sin(t * 0.0012) * 0.12;
     }
     this.renderer.render(this.scene, this.camera);
   }
