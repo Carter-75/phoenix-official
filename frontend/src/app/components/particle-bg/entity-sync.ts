@@ -9,6 +9,7 @@ import { GameStateService } from '../../services/game-state.service';
 import { PhysicsEntity, WorldTheme } from '../../models/game.models';
 import { WORLDS, HOSTILE_RGB } from '../../constants/game.constants';
 import { buildEntityGeometry } from './entity-builder';
+import { MOB_SPRITE_TYPES, getMobSpriteSet, getBossFormSets } from './mob-sprite';
 import { bossDefFor } from '../../data/boss-rig';
 import { PhoenixState, ParticleEntity, DyingBurst } from './phoenix-state';
 import { Rgb3 } from './phoenix-skins';
@@ -99,11 +100,36 @@ syncEntities() {
     // Remove dead entities
     for (const [id, entity] of this.host.entityPool.entries()) {
       if (!activeIds.has(id)) {
-        if (EntitySync.BURST_TYPES.includes(entity.type)) {
+        if (entity.sprite) {
+          // Drawn mob death (A5): the sprite dies in a burst of
+          // points sampled from its own drawing, then the plane is
+          // disposed (textures are cached in mob-sprite and shared,
+          // so only the plane geometry and material go).
+          const spr = entity.sprite;
+          if (EntitySync.BURST_TYPES.includes(entity.type) && spr.set.burstPositions.length > 0) {
+            const bGeo = new THREE.BufferGeometry();
+            bGeo.setAttribute('position', new THREE.BufferAttribute(spr.set.burstPositions.slice(), 3));
+            bGeo.setAttribute('color', new THREE.BufferAttribute(spr.set.burstColors.slice(), 3));
+            const bMat = new THREE.PointsMaterial({ size: 0.15, vertexColors: true, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending });
+            const burstMesh = new THREE.Points(bGeo, bMat);
+            burstMesh.position.copy(entity.mesh.position);
+            burstMesh.frustumCulled = false;
+            this.host.scene.add(burstMesh);
+            this.host.dyingBursts.push({
+              mesh: burstMesh,
+              positions: spr.set.burstPositions.slice(),
+              colors: spr.set.burstColors.slice(),
+              startMs: nowMs,
+            });
+          }
+          this.host.scene.remove(entity.mesh);
+          entity.mesh.geometry.dispose();
+          (entity.mesh.material as THREE.Material).dispose();
+        } else if (EntitySync.BURST_TYPES.includes(entity.type)) {
           // Death burst: keep the mesh on screen with a snapshot of its
           // animated shape; updateDyingBursts scatters and cools it.
           this.host.dyingBursts.push({
-            mesh: entity.mesh,
+            mesh: entity.mesh as THREE.Points,
             positions: (entity.mesh.geometry.attributes['position'].array as Float32Array).slice(),
             colors: (entity.mesh.geometry.attributes['color'].array as Float32Array).slice(),
             startMs: nowMs,
@@ -208,13 +234,20 @@ syncEntities() {
       // Spawn fade-in for enemies (Section 3.1): a 0.3 s ramp instead of
       // a full-brightness pop. Enemies spawn off screen, so this is
       // mostly felt by boss minions summoned in view.
-      if (EntitySync.BURST_TYPES.includes(data.type) && entity.bornMs !== undefined) {
+      if (!entity.sprite && EntitySync.BURST_TYPES.includes(data.type) && entity.bornMs !== undefined) {
         const age = (nowMs - entity.bornMs) / 300;
         (entity.mesh.material as THREE.PointsMaterial).opacity = age >= 1 ? 0.9 : 0.9 * Math.max(0, age);
       }
 
       // Complex Vertex Animations
-      if (data.type === 'slime' && entity.basePositions) {
+      if (entity.sprite) {
+        // Drawn mobs (A5): all per-type motion is transform and
+        // material level (turning, squish, swell, spin, tints,
+        // opacity reads), computed from the same published state
+        // the vertex branches below consume.
+        this.updateSpriteEntity(entity, data, nowMs, dtSec, flashEnv);
+      }
+      else if (data.type === 'slime' && entity.basePositions) {
         if (!budgeted) {
         const pPositions = entity.mesh.geometry.attributes['position'].array as Float32Array;
         const time = Date.now() * 0.005 + (entity.timeOffset || 0);
@@ -863,11 +896,16 @@ syncEntities() {
       // the hostile color, so a sped-up enemy is visibly a buffed
       // enemy (design sheet 15). A material tint, not a vertex
       // rewrite: it composes with every per-type color branch.
-      const pubMat = entity.mesh.material as THREE.PointsMaterial;
-      if (data.buffed) {
-        pubMat.color.setRGB(1.35, 0.55, 0.75);
-      } else if (pubMat.color.r !== 1 || pubMat.color.g !== 1 || pubMat.color.b !== 1) {
-        pubMat.color.setRGB(1, 1, 1);
+      // Drawn sprites compose the buff tint inside
+      // updateSpriteEntity, so the generic wash skips them (it
+      // would reset their per-frame tints every frame).
+      if (!entity.sprite) {
+        const pubMat = entity.mesh.material as THREE.PointsMaterial;
+        if (data.buffed) {
+          pubMat.color.setRGB(1.35, 0.55, 0.75);
+        } else if (pubMat.color.r !== 1 || pubMat.color.g !== 1 || pubMat.color.b !== 1) {
+          pubMat.color.setRGB(1, 1, 1);
+        }
       }
 
       // Make aura expand dynamically
@@ -877,6 +915,145 @@ syncEntities() {
     }
 
     this.updateDyingBursts(nowMs);
+  }
+
+  // Drawn mob per-frame update (A5). Everything the vertex
+  // branches do with points, the sprite does with transforms and
+  // material state, driven by the same published fields: facing
+  // for the aimed types, attackCharge for the telegraphs, state
+  // for the phase reads, wash and bossForm for the Chaos Demon
+  // and the roulette wash. Hit flash whitens the material; the
+  // Chanter buff tint composes here instead of the generic wash.
+  private static readonly SPRITE_TURN_TYPES = new Set(['sentry_shard', 'shieldback', 'wraith', 'serpent', 'darter']);
+
+updateSpriteEntity(entity: ParticleEntity, data: PhysicsEntity, nowMs: number, dtSec: number, flashEnv: number): void {
+    const spr = entity.sprite!;
+    const mesh = entity.mesh as THREE.Mesh;
+    const mat = mesh.material as THREE.MeshBasicMaterial;
+    const t = Date.now();
+    const off = entity.timeOffset || 0;
+    const charge = data.attackCharge ?? 0;
+
+    // Heading: published facing wins; the boss faces the player;
+    // everyone else turns by their motion.
+    let heading = spr.heading;
+    if (typeof data.facing === 'number') {
+      heading = data.facing;
+    } else if ((data.type === 'boss' || data.type === 'boss_shadow') && this.host.bird) {
+      const dx = this.host.bird.position.x - mesh.position.x;
+      const dy = -(this.host.bird.position.y - mesh.position.y);
+      if (dx * dx + dy * dy > 0.0004) heading = Math.atan2(dy, dx);
+    } else {
+      const dx = mesh.position.x - spr.prevX;
+      const dy = -(mesh.position.y - spr.prevY);
+      if (dx * dx + dy * dy > 0.000001) heading = Math.atan2(dy, dx);
+    }
+    spr.prevX = mesh.position.x;
+    spr.prevY = mesh.position.y;
+    let dh = heading - spr.heading;
+    while (dh > Math.PI) dh -= Math.PI * 2;
+    while (dh < -Math.PI) dh += Math.PI * 2;
+    spr.heading += dh * Math.min(1, dtSec * 12);
+    heading = spr.heading;
+
+    // Rotation: only the aimed types turn (drawn facing up, so a
+    // screen heading (dx, dy) maps to rotation atan2(-dx, -dy)).
+    // The Golem's rock orbit becomes a whole-body spin at the
+    // shipped orbit rate; the Wisp ring and the Chanter spark
+    // ring rotate slowly so their gaps travel.
+    if (EntitySync.SPRITE_TURN_TYPES.has(data.type)) {
+      mesh.rotation.z = Math.atan2(-Math.cos(heading), -Math.sin(heading));
+    } else if (data.type === 'golem') {
+      entity.orbitAngle = (entity.orbitAngle || 0) + dtSec * 0.96 * (1 + 2.2 * charge * charge);
+      mesh.rotation.z = entity.orbitAngle;
+    } else if (data.type === 'wisp') {
+      mesh.rotation.z = t * 0.0011 + off;
+    } else if (data.type === 'chanter') {
+      mesh.rotation.z = t * 0.0007 + off;
+    } else {
+      mesh.rotation.z = 0;
+    }
+
+    // Scale reads (squish, swell, heartbeat, breathing).
+    let ux = 1, uy = 1;
+    if (data.type === 'slime') {
+      const squish = Math.sin(t * 0.005 + off) * 0.3;
+      uy = 1 + squish * 0.45; ux = 1 - squish * 0.18;
+    } else if (data.type === 'pod') {
+      let u = this.host.heartBeatScale(off);
+      if (data.maxHealth && data.health !== undefined) u *= 0.82 + 0.18 * Math.max(0, data.health / data.maxHealth);
+      ux = uy = u;
+    } else if (data.type === 'imp') {
+      ux = uy = 1 + 0.28 * charge;
+    } else if (data.type === 'chanter') {
+      ux = uy = 1 + 0.05 * Math.sin(t * 0.003 + off);
+    } else if (data.type === 'seedmother') {
+      ux = uy = 1 + 0.04 * Math.sin(t * 0.002 + off);
+      mesh.position.y += Math.sin(t * 0.0016 + off) * 0.035;
+    } else if (data.type === 'serpent') {
+      if ((data as any).weave === 'coil') { ux = uy = 1.12; }
+    } else if (data.type === 'boss') {
+      if (data.bossFormFlow !== undefined && data.bossFormFlow < 1) {
+        ux = uy = 1 + 0.08 * Math.sin(data.bossFormFlow * Math.PI);
+      }
+    }
+    mesh.scale.set(spr.baseScaleX * ux, spr.baseScaleY * uy, 1);
+
+    // Chaos Demon forms: swap the drawn body at the form switch.
+    if (spr.sets.length > 1 && data.bossForm !== undefined && spr.sets[data.bossForm] && spr.set !== spr.sets[data.bossForm]) {
+      spr.set = spr.sets[data.bossForm];
+      mat.map = spr.set.maps[0];
+      mat.needsUpdate = true;
+    }
+    // Flap frames (bat, mite, pyre moth).
+    if (spr.set.maps.length > 1) {
+      const period = data.type === 'mite' ? 95 : data.type === 'bat' ? 135 : 270;
+      const idx = Math.floor(t / period + off) % 2;
+      if (mat.map !== spr.set.maps[idx]) mat.map = spr.set.maps[idx];
+    }
+
+    // Color: compose elite wash, boss roulette wash, buff tint,
+    // per-type charge telegraphs, then the hit flash whitening.
+    let r = 1, g = 1, b = 1;
+    if ((data as any).elite) { r *= 1.06; g *= 1.02; b *= 0.9; }
+    if (data.wash) {
+      r += (data.wash[0] * 1.15 - r) * 0.65;
+      g += (data.wash[1] * 1.15 - g) * 0.65;
+      b += (data.wash[2] * 1.15 - b) * 0.65;
+    }
+    if (data.buffed) { r *= 1.35; g *= 0.55; b *= 0.75; }
+    if (data.type === 'golem') { const w = 1 + 0.45 * charge; r *= w; g *= 1 + 0.2 * charge; }
+    else if (data.type === 'imp') {
+      const w = charge * 0.55; r *= 1 + w; g *= 1 + w * 0.85; b *= 1 + w * 0.6;
+      if (data.state === 'tired') { r *= 0.72; g *= 0.72; b *= 0.72; }
+    } else if (data.type === 'sentry_shard') { g *= 1 + 0.3 * charge; b *= 1 + 0.45 * charge; }
+    else if (data.type === 'wraith') {
+      if (data.state === 'lock') { const f = 0.5 + 0.5 * Math.sin(t * 0.02); const w = 1 + 0.55 * f * Math.max(0.25, charge); r *= w; g *= w; b *= w; }
+    } else if (data.type === 'darter') { const w = 1 + 0.4 * charge; r *= w; g *= w; b *= 1 + 0.25 * charge; }
+    else if (data.type === 'pyre_moth') {
+      if (data.state === 'fusing' || charge > 0.6) { const s = Math.sin(t * 0.03 + off) > 0 ? 1.4 : 0.75; r *= s; g *= s; b *= s; }
+    } else if (data.type === 'rift_mine') {
+      const rate = charge > 0.4 ? 0.03 : 0.008;
+      const s = 0.78 + 0.4 * (0.5 + 0.5 * Math.sin(t * rate + off));
+      r *= s; g *= s; b *= s;
+    } else if (data.type === 'shieldback') {
+      if (data.sparkUntil && t < data.sparkUntil) { r *= 1.5; g *= 1.45; b *= 1.3; }
+    }
+    if (flashEnv > 0) { const f = 1 + flashEnv * 1.15; r *= f; g *= f; b *= f; }
+    mat.color.setRGB(r, g, b);
+
+    // Opacity: spawn fade, then the phase reads.
+    let op = 0.9;
+    if (entity.bornMs !== undefined) {
+      const age = (nowMs - entity.bornMs) / 300;
+      op *= Math.min(1, Math.max(0, age));
+    }
+    if (data.type === 'phantom') {
+      if (data.state === 'phased') op = 0.25;
+      else if (data.state === 'reappear') op = 0.25 + 0.65 * charge;
+    }
+    if (data.type === 'boss_shadow') op *= 0.85;
+    mat.opacity = op;
   }
 
 flashEnvelope(entity: ParticleEntity, nowMs: number): number {
@@ -969,6 +1146,51 @@ createEntityMesh(data: PhysicsEntity): ParticleEntity {
     if (!FOE_CLAMP_EXEMPT.has(data.type)) {
       clampFoeLuminance(built.colors);
       if (formGeos) for (const g of formGeos) clampFoeLuminance(g.colors);
+    }
+
+    // Drawn mob sprites (Fix Round 2, A5): enemies, bosses, and
+    // the Shadow Lord's copies render as painted bodies, never
+    // point clouds. The points geometry is still built above (the
+    // codex shares it, and its extents size the sprite plane, so
+    // the mob keeps exactly its shipped footprint). Effects,
+    // projectiles, pickups, and zones keep the points path below.
+    if (MOB_SPRITE_TYPES.has(data.type)) {
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      const bp = built.positions;
+      for (let i = 0; i < bp.length; i += 3) {
+        if (bp[i] < minX) minX = bp[i];
+        if (bp[i] > maxX) maxX = bp[i];
+        if (bp[i + 1] < minY) minY = bp[i + 1];
+        if (bp[i + 1] > maxY) maxY = bp[i + 1];
+      }
+      const extentX = Math.max(0.15, (maxX - minX) / 2);
+      const extentY = Math.max(0.15, (maxY - minY) / 2);
+      const sets = data.type === 'boss'
+        ? getBossFormSets(buildCtx.worldIndex, extentX, extentY)
+        : [getMobSpriteSet(data.type, buildCtx.worldIndex, extentX, extentY)];
+      const set = sets[0];
+      const mat = new THREE.MeshBasicMaterial({ map: set.maps[0], transparent: true, opacity: 0.9, depthWrite: false });
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+      plane.frustumCulled = false;
+      const baseScaleX = extentX * 2 * 1.06;
+      const baseScaleY = extentY * 2 * 1.06;
+      plane.scale.set(baseScaleX, baseScaleY, 1);
+      return {
+        mesh: plane,
+        type: data.type,
+        sprite: {
+          sets, set, baseScaleX, baseScaleY,
+          heading: -Math.PI / 2, prevX: 0, prevY: 0,
+        },
+        timeOffset: Math.random() * 1000,
+        lastHealth: data.health,
+        flashStartMs: 0,
+        flashDurationMs: 60,
+        flashActive: false,
+        orbitAngle: Math.random() * Math.PI * 2,
+        lastCharge: 0,
+        bornMs: performance.now(),
+      };
     }
 
     const geo = new THREE.BufferGeometry();

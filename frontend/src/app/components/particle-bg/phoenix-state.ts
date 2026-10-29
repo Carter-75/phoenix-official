@@ -70,8 +70,23 @@ export interface PhoenixState {
 }
 
 export interface ParticleEntity {
-  mesh: THREE.Points;
+  // Points for effects and legacy types; a textured Mesh plane for
+  // the drawn mob sprites (Fix Round 2, A5: no particle mobs).
+  mesh: THREE.Points | THREE.Mesh;
   type: string;
+  // Drawn-sprite render state (A5): the texture sets (the Chaos
+  // Demon carries three, one per form), the current set, the
+  // plane's base scale in world units, and the smoothed screen
+  // heading the facing types turn by.
+  sprite?: {
+    sets: import('./mob-sprite').MobSpriteSet[];
+    set: import('./mob-sprite').MobSpriteSet;
+    baseScaleX: number;
+    baseScaleY: number;
+    heading: number;
+    prevX: number;
+    prevY: number;
+  };
   basePositions?: Float32Array;
   timeOffset?: number;
   // Shared damage feedback state (visual spec Section 3.1), fed by the
