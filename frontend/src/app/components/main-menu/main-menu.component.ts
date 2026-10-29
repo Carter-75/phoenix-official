@@ -15,6 +15,22 @@ import { AdsService } from '../../services/ads.service';
     /* Safety net: a menu screen may scroll rather than clip content. */
     .menu-screen { overflow-y: auto; }
 
+    /* Mode switch (Fix Round 4, ADD 1): the two menu screens swap
+       in place with a short fade. The shipped track carried a
+       500 ms transform transition, so selecting Battle visibly
+       travelled the whole menu by one full screen, which Carter
+       reads on his phone as the screen scrolling down; he wants
+       the screen to stay where it is. The track still positions
+       the active screen with the same translateY step (the Fix
+       Round 3 geometry is unchanged), but with no transition the
+       frame itself never travels, and the incoming screen only
+       fades in over its own frame. */
+    .mode-fade { animation: modeFade 0.28s ease-out both; }
+    @keyframes modeFade { from { opacity: 0; } to { opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) {
+      .mode-fade { animation: none; }
+    }
+
     /* Safe-area lift for the fixed menu chrome (Fix Round 3):
        the app runs edge-to-edge in the Android WebView
        (viewport-fit=cover), so plain top-0 / bottom-0 chrome sits
@@ -87,7 +103,11 @@ import { AdsService } from '../../services/ads.service';
       .menu-selector { margin-top: 0.15rem !important; padding-top: 0.35rem !important; padding-bottom: 0.35rem !important; }
       .menu-play { margin-top: 0.35rem !important; }
       .menu-play img { width: 4.25rem !important; height: 4.25rem !important; }
-      .menu-play p { bottom: -1.1rem !important; font-size: 0.6rem !important; }
+      /* Short viewports keep the shipped centered-below label for
+         every mode (Fix Round 4): the per-mode spots are a portrait
+         treatment, and this compact layout has no room above or
+         beside the smaller medallion. */
+      .menu-play p { top: auto !important; bottom: -1.1rem !important; left: 50% !important; transform: translateX(-50%) !important; margin-top: 0 !important; font-size: 0.6rem !important; }
 
       /* Header at short heights (fix round 1 leftover): at 640x360 the
          stacked two-row header (currencies over nav) was about 130 px
@@ -172,12 +192,16 @@ import { AdsService } from '../../services/ads.service';
          included), which let the visible composition sit offset
          from the chrome's frame and read as a vertical shift when
          switching screens. Percentages of the fixed containing
-         block cannot drift that way. -->
-    <div class="fixed inset-0 w-full h-[200%] transition-transform duration-500 ease-in-out"
+         block cannot drift that way. Fix Round 4 (ADD 1): the
+         track no longer transitions its transform; the 500 ms
+         animated slide read as the screen scrolling down on
+         Carter's phone. The step is now instant and the incoming
+         screen crossfades in place (.mode-fade). -->
+    <div class="fixed inset-0 w-full h-[200%]"
          [style.transform]="activeMenuMode === 'campaign' ? 'translateY(0)' : 'translateY(-50%)'">
 
       <!-- Campaign Screen (top half: one viewport tall) -->
-      <div class="menu-screen w-full h-1/2 relative flex flex-col items-center justify-center text-white pointer-events-none">
+      <div class="menu-screen w-full h-1/2 relative flex flex-col items-center justify-center text-white pointer-events-none" [class.mode-fade]="activeMenuMode === 'campaign'">
         <div class="vignette absolute inset-0 pointer-events-none"></div>
 
         <!-- Center Content -->
@@ -254,8 +278,24 @@ import { AdsService } from '../../services/ads.service';
                  [ngClass]="campaignPlayMode() === 'endless' ? 'bg-violet-500/25' : 'bg-orange-500/25'"></div>
             <img src="assets/play_button.png" alt="Play" class="relative w-32 h-32 md:w-40 md:h-40"
                  [style.filter]="campaignPlayMode() === 'endless' ? 'hue-rotate(245deg) saturate(1.7) drop-shadow(0 0 30px rgba(139,92,246,0.55))' : 'drop-shadow(0 0 30px rgba(255,77,0,0.45))'" />
-            <p class="absolute -bottom-8 left-1/2 -translate-x-1/2 font-bold tracking-widest uppercase text-sm w-max"
-               [ngClass]="campaignPlayMode() === 'endless' ? 'text-violet-300' : 'text-orange-300'">
+            <!-- Fix Round 4 (ADD 2): the label sits in a different
+                 place per mode (Carter: the wording and colors
+                 already read correctly; only the location never
+                 changed). All three spots live in the band above
+                 the medallion: Normal centered, Endless shifted
+                 left, Battle (below) shifted right. The band
+                 BELOW the medallion is only about 19 px tall on
+                 Carter's phone between the medallion's bottom
+                 edge and the bottom button row, so no below spot
+                 can stay clear of both; the A4 design hung the
+                 label there centered and it crowded the row.
+                 Texts and colors are the A4 ones, unchanged.
+                 transition-all glides the label sideways between
+                 the Normal and Endless spots on this screen. -->
+            <p class="absolute -top-8 left-1/2 font-bold tracking-widest uppercase text-sm w-max transition-all duration-300"
+               [ngClass]="campaignPlayMode() === 'endless'
+                 ? '-translate-x-[92%] text-violet-300'
+                 : '-translate-x-1/2 text-orange-300'">
               {{ !isWorldUnlocked() ? 'Coming Soon' : (campaignPlayMode() === 'endless' ? 'Click to Survive' : 'Click to Ascend') }}
             </p>
           </button>
@@ -264,7 +304,7 @@ import { AdsService } from '../../services/ads.service';
       </div>
 
       <!-- Battle Screen (bottom half: one viewport tall) -->
-      <div class="menu-screen w-full h-1/2 relative flex flex-col items-center justify-center text-white pointer-events-none">
+      <div class="menu-screen w-full h-1/2 relative flex flex-col items-center justify-center text-white pointer-events-none" [class.mode-fade]="activeMenuMode === 'battle'">
          <div class="vignette absolute inset-0 pointer-events-none"></div>
          <!-- Center Content for Battle Mode -->
          <div class="menu-center relative flex flex-col items-center gap-4 pointer-events-auto transform mt-24 md:-translate-y-8 md:mt-0">
@@ -328,7 +368,7 @@ import { AdsService } from '../../services/ads.service';
             <div class="play-ring ring-red"></div>
             <div class="absolute inset-0 bg-red-600/20 rounded-full blur-2xl opacity-50 group-hover:opacity-80 transition-opacity"></div>
             <img src="assets/play_button.png" alt="Play" class="relative w-32 h-32 md:w-40 md:h-40 drop-shadow-[0_0_30px_rgba(255,0,0,0.8)]" style="filter: hue-rotate(320deg) saturate(2)" />
-            <p class="absolute -bottom-8 left-1/2 -translate-x-1/2 text-red-400 font-bold tracking-widest uppercase text-sm w-max">
+            <p class="absolute -top-8 left-1/2 -translate-x-[8%] text-red-400 font-bold tracking-widest uppercase text-sm w-max">
               {{ isBattleWorldUnlocked() ? 'Click to Duel' : 'Coming Soon' }}
             </p>
           </button>
