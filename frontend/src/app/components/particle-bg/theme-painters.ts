@@ -152,17 +152,26 @@ export function makeScrollBackdropTexture(painters: any, td: any): THREE.CanvasT
     return tex;
   }
 
-  // Side wall painters (World 1 Finish), dispatched by the wall
-  // key in the world's scroll record. A wall painter draws one
+  // Side wall painters (World 1 Finish; Worlds 2 to 10 added in
+  // the Worlds 2 to 10 pass), dispatched by the world index whose
+  // scroll record carries the wall key. A wall painter draws one
   // vertical strip: canvas x = 0 is the wall face line (the
   // innermost extent of the art, where the bird's flight clamps),
   // x = w is the outer edge past the screen edge. Everything is
   // drawn with vertical wrap copies, so the strip tiles in Y by
-  // construction. Only World 1 has a painter in this pass; the
-  // other worlds' keys are reserved in their data records.
+  // construction.
 export function wallPainters(worldIndex: number) {
     switch (worldIndex) {
       case 0: return paintEmberWall;
+      case 1: return paintReefWall;
+      case 2: return paintShardWall;
+      case 3: return paintRootWall;
+      case 4: return paintCragWall;
+      case 5: return paintCrystalWall;
+      case 6: return paintIceWall;
+      case 7: return paintRuinWall;
+      case 8: return paintThornWall;
+      case 9: return paintRiftWall;
       default: return null;
     }
   }
@@ -352,6 +361,806 @@ export function paintEmberWall(ctx: CanvasRenderingContext2D, w: number, h: numb
     ctx.strokeStyle = silColor(P.mid, 0.9, 0.30);
     ctx.lineWidth = 8;
     ctx.stroke();
+  }
+
+  // ----------------------------------------------------------------
+  // Worlds 2 to 10 walls: one shared engine, the Ember wall's
+  // construction (periodic profile, cut back to transparent on
+  // the channel side, interior features clipped to the rock,
+  // protrusions jutting toward the face line, rim light on the
+  // profile), with per-world feature and protrusion painters
+  // plugged in. Every feature list is generated ONCE from the
+  // world's seed and drawn identically at every vertical wrap
+  // offset, so each strip tiles in Y by construction, exactly
+  // like the Ember wall.
+  // ----------------------------------------------------------------
+
+interface WallCfg {
+  seed: number;
+  baseStops: [number, number, number];
+  features: (ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme, rnd: () => number) => void;
+  spikes: (ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme, rnd: () => number, profileX: (y: number) => number) => void;
+  rimBright: number; rimBrightAlpha: number; rimMid: number; rimMidAlpha: number;
+  washFactor: number; washAlpha: number;
+}
+
+function paintRockWall(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme, cfg: WallCfg) {
+    const rnd = themeRng(cfg.seed);
+    const P = td.palette;
+    const base = ctx.createLinearGradient(0, 0, w, 0);
+    base.addColorStop(0, silColor(P.deep, cfg.baseStops[0]));
+    base.addColorStop(0.3, silColor(P.deep, cfg.baseStops[1]));
+    base.addColorStop(1, silColor(P.deep, cfg.baseStops[2]));
+    ctx.fillStyle = base;
+    ctx.fillRect(0, 0, w, h);
+    // The jagged profile: whole-period sines, periodic in y by
+    // construction; the cut, the rim, the wash, and the spike
+    // anchors all share this one shape (the Ember wall's law).
+    const ph1 = rnd() * Math.PI * 2, ph2 = rnd() * Math.PI * 2, ph3 = rnd() * Math.PI * 2;
+    const profileX = (y: number) => w * 0.31
+      + Math.sin((y / h) * Math.PI * 2 * 2 + ph1) * w * 0.045
+      + Math.sin((y / h) * Math.PI * 2 * 3 + ph2) * w * 0.030
+      + Math.sin((y / h) * Math.PI * 2 * 5 + ph3) * w * 0.018;
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.beginPath();
+    ctx.moveTo(0, -4);
+    for (let y = -4; y <= h + 4; y += 16) ctx.lineTo(profileX(y), y);
+    ctx.lineTo(0, h + 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(w + 4, -4);
+    for (let y = -4; y <= h + 4; y += 16) ctx.lineTo(profileX(y), y);
+    ctx.lineTo(w + 4, h + 4);
+    ctx.closePath();
+    ctx.clip();
+    cfg.features(ctx, w, h, td, rnd);
+    // A soft wash of the world's glow along the profile, inside
+    // the rock, so the face reads lit rather than cut out.
+    ctx.save();
+    ctx.globalAlpha = cfg.washAlpha;
+    ctx.fillStyle = silColor(P.mid, cfg.washFactor);
+    ctx.beginPath();
+    ctx.moveTo(w + 4, -4);
+    for (let y = -4; y <= h + 4; y += 16) ctx.lineTo(profileX(y), y);
+    for (let y = h + 4; y >= -4; y -= 16) ctx.lineTo(profileX(y) + w * 0.16, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    ctx.restore(); // the rock-side clip
+    cfg.spikes(ctx, w, h, td, rnd, profileX);
+    // The rim light along the profile itself.
+    ctx.strokeStyle = silColor(P.bright, cfg.rimBright, cfg.rimBrightAlpha);
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (let y = -4; y <= h + 4; y += 16) {
+      const x = profileX(y);
+      if (y === -4) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.strokeStyle = silColor(P.mid, cfg.rimMid, cfg.rimMidAlpha);
+    ctx.lineWidth = 8;
+    ctx.stroke();
+  }
+
+  // Fractured rock facets, the Ember wall's interior language,
+  // shared by the rock worlds (reef, crags, thorns) with their
+  // own palettes and stroke strengths.
+type WallFacet = { fx: number; fy: number; fw: number; fh: number; shade: number; j: number[] };
+function genWallFacets(rnd: () => number, w: number, h: number, count: number): WallFacet[] {
+    const facets: WallFacet[] = [];
+    for (let i = 0; i < count; i++) {
+      facets.push({
+        fx: w * (0.30 + rnd() * 0.68), fy: rnd() * h,
+        fw: w * (0.08 + rnd() * 0.20), fh: 26 + rnd() * 74,
+        shade: 0.30 + rnd() * 0.38,
+        j: [(rnd() - 0.5) * 8, 0.2 + rnd() * 0.3, 0.5 + rnd() * 0.4, 0.1 + rnd() * 0.3, 0.6 + rnd() * 0.3]
+      });
+    }
+    return facets;
+  }
+function drawWallFacets(ctx: CanvasRenderingContext2D, facets: WallFacet[], P: WorldTheme['palette'], strokeAlpha: number) {
+    for (const f of facets) {
+      ctx.fillStyle = silColor(P.deep, f.shade, 0.85);
+      ctx.beginPath();
+      ctx.moveTo(f.fx + f.j[0], f.fy);
+      ctx.lineTo(f.fx + f.fw, f.fy + f.fh * f.j[1]);
+      ctx.lineTo(f.fx + f.fw * f.j[2], f.fy + f.fh);
+      ctx.lineTo(f.fx - f.fw * f.j[3], f.fy + f.fh * f.j[4]);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = silColor(P.bright, 0.5, strokeAlpha);
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  }
+
+  // World 2 wall, Cerulean Depths (key 'reef'): sunken reef rock
+  // with coral fans, anemone glow dots inside the rock, and coral
+  // branches jutting toward the face line.
+export function paintReefWall(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    paintRockWall(ctx, w, h, td, {
+      seed: 2501, baseStops: [0.72, 0.58, 0.34],
+      rimBright: 0.9, rimBrightAlpha: 0.55, rimMid: 0.9, rimMidAlpha: 0.28,
+      washFactor: 0.8, washAlpha: 0.15,
+      features: (c, cw, ch, t, rnd) => {
+        const P = t.palette;
+        const facets = genWallFacets(rnd, cw, ch, 24);
+        const fans: { fx: number; fy: number; r: number }[] = [];
+        for (let i = 0; i < 6; i++) fans.push({ fx: cw * (0.42 + rnd() * 0.5), fy: rnd() * ch, r: 16 + rnd() * 18 });
+        const anemones: { ax: number; ay: number; dots: [number, number, number][] }[] = [];
+        for (let i = 0; i < 9; i++) {
+          const ax = cw * (0.40 + rnd() * 0.54), ay = rnd() * ch;
+          const dots: [number, number, number][] = [];
+          for (let d = 0; d < 6; d++) dots.push([ax + (rnd() - 0.5) * 22, ay + (rnd() - 0.5) * 16, 1.4 + rnd() * 1.8]);
+          anemones.push({ ax, ay, dots });
+        }
+        vtiled(c, ch, () => {
+          drawWallFacets(c, facets, P, 0.13);
+          c.strokeStyle = silColor(P.mid, 1.0, 0.32);
+          c.lineWidth = 2;
+          for (const f of fans) {
+            for (let s = -2; s <= 2; s++) {
+              c.beginPath();
+              c.moveTo(f.fx, f.fy + f.r * 0.5);
+              c.quadraticCurveTo(f.fx + s * f.r * 0.28, f.fy - f.r * 0.2, f.fx + s * f.r * 0.42, f.fy - f.r * 0.55);
+              c.stroke();
+            }
+          }
+          for (const a of anemones) {
+            const g = c.createRadialGradient(a.ax, a.ay, 0, a.ax, a.ay, 15);
+            g.addColorStop(0, silColor(P.bright, 1.0, 0.13));
+            g.addColorStop(1, silColor(P.bright, 1.0, 0));
+            c.fillStyle = g;
+            c.fillRect(a.ax - 15, a.ay - 15, 30, 30);
+            c.fillStyle = silColor(P.bright, 1.0, 0.55);
+            for (const [dx, dy, dr] of a.dots) {
+              c.beginPath(); c.arc(dx, dy, dr, 0, Math.PI * 2); c.fill();
+            }
+          }
+        });
+      },
+      spikes: (c, cw, ch, t, rnd, profileX) => {
+        const P = t.palette;
+        const branches: { sy: number; anchor: number; len: number; halfBase: number; tipDy: number }[] = [];
+        for (let i = 0; i < 6; i++) {
+          const sy = rnd() * ch;
+          const anchor = profileX(sy);
+          branches.push({ sy, anchor, len: anchor - 4 - rnd() * cw * 0.06, halfBase: 9 + rnd() * 12, tipDy: (rnd() - 0.5) * 8 });
+        }
+        vtiled(c, ch, () => {
+          for (const s of branches) {
+            c.fillStyle = silColor(P.deep, 0.62);
+            c.beginPath();
+            c.moveTo(s.anchor + cw * 0.05, s.sy - s.halfBase);
+            c.lineTo(s.anchor - s.len, s.sy + s.tipDy);
+            c.lineTo(s.anchor + cw * 0.05, s.sy + s.halfBase);
+            c.closePath();
+            c.fill();
+            // Side twigs, the coral read.
+            for (const sgn of [-1, 1]) {
+              c.beginPath();
+              c.moveTo(s.anchor - s.len * 0.45, s.sy + s.tipDy * 0.5 + sgn * s.halfBase * 0.3);
+              c.lineTo(s.anchor - s.len * 0.72, s.sy + s.tipDy * 0.7 + sgn * s.halfBase * 1.05);
+              c.lineTo(s.anchor - s.len * 0.30, s.sy + s.tipDy * 0.4 + sgn * s.halfBase * 0.55);
+              c.closePath();
+              c.fill();
+            }
+            c.strokeStyle = silColor(P.bright, 0.85, 0.5);
+            c.lineWidth = 2;
+            c.beginPath();
+            c.moveTo(s.anchor + cw * 0.05, s.sy - s.halfBase);
+            c.lineTo(s.anchor - s.len, s.sy);
+            c.stroke();
+          }
+        });
+      },
+    });
+  }
+
+  // World 3 wall, Amethyst Void (key 'shards'): a mass of crystal
+  // plates with faceted chips, and long crystal diamonds jutting
+  // toward the face line.
+export function paintShardWall(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    paintRockWall(ctx, w, h, td, {
+      seed: 3501, baseStops: [0.66, 0.52, 0.30],
+      rimBright: 0.95, rimBrightAlpha: 0.6, rimMid: 0.9, rimMidAlpha: 0.30,
+      washFactor: 0.85, washAlpha: 0.16,
+      features: (c, cw, ch, t, rnd) => {
+        const P = t.palette;
+        const plates: { pts: [number, number][]; edge: [number, number][]; shade: number }[] = [];
+        for (let i = 0; i < 14; i++) {
+          const cx = cw * (0.38 + rnd() * 0.58), cy = rnd() * ch;
+          const len = 40 + rnd() * 70, wid = 9 + rnd() * 13, a = (rnd() - 0.5) * 0.9;
+          const ux = Math.cos(a), uy = Math.sin(a), vx = -uy, vy = ux;
+          const pts: [number, number][] = [
+            [cx - ux * len * 0.5, cy - uy * len * 0.5],
+            [cx + vx * wid, cy + vy * wid],
+            [cx + ux * len * 0.5, cy + uy * len * 0.5],
+            [cx - vx * wid, cy - vy * wid],
+          ];
+          plates.push({ pts, edge: [pts[0], pts[1]], shade: 0.34 + rnd() * 0.36 });
+        }
+        const chips: { pts: [number, number][] }[] = [];
+        for (let i = 0; i < 10; i++) {
+          const cx = cw * (0.36 + rnd() * 0.6), cy = rnd() * ch, r = 6 + rnd() * 9;
+          chips.push({ pts: [[cx, cy - r], [cx + r * 0.8, cy + r * 0.6], [cx - r * 0.8, cy + r * 0.6]] });
+        }
+        vtiled(c, ch, () => {
+          for (const p of plates) {
+            c.fillStyle = silColor(P.deep, p.shade, 0.88);
+            c.beginPath();
+            p.pts.forEach(([px, py], idx) => idx === 0 ? c.moveTo(px, py) : c.lineTo(px, py));
+            c.closePath(); c.fill();
+            c.strokeStyle = silColor(P.mid, 1.0, 0.38);
+            c.lineWidth = 1.8;
+            c.beginPath(); c.moveTo(p.edge[0][0], p.edge[0][1]); c.lineTo(p.edge[1][0], p.edge[1][1]); c.stroke();
+          }
+          c.fillStyle = silColor(P.deep, 0.55, 0.8);
+          for (const chp of chips) {
+            c.beginPath();
+            chp.pts.forEach(([px, py], idx) => idx === 0 ? c.moveTo(px, py) : c.lineTo(px, py));
+            c.closePath(); c.fill();
+          }
+        });
+      },
+      spikes: (c, cw, ch, t, rnd, profileX) => {
+        const P = t.palette;
+        const shards: { sy: number; anchor: number; len: number; halfBase: number; tipDy: number }[] = [];
+        for (let i = 0; i < 7; i++) {
+          const sy = rnd() * ch;
+          const anchor = profileX(sy);
+          shards.push({ sy, anchor, len: anchor - 3 - rnd() * cw * 0.05, halfBase: 6 + rnd() * 8, tipDy: (rnd() - 0.5) * 10 });
+        }
+        vtiled(c, ch, () => {
+          for (const s of shards) {
+            c.fillStyle = silColor(P.deep, 0.70);
+            c.beginPath();
+            c.moveTo(s.anchor + cw * 0.06, s.sy - s.halfBase);
+            c.lineTo(s.anchor - s.len, s.sy + s.tipDy);
+            c.lineTo(s.anchor + cw * 0.06, s.sy + s.halfBase);
+            c.lineTo(s.anchor - s.len * 0.42, s.sy + s.tipDy * 0.45);
+            c.closePath();
+            c.fill();
+            c.strokeStyle = silColor(P.bright, 0.9, 0.6);
+            c.lineWidth = 1.8;
+            c.beginPath();
+            c.moveTo(s.anchor - s.len, s.sy + s.tipDy);
+            c.lineTo(s.anchor - s.len * 0.42, s.sy + s.tipDy * 0.45);
+            c.stroke();
+          }
+        });
+      },
+    });
+  }
+
+  // World 4 wall, Verdant Canopy (key 'roots'): a root and trunk
+  // mass with root strands and leaf clusters inside, and curved
+  // root spikes jutting toward the face line.
+export function paintRootWall(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    paintRockWall(ctx, w, h, td, {
+      seed: 4501, baseStops: [0.60, 0.46, 0.26],
+      rimBright: 0.9, rimBrightAlpha: 0.5, rimMid: 0.9, rimMidAlpha: 0.26,
+      washFactor: 0.8, washAlpha: 0.14,
+      features: (c, cw, ch, t, rnd) => {
+        const P = t.palette;
+        const strands: { pts: [number, number][]; wd: number }[] = [];
+        for (let i = 0; i < 12; i++) {
+          let sx = cw * (0.36 + rnd() * 0.6), sy = rnd() * ch;
+          const pts: [number, number][] = [[sx, sy]];
+          for (let s = 0; s < 3; s++) { sx += (rnd() - 0.35) * 30; sy += 34 + rnd() * 40; pts.push([sx, sy]); }
+          strands.push({ pts, wd: 4 + rnd() * 5 });
+        }
+        const leaves: { lx: number; ly: number; len: number; a: number }[] = [];
+        for (let i = 0; i < 24; i++) leaves.push({ lx: cw * (0.38 + rnd() * 0.58), ly: rnd() * ch, len: 9 + rnd() * 8, a: rnd() * Math.PI * 2 });
+        vtiled(c, ch, () => {
+          c.lineCap = 'round';
+          for (const s of strands) {
+            c.strokeStyle = silColor(P.deep, 1.22, 0.75);
+            c.lineWidth = s.wd;
+            c.beginPath();
+            s.pts.forEach(([px, py], idx) => idx === 0 ? c.moveTo(px, py) : c.lineTo(px, py));
+            c.stroke();
+          }
+          for (const l of leaves) {
+            c.save();
+            c.translate(l.lx, l.ly); c.rotate(l.a);
+            c.fillStyle = silColor(P.mid, 1.0, 0.42);
+            c.beginPath();
+            c.moveTo(0, -l.len);
+            c.quadraticCurveTo(l.len * 0.45, 0, 0, l.len);
+            c.quadraticCurveTo(-l.len * 0.45, 0, 0, -l.len);
+            c.closePath(); c.fill();
+            c.restore();
+          }
+        });
+      },
+      spikes: (c, cw, ch, t, rnd, profileX) => {
+        const P = t.palette;
+        const roots: { sy: number; anchor: number; len: number; halfBase: number; tipDy: number }[] = [];
+        for (let i = 0; i < 6; i++) {
+          const sy = rnd() * ch;
+          const anchor = profileX(sy);
+          roots.push({ sy, anchor, len: anchor - 4 - rnd() * cw * 0.06, halfBase: 10 + rnd() * 13, tipDy: (rnd() - 0.5) * 10 });
+        }
+        vtiled(c, ch, () => {
+          for (const s of roots) {
+            c.fillStyle = silColor(P.deep, 0.58);
+            c.beginPath();
+            c.moveTo(s.anchor + cw * 0.05, s.sy - s.halfBase);
+            c.quadraticCurveTo(s.anchor - s.len * 0.5, s.sy - s.halfBase * 0.35, s.anchor - s.len, s.sy + s.tipDy);
+            c.quadraticCurveTo(s.anchor - s.len * 0.5, s.sy + s.halfBase * 0.35, s.anchor + cw * 0.05, s.sy + s.halfBase);
+            c.closePath();
+            c.fill();
+            c.strokeStyle = silColor(P.bright, 0.85, 0.45);
+            c.lineWidth = 2;
+            c.beginPath();
+            c.moveTo(s.anchor + cw * 0.05, s.sy - s.halfBase);
+            c.quadraticCurveTo(s.anchor - s.len * 0.5, s.sy - s.halfBase * 0.35, s.anchor - s.len, s.sy + s.tipDy);
+            c.stroke();
+          }
+        });
+      },
+    });
+  }
+
+  // World 5 wall, Ashen Peaks (key 'crags'): gray crag rock with
+  // ash drifts settled inside it and jagged crag teeth jutting
+  // toward the face line. The one desaturated wall: no glow
+  // accents anywhere, value contrast only, like its world.
+export function paintCragWall(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    paintRockWall(ctx, w, h, td, {
+      seed: 5501, baseStops: [0.85, 0.68, 0.42],
+      rimBright: 0.95, rimBrightAlpha: 0.5, rimMid: 1.0, rimMidAlpha: 0.25,
+      washFactor: 0.9, washAlpha: 0.10,
+      features: (c, cw, ch, t, rnd) => {
+        const P = t.palette;
+        const facets = genWallFacets(rnd, cw, ch, 26);
+        const drifts: { dx: number; dy: number; rx: number }[] = [];
+        for (let i = 0; i < 8; i++) drifts.push({ dx: cw * (0.36 + rnd() * 0.58), dy: rnd() * ch, rx: 20 + rnd() * 30 });
+        const cracks: { pts: [number, number][] }[] = [];
+        for (let i = 0; i < 7; i++) {
+          let px = cw * (0.42 + rnd() * 0.5), py = rnd() * ch;
+          const pts: [number, number][] = [[px, py]];
+          for (let s = 0; s < 3; s++) { px += (rnd() - 0.5) * 22; py += 20 + rnd() * 26; pts.push([px, py]); }
+          cracks.push({ pts });
+        }
+        vtiled(c, ch, () => {
+          drawWallFacets(c, facets, P, 0.10);
+          for (const d of drifts) {
+            c.save();
+            c.translate(d.dx, d.dy);
+            c.scale(1, 0.26);
+            const g = c.createRadialGradient(0, 0, 0, 0, 0, d.rx);
+            g.addColorStop(0, silColor(P.bright, 1.0, 0.13));
+            g.addColorStop(1, silColor(P.bright, 1.0, 0));
+            c.fillStyle = g;
+            c.fillRect(-d.rx, -d.rx, d.rx * 2, d.rx * 2);
+            c.restore();
+          }
+          c.strokeStyle = silColor(P.deep, 0.22, 0.8);
+          c.lineWidth = 2;
+          for (const cr of cracks) {
+            c.beginPath();
+            cr.pts.forEach(([px, py], idx) => idx === 0 ? c.moveTo(px, py) : c.lineTo(px, py));
+            c.stroke();
+          }
+        });
+      },
+      spikes: (c, cw, ch, t, rnd, profileX) => {
+        const P = t.palette;
+        const teeth: { sy: number; anchor: number; len: number; halfBase: number; tipDy: number }[] = [];
+        for (let i = 0; i < 6; i++) {
+          const sy = rnd() * ch;
+          const anchor = profileX(sy);
+          teeth.push({ sy, anchor, len: anchor - 4 - rnd() * cw * 0.06, halfBase: 10 + rnd() * 14, tipDy: (rnd() - 0.5) * 8 });
+        }
+        vtiled(c, ch, () => {
+          for (const s of teeth) {
+            c.fillStyle = silColor(P.deep, 0.72);
+            c.beginPath();
+            c.moveTo(s.anchor + cw * 0.05, s.sy - s.halfBase);
+            c.lineTo(s.anchor - s.len * 0.55, s.sy - s.halfBase * 0.45);
+            c.lineTo(s.anchor - s.len, s.sy + s.tipDy);
+            c.lineTo(s.anchor + cw * 0.05, s.sy + s.halfBase);
+            c.closePath();
+            c.fill();
+            c.strokeStyle = silColor(P.bright, 1.0, 0.45);
+            c.lineWidth = 2;
+            c.beginPath();
+            c.moveTo(s.anchor + cw * 0.05, s.sy - s.halfBase);
+            c.lineTo(s.anchor - s.len * 0.55, s.sy - s.halfBase * 0.45);
+            c.lineTo(s.anchor - s.len, s.sy + s.tipDy);
+            c.stroke();
+          }
+        });
+      },
+    });
+  }
+
+  // World 6 wall, Crystal Caverns (key 'crystal'): cyan cathedral
+  // plates standing in the mass, glow pooled at their tips, and
+  // broad crystal shards jutting toward the face line.
+export function paintCrystalWall(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    paintRockWall(ctx, w, h, td, {
+      seed: 6501, baseStops: [0.70, 0.55, 0.32],
+      rimBright: 0.95, rimBrightAlpha: 0.6, rimMid: 0.9, rimMidAlpha: 0.30,
+      washFactor: 0.85, washAlpha: 0.16,
+      features: (c, cw, ch, t, rnd) => {
+        const P = t.palette;
+        const plates: { pts: [number, number][]; tip: [number, number]; shade: number }[] = [];
+        for (let i = 0; i < 11; i++) {
+          const cx = cw * (0.40 + rnd() * 0.56), topY = rnd() * ch;
+          const len = 60 + rnd() * 90, wid = 10 + rnd() * 12;
+          const lean = (rnd() - 0.5) * 14;
+          const pts: [number, number][] = [
+            [cx - wid, topY + len],
+            [cx - wid * 0.4, topY + len * 0.4],
+            [cx + lean, topY],
+            [cx + wid * 0.5, topY + len * 0.45],
+            [cx + wid, topY + len],
+          ];
+          plates.push({ pts, tip: [cx + lean, topY], shade: 0.36 + rnd() * 0.34 });
+        }
+        vtiled(c, ch, () => {
+          for (const p of plates) {
+            const g = c.createRadialGradient(p.tip[0], p.tip[1], 0, p.tip[0], p.tip[1], 17);
+            g.addColorStop(0, silColor(P.bright, 1.0, 0.13));
+            g.addColorStop(1, silColor(P.bright, 1.0, 0));
+            c.fillStyle = g;
+            c.fillRect(p.tip[0] - 17, p.tip[1] - 17, 34, 34);
+            c.fillStyle = silColor(P.deep, p.shade, 0.88);
+            c.beginPath();
+            p.pts.forEach(([px, py], idx) => idx === 0 ? c.moveTo(px, py) : c.lineTo(px, py));
+            c.closePath(); c.fill();
+            c.strokeStyle = silColor(P.bright, 1.0, 0.35);
+            c.lineWidth = 1.8;
+            c.beginPath(); c.moveTo(p.pts[1][0], p.pts[1][1]); c.lineTo(p.tip[0], p.tip[1]); c.lineTo(p.pts[3][0], p.pts[3][1]); c.stroke();
+          }
+        });
+      },
+      spikes: (c, cw, ch, t, rnd, profileX) => {
+        const P = t.palette;
+        const shards: { sy: number; anchor: number; len: number; halfBase: number; tipDy: number }[] = [];
+        for (let i = 0; i < 6; i++) {
+          const sy = rnd() * ch;
+          const anchor = profileX(sy);
+          shards.push({ sy, anchor, len: anchor - 4 - rnd() * cw * 0.05, halfBase: 12 + rnd() * 11, tipDy: (rnd() - 0.5) * 8 });
+        }
+        vtiled(c, ch, () => {
+          for (const s of shards) {
+            c.fillStyle = silColor(P.deep, 0.66);
+            c.beginPath();
+            c.moveTo(s.anchor + cw * 0.05, s.sy - s.halfBase);
+            c.lineTo(s.anchor - s.len, s.sy + s.tipDy);
+            c.lineTo(s.anchor + cw * 0.05, s.sy + s.halfBase);
+            c.closePath();
+            c.fill();
+            c.strokeStyle = silColor(P.bright, 1.0, 0.5);
+            c.lineWidth = 1.8;
+            c.beginPath();
+            c.moveTo(s.anchor + cw * 0.05, s.sy - s.halfBase * 0.2);
+            c.lineTo(s.anchor - s.len, s.sy + s.tipDy);
+            c.stroke();
+          }
+        });
+      },
+    });
+  }
+
+  // World 7 wall, Neon Nebula (key 'ice'): dark frozen rock with
+  // translucent ice sheets and crack lines inside it, and pale
+  // ice spikes jutting toward the face line.
+export function paintIceWall(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    const ICE: Rgb3 = [0.90, 0.97, 1.0];
+    paintRockWall(ctx, w, h, td, {
+      seed: 7501, baseStops: [0.66, 0.52, 0.30],
+      rimBright: 1.0, rimBrightAlpha: 0.5, rimMid: 0.9, rimMidAlpha: 0.28,
+      washFactor: 0.8, washAlpha: 0.13,
+      features: (c, cw, ch, t, rnd) => {
+        const P = t.palette;
+        const sheets: { pts: [number, number][]; a: number }[] = [];
+        for (let i = 0; i < 9; i++) {
+          const cx = cw * (0.38 + rnd() * 0.58), cy = rnd() * ch;
+          const len = 44 + rnd() * 66, wid = 12 + rnd() * 16, a = (rnd() - 0.5) * 0.7;
+          const ux = Math.cos(a), uy = Math.sin(a), vx = -uy, vy = ux;
+          sheets.push({
+            pts: [
+              [cx - ux * len * 0.5, cy - uy * len * 0.5],
+              [cx + vx * wid, cy + vy * wid],
+              [cx + ux * len * 0.5, cy + uy * len * 0.5],
+              [cx - vx * wid, cy - vy * wid],
+            ],
+            a: 0.08 + rnd() * 0.08,
+          });
+        }
+        const cracks: { pts: [number, number][] }[] = [];
+        for (let i = 0; i < 10; i++) {
+          let px = cw * (0.40 + rnd() * 0.54), py = rnd() * ch;
+          const pts: [number, number][] = [[px, py]];
+          for (let s = 0; s < 3; s++) { px += (rnd() - 0.5) * 30; py += 16 + rnd() * 24; pts.push([px, py]); }
+          cracks.push({ pts });
+        }
+        vtiled(c, ch, () => {
+          drawWallFacets(c, genWallFacets(rnd, cw, ch, 16), P, 0.10);
+          for (const s of sheets) {
+            c.fillStyle = silColor(ICE, 1.0, s.a);
+            c.beginPath();
+            s.pts.forEach(([px, py], idx) => idx === 0 ? c.moveTo(px, py) : c.lineTo(px, py));
+            c.closePath(); c.fill();
+            c.strokeStyle = silColor(ICE, 1.0, 0.28);
+            c.lineWidth = 1.5;
+            c.beginPath(); c.moveTo(s.pts[0][0], s.pts[0][1]); c.lineTo(s.pts[1][0], s.pts[1][1]); c.stroke();
+          }
+          c.strokeStyle = silColor(ICE, 1.0, 0.30);
+          c.lineWidth = 1.4;
+          for (const cr of cracks) {
+            c.beginPath();
+            cr.pts.forEach(([px, py], idx) => idx === 0 ? c.moveTo(px, py) : c.lineTo(px, py));
+            c.stroke();
+          }
+        });
+      },
+      spikes: (c, cw, ch, t, rnd, profileX) => {
+        const shards: { sy: number; anchor: number; len: number; halfBase: number; tipDy: number }[] = [];
+        for (let i = 0; i < 7; i++) {
+          const sy = rnd() * ch;
+          const anchor = profileX(sy);
+          shards.push({ sy, anchor, len: anchor - 3 - rnd() * cw * 0.04, halfBase: 4 + rnd() * 5, tipDy: (rnd() - 0.5) * 7 });
+        }
+        vtiled(c, ch, () => {
+          for (const s of shards) {
+            c.fillStyle = silColor(ICE, 1.0, 0.45);
+            c.beginPath();
+            c.moveTo(s.anchor + cw * 0.05, s.sy - s.halfBase);
+            c.lineTo(s.anchor - s.len, s.sy + s.tipDy);
+            c.lineTo(s.anchor + cw * 0.05, s.sy + s.halfBase);
+            c.closePath();
+            c.fill();
+            c.strokeStyle = silColor(ICE, 1.0, 0.65);
+            c.lineWidth = 1.6;
+            c.beginPath();
+            c.moveTo(s.anchor + cw * 0.05, s.sy - s.halfBase);
+            c.lineTo(s.anchor - s.len, s.sy + s.tipDy);
+            c.stroke();
+          }
+        });
+      },
+    });
+  }
+
+  // World 8 wall, Golden Sands (key 'ruins'): sandstone block
+  // courses with worn seams and one broken column drum inside,
+  // and stepped block teeth jutting toward the face line.
+export function paintRuinWall(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    paintRockWall(ctx, w, h, td, {
+      seed: 8501, baseStops: [0.74, 0.60, 0.38],
+      rimBright: 0.95, rimBrightAlpha: 0.55, rimMid: 0.9, rimMidAlpha: 0.30,
+      washFactor: 0.85, washAlpha: 0.15,
+      features: (c, cw, ch, t, rnd) => {
+        const P = t.palette;
+        const rows: { y: number; hh: number; blocks: { x: number; bw: number; shade: number }[] }[] = [];
+        const rowH = 34;
+        for (let y = -rowH; y < ch + rowH; y += rowH) {
+          const blocks: { x: number; bw: number; shade: number }[] = [];
+          let bx = cw * 0.30 - rnd() * 30;
+          while (bx < cw) {
+            const bw = 34 + rnd() * 40;
+            blocks.push({ x: bx, bw, shade: 0.34 + rnd() * 0.30 });
+            bx += bw + 3;
+          }
+          rows.push({ y, hh: rowH - 3, blocks });
+        }
+        const drum: { dx: number; dy: number } = { dx: cw * (0.55 + rnd() * 0.3), dy: rnd() * ch };
+        vtiled(c, ch, () => {
+          for (const row of rows) {
+            for (const b of row.blocks) {
+              c.fillStyle = silColor(P.deep, b.shade, 0.55);
+              c.fillRect(b.x, row.y, b.bw, row.hh);
+            }
+          }
+          // The broken column drum: three stacked segments.
+          c.fillStyle = silColor(P.deep, 0.62, 0.8);
+          for (let s = 0; s < 3; s++) {
+            c.beginPath();
+            c.ellipse(drum.dx + (s % 2) * 3, drum.dy + s * 17, 17, 8, 0, 0, Math.PI * 2);
+            c.fill();
+          }
+          c.strokeStyle = silColor(P.mid, 1.0, 0.4);
+          c.lineWidth = 2;
+          c.beginPath(); c.ellipse(drum.dx, drum.dy, 17, 8, 0, Math.PI, Math.PI * 2); c.stroke();
+        });
+      },
+      spikes: (c, cw, ch, t, rnd, profileX) => {
+        const P = t.palette;
+        const teeth: { sy: number; anchor: number; len: number; halfBase: number }[] = [];
+        for (let i = 0; i < 6; i++) {
+          const sy = rnd() * ch;
+          const anchor = profileX(sy);
+          teeth.push({ sy, anchor, len: anchor - 5 - rnd() * cw * 0.05, halfBase: 11 + rnd() * 12 });
+        }
+        vtiled(c, ch, () => {
+          for (const s of teeth) {
+            c.fillStyle = silColor(P.deep, 0.64);
+            c.beginPath();
+            c.moveTo(s.anchor + cw * 0.05, s.sy - s.halfBase);
+            c.lineTo(s.anchor - s.len * 0.55, s.sy - s.halfBase);
+            c.lineTo(s.anchor - s.len * 0.55, s.sy - s.halfBase * 0.45);
+            c.lineTo(s.anchor - s.len, s.sy - s.halfBase * 0.45);
+            c.lineTo(s.anchor - s.len, s.sy + s.halfBase * 0.45);
+            c.lineTo(s.anchor - s.len * 0.55, s.sy + s.halfBase * 0.45);
+            c.lineTo(s.anchor - s.len * 0.55, s.sy + s.halfBase);
+            c.lineTo(s.anchor + cw * 0.05, s.sy + s.halfBase);
+            c.closePath();
+            c.fill();
+            c.strokeStyle = silColor(P.mid, 1.0, 0.5);
+            c.lineWidth = 2;
+            c.beginPath();
+            c.moveTo(s.anchor + cw * 0.05, s.sy - s.halfBase);
+            c.lineTo(s.anchor - s.len * 0.55, s.sy - s.halfBase);
+            c.lineTo(s.anchor - s.len * 0.55, s.sy - s.halfBase * 0.45);
+            c.lineTo(s.anchor - s.len, s.sy - s.halfBase * 0.45);
+            c.stroke();
+          }
+        });
+      },
+    });
+  }
+
+  // World 9 wall, Blood Moon (key 'thorns'): near-black rock with
+  // bone shards and dim red cracks inside it, and long curved
+  // thorns jutting toward the face line, more of them than any
+  // other world's spikes.
+export function paintThornWall(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    paintRockWall(ctx, w, h, td, {
+      seed: 9501, baseStops: [0.62, 0.48, 0.26],
+      rimBright: 0.95, rimBrightAlpha: 0.5, rimMid: 0.9, rimMidAlpha: 0.28,
+      washFactor: 0.8, washAlpha: 0.13,
+      features: (c, cw, ch, t, rnd) => {
+        const P = t.palette;
+        const facets = genWallFacets(rnd, cw, ch, 24);
+        const bones: { bx: number; by: number; len: number; ang: number }[] = [];
+        for (let i = 0; i < 6; i++) bones.push({ bx: cw * (0.42 + rnd() * 0.5), by: rnd() * ch, len: 10 + rnd() * 12, ang: rnd() * Math.PI });
+        const cracks: { pts: [number, number][] }[] = [];
+        for (let i = 0; i < 7; i++) {
+          let px = cw * (0.42 + rnd() * 0.5), py = rnd() * ch;
+          const pts: [number, number][] = [[px, py]];
+          for (let s = 0; s < 3; s++) { px += (rnd() - 0.5) * 20; py += 16 + rnd() * 24; pts.push([px, py]); }
+          cracks.push({ pts });
+        }
+        vtiled(c, ch, () => {
+          drawWallFacets(c, facets, P, 0.12);
+          c.save();
+          c.shadowColor = silColor(P.mid, 1.0);
+          c.shadowBlur = 4;
+          c.strokeStyle = silColor(P.bright, 1.0, 0.32);
+          c.lineWidth = 1.6;
+          for (const cr of cracks) {
+            c.beginPath();
+            cr.pts.forEach(([px, py], idx) => idx === 0 ? c.moveTo(px, py) : c.lineTo(px, py));
+            c.stroke();
+          }
+          c.restore();
+          for (const b of bones) {
+            const dx = Math.cos(b.ang), dy = Math.sin(b.ang);
+            c.strokeStyle = silColor([0.72, 0.60, 0.52], 1.0, 0.24);
+            c.lineWidth = 2.5;
+            c.beginPath();
+            c.moveTo(b.bx - dx * b.len / 2, b.by - dy * b.len / 2);
+            c.lineTo(b.bx + dx * b.len / 2, b.by + dy * b.len / 2);
+            c.stroke();
+            c.fillStyle = silColor([0.72, 0.60, 0.52], 1.0, 0.24);
+            for (const sgn of [-1, 1]) {
+              c.beginPath(); c.arc(b.bx + dx * b.len / 2 * sgn, b.by + dy * b.len / 2 * sgn, 2.8, 0, Math.PI * 2); c.fill();
+            }
+          }
+        });
+      },
+      spikes: (c, cw, ch, t, rnd, profileX) => {
+        const P = t.palette;
+        const thorns: { sy: number; anchor: number; len: number; halfBase: number; tipDy: number; bend: number }[] = [];
+        for (let i = 0; i < 8; i++) {
+          const sy = rnd() * ch;
+          const anchor = profileX(sy);
+          thorns.push({ sy, anchor, len: anchor - 3 - rnd() * cw * 0.04, halfBase: 5 + rnd() * 5, tipDy: (rnd() - 0.5) * 12, bend: (rnd() - 0.5) * 16 });
+        }
+        vtiled(c, ch, () => {
+          for (const s of thorns) {
+            c.fillStyle = silColor(P.deep, 0.30);
+            c.beginPath();
+            c.moveTo(s.anchor + cw * 0.05, s.sy - s.halfBase);
+            c.quadraticCurveTo(s.anchor - s.len * 0.5, s.sy - s.halfBase * 0.4 + s.bend * 0.4, s.anchor - s.len, s.sy + s.tipDy + s.bend);
+            c.quadraticCurveTo(s.anchor - s.len * 0.5, s.sy + s.halfBase * 0.4 + s.bend * 0.4, s.anchor + cw * 0.05, s.sy + s.halfBase);
+            c.closePath();
+            c.fill();
+            c.strokeStyle = silColor(P.bright, 1.0, 0.45);
+            c.lineWidth = 1.8;
+            c.beginPath();
+            c.moveTo(s.anchor + cw * 0.05, s.sy - s.halfBase);
+            c.quadraticCurveTo(s.anchor - s.len * 0.5, s.sy - s.halfBase * 0.4 + s.bend * 0.4, s.anchor - s.len, s.sy + s.tipDy + s.bend);
+            c.stroke();
+          }
+        });
+      },
+    });
+  }
+
+  // World 10 wall, Abyssal Rift (key 'riftshards'): black glass
+  // plates in the void, each with one star-white lit edge, and
+  // glass shards jutting toward the face line. The palette's
+  // deep band is true black, so the plate fills ride the mid
+  // violet darkened, like the world's far motifs.
+export function paintRiftWall(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
+    paintRockWall(ctx, w, h, td, {
+      seed: 10501, baseStops: [0.5, 0.4, 0.24],
+      rimBright: 0.95, rimBrightAlpha: 0.55, rimMid: 0.9, rimMidAlpha: 0.30,
+      washFactor: 0.7, washAlpha: 0.12,
+      features: (c, cw, ch, t, rnd) => {
+        const P = t.palette;
+        const plates: { pts: [number, number][]; edge: [number, number][] }[] = [];
+        for (let i = 0; i < 13; i++) {
+          const cx = cw * (0.38 + rnd() * 0.58), cy = rnd() * ch;
+          const R = 16 + rnd() * 30, rot = rnd() * Math.PI * 2;
+          const verts = 4 + Math.floor(rnd() * 3);
+          const pts: [number, number][] = [];
+          for (let v = 0; v < verts; v++) {
+            const a = rot + (v / verts) * Math.PI * 2;
+            const rr = R * (0.6 + rnd() * 0.55);
+            pts.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr * 0.82]);
+          }
+          plates.push({ pts, edge: [pts[0], pts[1]] });
+        }
+        const glows: { gx: number; gy: number; r: number }[] = [];
+        for (let i = 0; i < 5; i++) glows.push({ gx: cw * (0.42 + rnd() * 0.5), gy: rnd() * ch, r: 22 + rnd() * 26 });
+        vtiled(c, ch, () => {
+          for (const g of glows) {
+            const gr = c.createRadialGradient(g.gx, g.gy, 0, g.gx, g.gy, g.r);
+            gr.addColorStop(0, silColor(P.mid, 1.0, 0.12));
+            gr.addColorStop(1, silColor(P.mid, 1.0, 0));
+            c.fillStyle = gr;
+            c.fillRect(g.gx - g.r, g.gy - g.r, g.r * 2, g.r * 2);
+          }
+          for (const p of plates) {
+            c.fillStyle = silColor(P.mid, 0.30, 0.85);
+            c.beginPath();
+            p.pts.forEach(([px, py], idx) => idx === 0 ? c.moveTo(px, py) : c.lineTo(px, py));
+            c.closePath(); c.fill();
+            c.strokeStyle = silColor(P.bright, 1.0, 0.5);
+            c.lineWidth = 1.8;
+            c.beginPath(); c.moveTo(p.edge[0][0], p.edge[0][1]); c.lineTo(p.edge[1][0], p.edge[1][1]); c.stroke();
+          }
+        });
+      },
+      spikes: (c, cw, ch, t, rnd, profileX) => {
+        const P = t.palette;
+        const shards: { sy: number; anchor: number; len: number; halfBase: number; tipDy: number }[] = [];
+        for (let i = 0; i < 7; i++) {
+          const sy = rnd() * ch;
+          const anchor = profileX(sy);
+          shards.push({ sy, anchor, len: anchor - 3 - rnd() * cw * 0.05, halfBase: 7 + rnd() * 9, tipDy: (rnd() - 0.5) * 9 });
+        }
+        vtiled(c, ch, () => {
+          for (const s of shards) {
+            c.fillStyle = silColor(P.mid, 0.16);
+            c.beginPath();
+            c.moveTo(s.anchor + cw * 0.05, s.sy - s.halfBase);
+            c.lineTo(s.anchor - s.len, s.sy + s.tipDy);
+            c.lineTo(s.anchor + cw * 0.05, s.sy + s.halfBase);
+            c.closePath();
+            c.fill();
+            c.strokeStyle = silColor(P.bright, 1.0, 0.6);
+            c.lineWidth = 2;
+            c.beginPath();
+            c.moveTo(s.anchor + cw * 0.05, s.sy - s.halfBase);
+            c.lineTo(s.anchor - s.len, s.sy + s.tipDy);
+            c.stroke();
+          }
+        });
+      },
+    });
   }
 
   // Deterministic per-layer random source, so a world's silhouettes
@@ -868,6 +1677,44 @@ function paintGroundLava(ctx: CanvasRenderingContext2D, w: number, h: number, td
     ctx.globalCompositeOperation = 'source-over';
   }
 
+  // Scrolling-ground law (Worlds 2 to 10 pass, from the World 1
+  // shelf redo): once a world's backdrop scrolls, its ground
+  // strip wraps through the whole field, so the strip must read
+  // as a stratum of the scene at any phase, never as a floating
+  // band. Every ground painter below therefore fades its bottom
+  // edge out inside its own canvas (this helper, the same curve
+  // the World 1 shelf uses), keeps any glow broken into short
+  // segments or points with dark gaps between them, and never
+  // draws a continuous horizontal glowing line.
+function fadeGroundBottom(ctx: CanvasRenderingContext2D, w: number, h: number) {
+    const fade = ctx.createLinearGradient(0, h * 0.45, 0, h);
+    fade.addColorStop(0, 'rgba(0,0,0,0)');
+    fade.addColorStop(1, 'rgba(0,0,0,0.92)');
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = fade;
+    ctx.fillRect(0, h * 0.45, w, h * 0.55);
+    ctx.restore();
+  }
+
+  // Broken reflection segments along a ground strip's top edge:
+  // short gradient streaks in the world's mid color, each fading
+  // downward, separated by dark gaps at least as long as the
+  // streaks. The shared replacement for the old full-width
+  // horizon streaks (Mirror, Crystal, Ice), which read as
+  // glowing lines floating across the sky once the backdrop
+  // scrolled.
+function brokenReflection(ctx: CanvasRenderingContext2D, w: number, rnd: () => number, topY: (x: number) => number, rgb: Rgb3, alpha: number, count: number) {
+    for (let k = 0; k < count; k++) {
+      const sx = rnd() * w, len = 36 + rnd() * 84, sy = topY(sx) + 2;
+      const grad = ctx.createLinearGradient(0, sy, 0, sy + 15);
+      grad.addColorStop(0, silColor(rgb, 1.0, alpha));
+      grad.addColorStop(1, silColor(rgb, 1.0, 0));
+      ctx.fillStyle = grad;
+      ctx.fillRect(sx, sy, len, 15);
+    }
+  }
+
   // World 2 ground: abyssal dark with faint blue vent glows.
 function paintGroundVents(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
     const rnd = themeRng(203);
@@ -887,19 +1734,26 @@ function paintGroundVents(ctx: CanvasRenderingContext2D, w: number, h: number, t
       ctx.fillStyle = silColor(td.palette.bright, 1.0, 0.35);
       ctx.beginPath(); ctx.arc(cx, cy, 2.5, 0, Math.PI * 2); ctx.fill();
     }
+    fadeGroundBottom(ctx, w, h);
   }
 
   // World 3 ground: a fractured mirror plane, shimmer only.
+  // Rebuilt for the scrolling pass: the plane's near edge is a
+  // jagged crack profile instead of a flat rect edge, and the
+  // horizon reflection is broken into short segments with dark
+  // gaps (the old full-width streak read as a glowing line
+  // floating in the sky once the backdrop scrolled).
 function paintGroundMirror(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
     const rnd = themeRng(303);
+    const topY = (x: number) => 22 + 4 * Math.sin((2 * Math.PI * 3 * x) / w + 1.3) + 3 * Math.sin((2 * Math.PI * 7 * x) / w + 0.5);
     ctx.fillStyle = silColor(td.palette.deep, 0.30);
-    ctx.fillRect(0, 18, w, h - 18);
-    // The horizon reflects the glow in one broken streak.
-    const grad = ctx.createLinearGradient(0, 18, 0, 34);
-    grad.addColorStop(0, silColor(td.palette.mid, 1.0, 0.16));
-    grad.addColorStop(1, silColor(td.palette.mid, 1.0, 0));
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 18, w, 16);
+    ctx.beginPath();
+    ctx.moveTo(0, topY(0));
+    for (let x = 8; x <= w; x += 8) ctx.lineTo(x, topY(x));
+    ctx.lineTo(w, h); ctx.lineTo(0, h);
+    ctx.closePath(); ctx.fill();
+    // The horizon reflection, broken into segments.
+    brokenReflection(ctx, w, rnd, topY, td.palette.mid, 0.16, 6);
     // Facet lines catching the mid color.
     ctx.strokeStyle = silColor(td.palette.mid, 1.0, 0.28);
     ctx.lineWidth = 1.5;
@@ -915,6 +1769,7 @@ function paintGroundMirror(ctx: CanvasRenderingContext2D, w: number, h: number, 
       }
       ctx.stroke();
     }
+    fadeGroundBottom(ctx, w, h);
   }
 
   // ----------------------------------------------------------------
@@ -999,12 +1854,19 @@ function paintCanopyMid(ctx: CanvasRenderingContext2D, w: number, h: number, td:
   // the shafts land (sheet).
 function paintGroundForest(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
     const rnd = themeRng(403);
-    // Dark floor mass.
+    // Dark floor mass under a wavy leaf-litter top profile (the
+    // scrolling pass: a flat rect edge would read as a band edge
+    // floating across the field once the backdrop wraps).
+    const topY = (x: number) => 24 + 5 * Math.sin((2 * Math.PI * 2 * x) / w + 0.9) + 3 * Math.sin((2 * Math.PI * 6 * x) / w + 2.2);
     const grad = ctx.createLinearGradient(0, 20, 0, h);
     grad.addColorStop(0, silColor(td.palette.deep, 0.30));
     grad.addColorStop(1, silColor(td.palette.deep, 0.48));
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 20, w, h - 20);
+    ctx.beginPath();
+    ctx.moveTo(0, topY(0));
+    for (let x = 8; x <= w; x += 8) ctx.lineTo(x, topY(x));
+    ctx.lineTo(w, h); ctx.lineTo(0, h);
+    ctx.closePath(); ctx.fill();
     // Light pools: soft bright ellipses on the floor.
     for (let k = 0; k < 6; k++) {
       const cx = rnd() * w, cy = 44 + rnd() * 56, rx = 30 + rnd() * 46, ry = rx * 0.22;
@@ -1027,6 +1889,7 @@ function paintGroundForest(ctx: CanvasRenderingContext2D, w: number, h: number, 
         ctx.stroke();
       }
     }
+    fadeGroundBottom(ctx, w, h);
   }
 
   // World 5 far: jagged peak silhouettes in three gray layers
@@ -1059,20 +1922,52 @@ function paintAshenFar(ctx: CanvasRenderingContext2D, w: number, h: number, td: 
     }
   }
 
-  // World 5 mid: tumbling ash boulders, gray on gray, a dull rim on
-  // the upper edge (the Ember boulders' shape language, desaturated).
+  // World 5 mid: tumbling ash rocks, gray on gray, a dull rim
+  // along the upper edges. Rebuilt in the Worlds 2 to 10 pass:
+  // the old version painted ellipse boulders with a rim arc,
+  // the Ember boulders' shape language, which the World 1 redo
+  // bars (at in-game magnification they read as flat discs).
+  // The rocks are jagged polygons now, generated once and drawn
+  // identically at every wrap offset.
 function paintAshenMid(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
     const rnd = themeRng(504);
     const fill = silColor(td.palette.deep, 0.62);
+    const facetFill = silColor(td.palette.deep, 0.82, 0.55);
     const rim = silColor(td.palette.mid, 1.0, 0.30);
+    type Rock = { pts: [number, number][]; facet: [number, number][]; rimPts: [number, number][] };
+    const rocks: Rock[] = [];
+    for (let k = 0; k < 11; k++) {
+      const cx = rnd() * w, cy = h * (0.14 + rnd() * 0.6);
+      const R = 13 + rnd() * 24, rot = rnd() * Math.PI * 2;
+      const n = 6 + Math.floor(rnd() * 3);
+      const pts: [number, number][] = [];
+      for (let v = 0; v < n; v++) {
+        const a = rot + (v / n) * Math.PI * 2;
+        const rr = R * (0.62 + rnd() * 0.5);
+        pts.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr * 0.72]);
+      }
+      let topIdx = 0;
+      for (let v = 1; v < n; v++) if (pts[v][1] < pts[topIdx][1]) topIdx = v;
+      rocks.push({
+        pts,
+        facet: [pts[topIdx], pts[(topIdx + 1) % n], [cx, cy]],
+        rimPts: [pts[(topIdx + n - 1) % n], pts[topIdx], pts[(topIdx + 1) % n]],
+      });
+    }
     tiled(ctx, w, () => {
-      for (let k = 0; k < 11; k++) {
-        const cx = rnd() * w, cy = h * (0.14 + rnd() * 0.6);
-        const rx = 13 + rnd() * 24, ry = rx * (0.5 + rnd() * 0.25);
+      for (const r of rocks) {
         ctx.fillStyle = fill;
-        ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath();
+        r.pts.forEach(([px, py], i) => i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py));
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = facetFill;
+        ctx.beginPath();
+        r.facet.forEach(([px, py], i) => i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py));
+        ctx.closePath(); ctx.fill();
         ctx.strokeStyle = rim; ctx.lineWidth = 2.5;
-        ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
+        ctx.beginPath();
+        r.rimPts.forEach(([px, py], i) => i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py));
+        ctx.stroke();
       }
     });
   }
@@ -1105,6 +2000,7 @@ function paintGroundAshRidge(ctx: CanvasRenderingContext2D, w: number, h: number
       const cx = rnd() * w, cy = yAt(cx) + 8 + rnd() * 22, rx = 22 + rnd() * 34;
       ctx.beginPath(); ctx.ellipse(cx, cy, rx, rx * 0.24, 0, 0, Math.PI * 2); ctx.fill();
     }
+    fadeGroundBottom(ctx, w, h);
   }
 
   // World 6 far: cathedral crystal formations (Crystal Caverns
@@ -1176,18 +2072,23 @@ function paintCavernMid(ctx: CanvasRenderingContext2D, w: number, h: number, td:
     });
   }
 
-  // World 6 ground: a reflective crystal floor (sheet): a bright
-  // horizon streak, facet lines, and dim mirrored glows below it.
+  // World 6 ground: a reflective crystal floor (sheet): facet
+  // lines and dim mirrored glows below a broken horizon
+  // reflection. Rebuilt for the scrolling pass like the Mirror
+  // plane: jagged top profile, the reflection in short segments
+  // with dark gaps instead of one full-width streak, and the
+  // bottom edge faded out.
 function paintGroundCrystal(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
     const rnd = themeRng(603);
+    const topY = (x: number) => 21 + 4 * Math.sin((2 * Math.PI * 4 * x) / w + 0.4) + 3 * Math.sin((2 * Math.PI * 9 * x) / w + 1.9);
     ctx.fillStyle = silColor(td.palette.deep, 0.34);
-    ctx.fillRect(0, 18, w, h - 18);
-    // Horizon streak: the floor reflecting the top glow.
-    const grad = ctx.createLinearGradient(0, 18, 0, 40);
-    grad.addColorStop(0, silColor(td.palette.mid, 1.0, 0.20));
-    grad.addColorStop(1, silColor(td.palette.mid, 1.0, 0));
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 18, w, 22);
+    ctx.beginPath();
+    ctx.moveTo(0, topY(0));
+    for (let x = 8; x <= w; x += 8) ctx.lineTo(x, topY(x));
+    ctx.lineTo(w, h); ctx.lineTo(0, h);
+    ctx.closePath(); ctx.fill();
+    // The horizon reflection, broken into segments.
+    brokenReflection(ctx, w, rnd, topY, td.palette.mid, 0.20, 6);
     // Mirrored glow pools, dimmer than any real light.
     for (let k = 0; k < 5; k++) {
       const cx = rnd() * w, cy = 52 + rnd() * 52, rx = 26 + rnd() * 40;
@@ -1212,6 +2113,7 @@ function paintGroundCrystal(ctx: CanvasRenderingContext2D, w: number, h: number,
       }
       ctx.stroke();
     }
+    fadeGroundBottom(ctx, w, h);
   }
 
   // ----------------------------------------------------------------
@@ -1245,22 +2147,38 @@ function paintNebulaFar(ctx: CanvasRenderingContext2D, w: number, h: number, td:
     };
     ribbon(h * 0.06, 13, 2, 0.7, td.sky.secondaryGlow ?? [0.0, 0.9, 0.8], 0.16); // teal curtain
     ribbon(h * 0.16, 17, 3, 2.4, td.palette.bright, 0.13); // magenta curtain behind it
-    tiled(ctx, w, () => {
-      // Nebula clouds: clusters of soft dark ellipses with a
-      // faint magenta rim on the lit side.
-      for (let c = 0; c < 6; c++) {
-        const ccx = rnd() * w, ccy = h * (0.30 + rnd() * 0.5);
-        const n = 3 + Math.floor(rnd() * 3);
-        for (let k = 0; k < n; k++) {
-          const cx = ccx + (rnd() - 0.5) * 120, cy = ccy + (rnd() - 0.5) * 42;
-          const rx = 34 + rnd() * 62, ry = rx * (0.30 + rnd() * 0.16);
-          ctx.fillStyle = silColor(td.palette.deep, 0.42);
-          ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
-          ctx.strokeStyle = silColor(td.palette.mid, 1.0, 0.16);
-          ctx.lineWidth = 2;
-          ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, Math.PI * 1.15, Math.PI * 1.75); ctx.stroke();
-        }
+    // Nebula clouds: clusters of soft gradient puffs, dark gas
+    // with a faint magenta glow offset to the lit side. Rebuilt
+    // in the Worlds 2 to 10 pass: the old hard-edged ellipses
+    // with a rim arc were the ellipse-plus-arc shape the World 1
+    // redo bars. Generated once, drawn at every wrap offset.
+    type Puff = { cx: number; cy: number; rx: number; ry: number };
+    const puffs: Puff[] = [];
+    const rimPuffs: Puff[] = [];
+    for (let c = 0; c < 6; c++) {
+      const ccx = rnd() * w, ccy = h * (0.30 + rnd() * 0.5);
+      const n = 3 + Math.floor(rnd() * 3);
+      for (let k = 0; k < n; k++) {
+        const rx = 34 + rnd() * 62;
+        const p: Puff = { cx: ccx + (rnd() - 0.5) * 120, cy: ccy + (rnd() - 0.5) * 42, rx, ry: rx * (0.30 + rnd() * 0.16) };
+        puffs.push(p);
+        rimPuffs.push({ cx: p.cx - rx * 0.18, cy: p.cy - p.ry * 0.55, rx: rx * 0.8, ry: p.ry * 0.8 });
       }
+    }
+    const drawPuff = (p: Puff, rgb: Rgb3, f: number, a: number) => {
+      ctx.save();
+      ctx.translate(p.cx, p.cy);
+      ctx.scale(1, p.ry / p.rx);
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, p.rx);
+      g.addColorStop(0, silColor(rgb, f, a));
+      g.addColorStop(1, silColor(rgb, f, 0));
+      ctx.fillStyle = g;
+      ctx.fillRect(-p.rx, -p.rx, p.rx * 2, p.rx * 2);
+      ctx.restore();
+    };
+    tiled(ctx, w, () => {
+      for (const p of puffs) drawPuff(p, td.palette.deep, 0.42, 0.85);
+      for (const p of rimPuffs) drawPuff(p, td.palette.mid, 1.0, 0.13);
       // The ringed planet, high right: a dark disc with a pale
       // ice rim, crossed by its ring.
       const px = w * 0.78, py = h * 0.20, pr = 34;
@@ -1308,25 +2226,33 @@ function paintNebulaMid(ctx: CanvasRenderingContext2D, w: number, h: number, td:
   }
 
   // World 7 ground: an ice plain horizon with the aurora
-  // reflected in it: a two-tone streak (magenta, then teal),
-  // crack lines in pale ice, and dim mirrored glow pools.
+  // reflected in it: crack lines in pale ice and dim mirrored
+  // glow pools. Rebuilt for the scrolling pass: the plain's top
+  // edge is a jagged frost profile, and the two-tone aurora
+  // reflection (magenta and teal) is broken into short segments
+  // with dark gaps instead of two full-width washes, which read
+  // as glowing bands once the backdrop scrolled.
 function paintGroundIce(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
     const rnd = themeRng(703);
-    ctx.fillStyle = silColor(td.palette.deep, 0.34);
-    ctx.fillRect(0, 18, w, h - 18);
-    // The aurora reflection: magenta wash on the left reach of
-    // the strip, teal on the right, both fading down.
-    const gradM = ctx.createLinearGradient(0, 18, 0, 44);
-    gradM.addColorStop(0, silColor(td.palette.mid, 1.0, 0.15));
-    gradM.addColorStop(1, silColor(td.palette.mid, 1.0, 0));
-    ctx.fillStyle = gradM;
-    ctx.fillRect(0, 18, w * 0.55, 26);
     const teal = td.sky.secondaryGlow ?? [0.0, 0.9, 0.8];
-    const gradT = ctx.createLinearGradient(0, 18, 0, 44);
-    gradT.addColorStop(0, silColor(teal, 1.0, 0.13));
-    gradT.addColorStop(1, silColor(teal, 1.0, 0));
-    ctx.fillStyle = gradT;
-    ctx.fillRect(w * 0.45, 18, w * 0.55, 26);
+    const topY = (x: number) => 21 + 4 * Math.sin((2 * Math.PI * 3 * x) / w + 2.6) + 3 * Math.sin((2 * Math.PI * 8 * x) / w + 0.8);
+    ctx.fillStyle = silColor(td.palette.deep, 0.34);
+    ctx.beginPath();
+    ctx.moveTo(0, topY(0));
+    for (let x = 8; x <= w; x += 8) ctx.lineTo(x, topY(x));
+    ctx.lineTo(w, h); ctx.lineTo(0, h);
+    ctx.closePath(); ctx.fill();
+    // The aurora reflection, broken into segments, the two
+    // tones interleaved along the edge.
+    for (let k = 0; k < 7; k++) {
+      const sx = rnd() * w, len = 40 + rnd() * 80, sy = topY(sx) + 2;
+      const rgb = k % 2 === 0 ? td.palette.mid : teal;
+      const grad = ctx.createLinearGradient(0, sy, 0, sy + 16);
+      grad.addColorStop(0, silColor(rgb, 1.0, k % 2 === 0 ? 0.15 : 0.13));
+      grad.addColorStop(1, silColor(rgb, 1.0, 0));
+      ctx.fillStyle = grad;
+      ctx.fillRect(sx, sy, len, 16);
+    }
     // Mirrored glow pools.
     for (let k = 0; k < 5; k++) {
       const cx = rnd() * w, cy = 52 + rnd() * 52, rx = 26 + rnd() * 40;
@@ -1352,6 +2278,7 @@ function paintGroundIce(ctx: CanvasRenderingContext2D, w: number, h: number, td:
       }
       ctx.stroke();
     }
+    fadeGroundBottom(ctx, w, h);
   }
 
   // World 8 far: dunes in smooth layered ridges, obelisks, and
@@ -1497,6 +2424,7 @@ function paintGroundDune(ctx: CanvasRenderingContext2D, w: number, h: number, td
     const cx0 = rnd() * w;
     ctx.fillRect(cx0, yAt(cx0) - 26, 11, 30);
     ctx.fillRect(cx0 - 3, yAt(cx0) - 30, 17, 6); // capital fragment
+    fadeGroundBottom(ctx, w, h);
   }
 
   // World 9 far: gothic spires and dead trees (Blood Moon
@@ -1579,7 +2507,7 @@ function paintBloodMid(ctx: CanvasRenderingContext2D, w: number, h: number, td: 
   }
 
   // World 9 ground: a dark ridge with the moon's reflection in
-  // a thin red line along its crest.
+  // broken red segments along its crest.
 function paintGroundBloodRidge(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
     const yAt = (x: number) => 30 + 5 * Math.sin((2 * Math.PI * 2 * x) / w + 2.1) + 4 * Math.sin((2 * Math.PI * 6 * x) / w + 0.4);
     // Ridge mass: the darkest ground in the game so far.
@@ -1592,16 +2520,28 @@ function paintGroundBloodRidge(ctx: CanvasRenderingContext2D, w: number, h: numb
     for (let x = 16; x <= w; x += 16) ctx.lineTo(x, yAt(x));
     ctx.lineTo(w, h); ctx.lineTo(0, h);
     ctx.closePath(); ctx.fill();
-    // The moon's reflection: a thin red line riding the crest.
-    ctx.beginPath();
-    ctx.moveTo(0, yAt(0));
-    for (let x = 8; x <= w; x += 8) ctx.lineTo(x, yAt(x));
+    // The moon's reflection riding the crest, broken into
+    // segments with dark gaps (the scrolling pass: one
+    // continuous glowing line across the whole strip is the
+    // shape the World 1 redo removed; a reflection on a rough
+    // crest breaks naturally). Segment placement is seeded so
+    // the strip is the same every visit.
+    const rnd = themeRng(904);
     ctx.strokeStyle = silColor(td.palette.bright, 1.0, 0.55);
     ctx.lineWidth = 2;
     ctx.shadowColor = silColor(td.palette.bright, 1.0, 0.7);
     ctx.shadowBlur = 8;
-    ctx.stroke();
+    let sx = rnd() * 30;
+    while (sx < w) {
+      const len = 34 + rnd() * 60;
+      ctx.beginPath();
+      ctx.moveTo(sx, yAt(sx));
+      for (let x = sx + 8; x <= Math.min(w, sx + len); x += 8) ctx.lineTo(x, yAt(x));
+      ctx.stroke();
+      sx += len + 40 + rnd() * 70;
+    }
     ctx.shadowBlur = 0;
+    fadeGroundBottom(ctx, w, h);
   }
 
   // World 10 far: broken world shards, one silhouette motif
