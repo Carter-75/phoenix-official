@@ -2358,19 +2358,38 @@ function paintSandsFar(ctx: CanvasRenderingContext2D, w: number, h: number, td: 
     });
   }
 
-  // World 8 mid: wind-blown sand sheets (wide, faint, fast in
-  // feel: long horizontal streaks) and tumbling shards of
-  // pottery-bright stone.
+  // World 8 mid: wind-blown sand streaks and tumbling shards
+  // of pottery-bright stone. The streaks are broken chains of
+  // feathered puffs (radial gradients, no hard edge): the old
+  // version drew very flat filled ellipses (rx up to 260, ry
+  // 3 to 9) in the bright band, and at the backdrop plane's
+  // magnification each one became a hard-edged horizontal band
+  // spanning the screen at an arbitrary height, the exact
+  // failure the World 1 redo banned. A puff chain has no
+  // continuous edge and no full-width span at any phase.
 function paintSandsMid(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
     const rnd = themeRng(802);
     tiled(ctx, w, () => {
-      // Sand sheets: very flat ellipses at low alpha, in the
-      // palette's bright band so they read as lit dust, not fog.
+      // Sand streaks: 2 to 4 soft puffs along a slight slope,
+      // with gaps, in the palette's bright band at low alpha so
+      // they read as lit dust drifting, not fog banks.
       for (let k = 0; k < 9; k++) {
-        const cx = rnd() * w, cy = h * (0.10 + rnd() * 0.72);
-        const rx = 90 + rnd() * 170, ry = 3 + rnd() * 6;
-        ctx.fillStyle = silColor(td.palette.bright, 1.0, 0.05 + rnd() * 0.04);
-        ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+        const sx = rnd() * w, sy = h * (0.10 + rnd() * 0.72);
+        const slope = (rnd() - 0.5) * 0.35;
+        const puffs = 2 + Math.floor(rnd() * 3);
+        for (let p = 0; p < puffs; p++) {
+          const cx = sx + p * (34 + rnd() * 30), cy = sy + slope * (cx - sx);
+          const rx = 26 + rnd() * 40, ry = rx * (0.16 + rnd() * 0.08);
+          const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rx);
+          const a = 0.05 + rnd() * 0.04;
+          g.addColorStop(0, silColor(td.palette.bright, 1.0, a));
+          g.addColorStop(1, silColor(td.palette.bright, 1.0, 0));
+          ctx.save();
+          ctx.translate(cx, cy); ctx.scale(1, ry / rx); ctx.translate(-cx, -cy);
+          ctx.fillStyle = g;
+          ctx.beginPath(); ctx.arc(cx, cy, rx, 0, Math.PI * 2); ctx.fill();
+          ctx.restore();
+        }
       }
       // Pottery shards: small angular pieces with one lit edge.
       for (let k = 0; k < 13; k++) {
@@ -2406,21 +2425,32 @@ function paintGroundDune(ctx: CanvasRenderingContext2D, w: number, h: number, td
     ctx.fillRect(0, 8, w, 26);
     // Sand mass below the line.
     const grad2 = ctx.createLinearGradient(0, 26, 0, h);
-    grad2.addColorStop(0, silColor(td.palette.deep, 0.34));
-    grad2.addColorStop(1, silColor(td.palette.deep, 0.20));
+    grad2.addColorStop(0, silColor(td.palette.deep, 0.46));
+    grad2.addColorStop(1, silColor(td.palette.deep, 0.28));
     ctx.fillStyle = grad2;
     ctx.beginPath();
     ctx.moveTo(0, yAt(0));
     for (let x = 16; x <= w; x += 16) ctx.lineTo(x, yAt(x));
     ctx.lineTo(w, h); ctx.lineTo(0, h);
     ctx.closePath(); ctx.fill();
-    // The ridge line itself, sunlit.
-    ctx.beginPath();
-    ctx.moveTo(0, yAt(0));
-    for (let x = 8; x <= w; x += 8) ctx.lineTo(x, yAt(x));
-    ctx.strokeStyle = silColor(td.palette.mid, 1.0, 0.6);
+    // The ridge line, sunlit in BROKEN segments: a continuous
+    // full-width stroke read as a floating glowing line when
+    // the ground strip transited the screen (the World 1 redo
+    // rule). Seeded runs of 14 to 34 px with 10 to 24 px gaps,
+    // alpha varying, so the light sits on the ridge in patches
+    // the way sun catches a dune crest.
     ctx.lineWidth = 3;
-    ctx.stroke();
+    ctx.lineCap = 'round';
+    let sx = 0;
+    while (sx < w) {
+      const run = 14 + rnd() * 20, gap = 10 + rnd() * 14;
+      ctx.strokeStyle = silColor(td.palette.mid, 1.0, 0.3 + rnd() * 0.3);
+      ctx.beginPath();
+      ctx.moveTo(sx, yAt(sx));
+      for (let x = sx + 4; x <= Math.min(w, sx + run); x += 4) ctx.lineTo(x, yAt(x));
+      ctx.stroke();
+      sx += run + gap;
+    }
     // Half-buried ruins: block tops and one broken column,
     // sunk into the ridge at their bases.
     ctx.fillStyle = silColor(td.palette.deep, 0.55);
