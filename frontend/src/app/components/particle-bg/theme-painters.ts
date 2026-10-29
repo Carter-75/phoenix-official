@@ -403,65 +403,264 @@ export function themePainters(worldIndex: number) {
     }
   }
 
-  // World 1 far: black basalt spires and broken arches.
+  // World 1 far: a deep ember sky with ash cloud bands over two
+  // ranges of basalt spires. Rebuilt Oct 28, 2026 (Carter: the old
+  // backdrop read as broken: faint spire stripes in a near-empty
+  // field). Everything is designed at the scale the game shows
+  // (the tile is magnified about 3x on screen): bold jagged
+  // polygons with real variation and facet shading, no hairline
+  // detail. Shapes are generated once into lists, then drawn at
+  // the three wrap offsets, so the horizontal wrap copies are the
+  // same shapes (a re-rolled copy is not a copy). The bright
+  // accents live in the mid layer and the ground shelf; this
+  // layer is sky and silhouette only, and its mid field stays
+  // vertically gentle for the scroll seam crossfade.
 function paintEmberFar(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
     const rnd = themeRng(101);
-    const fill = silColor(td.palette.deep, 0.32);
-    const base = h * 0.99;
-    ctx.fillStyle = fill;
-    tiled(ctx, w, () => {
-      let x = -20;
-      while (x < w * 0.7) {
-        const sw = 14 + rnd() * 32;
-        const sh = h * (0.16 + rnd() * 0.20);
-        ctx.beginPath();
-        ctx.moveTo(x, base);
-        ctx.lineTo(x + sw * 0.18, base - sh * 0.82);
-        ctx.lineTo(x + sw * (0.38 + rnd() * 0.2), base - sh);
-        ctx.lineTo(x + sw * (0.66 + rnd() * 0.16), base - sh * 0.78);
-        ctx.lineTo(x + sw, base);
-        ctx.closePath(); ctx.fill();
-        x += sw + 6 + rnd() * 30;
+    const P = td.palette;
+    const base = h * 0.995;
+    // Ash cloud bands: wide, soft, low contrast strata.
+    type Band = { cx: number; cy: number; rw: number; rh: number; smoke: boolean; a: number };
+    const bands: Band[] = [];
+    for (let k = 0; k < 6; k++) {
+      bands.push({
+        cx: rnd() * w, cy: h * (0.05 + rnd() * 0.52),
+        rw: w * (0.30 + rnd() * 0.32), rh: 16 + rnd() * 30,
+        smoke: rnd() < 0.45, a: 0.05 + rnd() * 0.05,
+      });
+    }
+    // Spire ranges: back range taller and dimmer, front range
+    // bolder. A spire is a jagged polygon: jittered sides rising
+    // to a broken two-peak top, some carrying a facet plane.
+    type Spire = { pts: [number, number][]; facet: [number, number][] | null };
+    const genRange = (tone: string, hMin: number, hMax: number, wMin: number, wMax: number, gMin: number, gMax: number): { tone: string; spires: Spire[] } => {
+      const spires: Spire[] = [];
+      let x = -40;
+      while (x < w + 40) {
+        const wid = wMin + rnd() * (wMax - wMin);
+        const hgt = h * (hMin + rnd() * (hMax - hMin));
+        const top = base - hgt;
+        const lean = (rnd() - 0.5) * wid * 0.22;
+        const p1x = x + wid * (0.30 + rnd() * 0.14), p1y = top + rnd() * hgt * 0.05;
+        const nx = x + wid * (0.48 + rnd() * 0.12), ny = top + hgt * (0.05 + rnd() * 0.07);
+        const p2x = x + wid * (0.66 + rnd() * 0.16), p2y = top + rnd() * hgt * 0.06;
+        const pts: [number, number][] = [
+          [x, base],
+          [x + wid * (0.08 + rnd() * 0.10), base - hgt * (0.42 + rnd() * 0.16)],
+          [p1x + lean * 0.4, p1y],
+          [nx + lean * 0.6, ny],
+          [p2x + lean * 0.8, p2y],
+          [x + wid * (0.88 + rnd() * 0.08), base - hgt * (0.40 + rnd() * 0.18)],
+          [x + wid, base],
+        ];
+        let facet: [number, number][] | null = null;
+        if (rnd() < 0.55) {
+          facet = [
+            [p1x + lean * 0.4, p1y],
+            [nx + lean * 0.6, ny],
+            [x + wid * (0.40 + rnd() * 0.10), base - hgt * 0.30],
+            [x + wid * (0.26 + rnd() * 0.08), base],
+            [x + wid * 0.10, base],
+          ];
+        }
+        spires.push({ pts, facet });
+        x += wid + gMin + rnd() * (gMax - gMin);
       }
-      // Broken arches: two pillars and a half-ring band, the opening
-      // left transparent so the sky glow shows through the ruin.
-      for (let k = 0; k < 2; k++) {
-        const ax = w * (0.24 + 0.44 * k) + rnd() * 40;
-        const aw = 84 + rnd() * 40, ah = h * (0.30 + rnd() * 0.10), pw = 16;
-        ctx.fillRect(ax, base - ah, pw, ah);
-        ctx.fillRect(ax + aw - pw, base - ah, pw, ah);
-        ctx.beginPath();
-        ctx.arc(ax + aw / 2, base - ah + pw, aw / 2 - pw / 2, Math.PI, 0);
-        ctx.lineWidth = pw;
-        ctx.strokeStyle = fill;
-        ctx.stroke();
+      return { tone, spires };
+    };
+    const rangeA = genRange(silColor(P.deep, 0.60), 0.22, 0.55, 22, 56, 4, 40);
+    const rangeB = genRange(silColor(P.deep, 0.80), 0.15, 0.40, 18, 48, 12, 64);
+    tiled(ctx, w, () => {
+      for (const b of bands) {
+        ctx.save();
+        ctx.translate(b.cx, b.cy);
+        ctx.scale(1, b.rh / b.rw);
+        const g = ctx.createRadialGradient(0, 0, 0, 0, 0, b.rw);
+        if (b.smoke) {
+          g.addColorStop(0, `rgba(0,0,0,${b.a})`);
+          g.addColorStop(1, 'rgba(0,0,0,0)');
+        } else {
+          g.addColorStop(0, silColor(P.deep, 0.95, b.a));
+          g.addColorStop(1, silColor(P.deep, 0.95, 0));
+        }
+        ctx.fillStyle = g;
+        ctx.fillRect(-b.rw, -b.rw, b.rw * 2, b.rw * 2);
+        ctx.restore();
+      }
+      for (const range of [rangeA, rangeB]) {
+        for (const s of range.spires) {
+          ctx.fillStyle = range.tone;
+          ctx.beginPath();
+          s.pts.forEach(([px, py], i) => i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py));
+          ctx.closePath(); ctx.fill();
+          if (s.facet) {
+            ctx.fillStyle = silColor(P.deep, range === rangeA ? 0.74 : 0.97, 0.55);
+            ctx.beginPath();
+            s.facet.forEach(([px, py], i) => i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py));
+            ctx.closePath(); ctx.fill();
+          }
+        }
       }
     });
   }
 
-  // World 1 mid: drifting slag boulders, rim-lit orange from below.
+  // World 1 mid: basalt cliff formations with facet shading and
+  // lava in the rock, plus jagged debris chunks at their bases.
+  // Rebuilt Oct 28, 2026: the old mid painted small dark ellipses
+  // with a gold rim arc under each; magnified about 3x by the
+  // backdrop plane they read as giant flat discs with smiles.
+  // The chunks here are irregular polygons no wider than about
+  // 34 canvas px (about 15 percent of the screen at in-game
+  // magnification), and no ellipse-plus-arc shape remains. Lava
+  // exists only as short cracks descending inside formations
+  // and small pools at their bases: nothing horizontal, nothing
+  // continuous, nothing in open sky.
 function paintEmberMid(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
     const rnd = themeRng(102);
-    const fill = silColor(td.palette.deep, 0.45);
+    const P = td.palette;
+    const base = h * 0.995;
+    type Crack = { pts: [number, number][]; pool: number };
+    type Formation = {
+      pts: [number, number][]; facetL: [number, number][]; facetR: [number, number][];
+      cracks: Crack[]; glowX: number; glowR: number;
+    };
+    const formations: Formation[] = [];
+    const genFormation = (x: number, wid: number, hgt: number): Formation => {
+      const top = base - hgt;
+      // Broken top ridge: 3 to 5 points across, jittered.
+      const ridge: [number, number][] = [];
+      const nR = 3 + Math.floor(rnd() * 3);
+      for (let i = 0; i < nR; i++) {
+        ridge.push([x + wid * (0.16 + (0.68 * i) / (nR - 1)), top + rnd() * hgt * 0.10]);
+      }
+      const pts: [number, number][] = [
+        [x, base],
+        [x + wid * (0.02 + rnd() * 0.05), base - hgt * (0.45 + rnd() * 0.15)],
+        [x + wid * (0.10 + rnd() * 0.06), top + hgt * (0.10 + rnd() * 0.10)],
+        ...ridge,
+        [x + wid * (0.90 + rnd() * 0.05), top + hgt * (0.12 + rnd() * 0.10)],
+        [x + wid * (0.97 + rnd() * 0.03), base - hgt * (0.42 + rnd() * 0.16)],
+        [x + wid, base],
+      ];
+      const facetL: [number, number][] = [
+        ridge[0],
+        [x + wid * (0.44 + rnd() * 0.08), top + hgt * (0.30 + rnd() * 0.14)],
+        [x + wid * (0.34 + rnd() * 0.08), base],
+        [x + wid * 0.06, base],
+        [x + wid * (0.05 + rnd() * 0.04), base - hgt * 0.55],
+      ];
+      const facetR: [number, number][] = [
+        ridge[ridge.length - 1],
+        [x + wid * (0.60 + rnd() * 0.08), top + hgt * (0.34 + rnd() * 0.14)],
+        [x + wid * (0.70 + rnd() * 0.08), base],
+        [x + wid * 0.96, base],
+        [x + wid * (0.94 + rnd() * 0.03), base - hgt * 0.50],
+      ];
+      const cracks: Crack[] = [];
+      const nC = 1 + Math.floor(rnd() * 2);
+      for (let c = 0; c < nC; c++) {
+        let cxp = x + wid * (0.25 + rnd() * 0.5);
+        let cyp = top + hgt * (0.08 + rnd() * 0.20);
+        const cp: [number, number][] = [[cxp, cyp]];
+        const segs = 3 + Math.floor(rnd() * 3);
+        for (let sIdx = 0; sIdx < segs; sIdx++) {
+          cxp += (rnd() - 0.5) * 26;
+          cyp += 13 + rnd() * 15;
+          cp.push([cxp, cyp]);
+        }
+        cracks.push({ pts: cp, pool: base - cyp < 46 ? 11 + rnd() * 9 : 0 });
+      }
+      return { pts, facetL, facetR, cracks, glowX: x + wid / 2, glowR: wid * (0.5 + rnd() * 0.14) };
+    };
+    let fx = -30;
+    while (fx < w + 30) {
+      const wid = 100 + rnd() * 90;
+      const hgt = 140 + rnd() * 95;
+      formations.push(genFormation(fx, wid, hgt));
+      if (rnd() < 0.6) {
+        // A shoulder block leaning on the main massif.
+        formations.push(genFormation(fx + wid * (0.72 + rnd() * 0.2), 50 + rnd() * 42, 60 + rnd() * 62));
+      }
+      fx += wid + 26 + rnd() * 88;
+    }
+    // Debris chunks: jagged polygons, generated once.
+    type Chunk = { pts: [number, number][]; facet: [number, number][]; ember: [number, number][] | null };
+    const chunks: Chunk[] = [];
+    const genChunk = (cx: number, cy: number, r: number): Chunk => {
+      const n = 6 + Math.floor(rnd() * 3);
+      const rot = rnd() * Math.PI * 2;
+      const verts: [number, number][] = [];
+      for (let i = 0; i < n; i++) {
+        const a = rot + (i / n) * Math.PI * 2;
+        const rr = r * (0.65 + rnd() * 0.5);
+        verts.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr * 0.82]);
+      }
+      const facet: [number, number][] = [verts[0], verts[1], verts[2], [cx, cy]];
+      const ember: [number, number][] | null = rnd() < 0.45
+        ? [verts[Math.floor(n * 0.55)], verts[Math.floor(n * 0.55) + 1] || verts[0]] : null;
+      return { pts: verts, facet, ember };
+    };
+    for (let k = 0; k < 9; k++) chunks.push(genChunk(rnd() * w, h * (0.80 + rnd() * 0.165), 8 + rnd() * 9));
+    for (let k = 0; k < 3; k++) chunks.push(genChunk(rnd() * w, h * (0.70 + rnd() * 0.08), 6 + rnd() * 4));
+    const trace = (pts: [number, number][]) => {
+      ctx.beginPath();
+      pts.forEach(([px, py], i) => i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py));
+      ctx.closePath();
+    };
     tiled(ctx, w, () => {
-      for (let k = 0; k < 12; k++) {
-        const cx = rnd() * w, cy = h * (0.68 + rnd() * 0.26);
-        const rx = 16 + rnd() * 26, ry = rx * (0.45 + rnd() * 0.2);
-        ctx.fillStyle = fill;
-        ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
-        // Rim light, feathered (Carter, Oct 28): the single hard
-        // 3 px stroke read as a stray gold ring segment once the
-        // scrolling backdrop magnified a boulder across the
-        // screen (the arc in the texture analysis,
-        // backdrop-boulder-rims-hard.png). The same bottom arc
-        // is now laid in three passes, wide and faint to narrow
-        // and strongest, so the light diffuses off the rim like
-        // glow instead of ending at a drawn line. Same arc, same
-        // bright palette color, softer edge.
-        for (const pass of [[10, 0.08], [6, 0.14], [3, 0.22]] as const) {
-          ctx.strokeStyle = silColor(td.palette.bright, 1.0, pass[1]);
-          ctx.lineWidth = pass[0];
-          ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke();
+      for (const f of formations) {
+        // Heat glow pooled at the formation's base.
+        ctx.save();
+        ctx.translate(f.glowX, base);
+        ctx.scale(1, 20 / f.glowR);
+        const gg = ctx.createRadialGradient(0, 0, 0, 0, 0, f.glowR);
+        gg.addColorStop(0, silColor(P.mid, 1.0, 0.10));
+        gg.addColorStop(1, silColor(P.mid, 1.0, 0));
+        ctx.fillStyle = gg;
+        ctx.fillRect(-f.glowR, -f.glowR, f.glowR * 2, f.glowR * 2);
+        ctx.restore();
+        ctx.fillStyle = silColor(P.deep, 0.88);
+        trace(f.pts); ctx.fill();
+        ctx.fillStyle = silColor(P.deep, 1.04, 0.80);
+        trace(f.facetL); ctx.fill();
+        ctx.fillStyle = silColor(P.deep, 0.64, 0.80);
+        trace(f.facetR); ctx.fill();
+        for (const cr of f.cracks) {
+          ctx.lineJoin = 'round';
+          ctx.strokeStyle = silColor(P.mid, 1.0, 0.30);
+          ctx.lineWidth = 6;
+          ctx.beginPath();
+          cr.pts.forEach(([px, py], i) => i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py));
+          ctx.stroke();
+          ctx.strokeStyle = silColor(P.bright, 0.95, 0.80);
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          cr.pts.forEach(([px, py], i) => i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py));
+          ctx.stroke();
+          if (cr.pool > 0) {
+            const [ex, ey] = cr.pts[cr.pts.length - 1];
+            const pg = ctx.createRadialGradient(ex, ey, 0, ex, ey, cr.pool);
+            pg.addColorStop(0, silColor(P.mid, 1.0, 0.35));
+            pg.addColorStop(1, silColor(P.mid, 1.0, 0));
+            ctx.fillStyle = pg;
+            ctx.fillRect(ex - cr.pool, ey - cr.pool, cr.pool * 2, cr.pool * 2);
+            ctx.fillStyle = silColor(P.bright, 1.0, 0.6);
+            ctx.beginPath(); ctx.arc(ex, ey, 2.5, 0, Math.PI * 2); ctx.fill();
+          }
+        }
+      }
+      for (const ch of chunks) {
+        ctx.fillStyle = silColor(P.deep, 0.95);
+        trace(ch.pts); ctx.fill();
+        ctx.fillStyle = silColor(P.deep, 1.08, 0.55);
+        trace(ch.facet); ctx.fill();
+        if (ch.ember) {
+          ctx.strokeStyle = silColor(P.mid, 0.9, 0.5);
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.moveTo(ch.ember[0][0], ch.ember[0][1]);
+          ctx.lineTo(ch.ember[1][0], ch.ember[1][1]);
+          ctx.stroke();
         }
       }
     });
@@ -558,42 +757,115 @@ function paintVoidMid(ctx: CanvasRenderingContext2D, w: number, h: number, td: W
     });
   }
 
-  // World 1 ground: a lava glow line with pulses traveling along it
-  // (the render loop scrolls this texture slowly). The line is a sum
-  // of whole-period sines so it wraps seamlessly.
+  // World 1 ground: a broken basalt shelf, not a lava line.
+  // Rebuilt Oct 28, 2026: the old painter drew a thin glowing
+  // lava line with pulses as a ground feature of the static
+  // scene; once the backdrop scrolled and wrapped, the line
+  // floated across open sky at arbitrary heights (Carter's
+  // phone screenshots). The shelf is dark rock: a jagged
+  // whole-period ridge profile (x-periodic by construction),
+  // crags on the ridge, facet shading inside the mass, and a
+  // bottom edge that fades out so the stratum dissolves into
+  // the scene at any scroll phase. Lava lives only inside the
+  // rock: three short trickles running down the face from
+  // cracks, small pools where they land, and two short seams
+  // on the ridge surface, all broken by long dark gaps. Hard
+  // rule kept: no continuous horizontal glowing line anywhere.
 function paintGroundLava(ctx: CanvasRenderingContext2D, w: number, h: number, td: WorldTheme) {
-    const yAt = (x: number) => 30 + 7 * Math.sin((2 * Math.PI * 3 * x) / w) + 4 * Math.sin((2 * Math.PI * 7 * x) / w + 1.3);
-    // Deep glow wash under the line.
-    const grad = ctx.createLinearGradient(0, 24, 0, h);
-    grad.addColorStop(0, silColor(td.palette.mid, 1.0, 0.13));
-    grad.addColorStop(1, silColor(td.palette.mid, 1.0, 0));
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 24, w, h - 24);
-    // Rock mass below the line.
-    ctx.fillStyle = silColor(td.palette.deep, 0.22);
+    const rnd = themeRng(103);
+    const P = td.palette;
+    const ridgeY = (x: number) => 36 + 9 * Math.sin((2 * Math.PI * 2 * x) / w + 0.7)
+      + 6 * Math.sin((2 * Math.PI * 5 * x) / w + 2.1) + 4 * Math.sin((2 * Math.PI * 11 * x) / w + 4.0);
+    // Rock mass below the ridge profile.
+    ctx.fillStyle = silColor(P.deep, 0.68);
     ctx.beginPath();
-    ctx.moveTo(0, yAt(0));
-    for (let x = 16; x <= w; x += 16) ctx.lineTo(x, yAt(x));
+    ctx.moveTo(0, ridgeY(0));
+    for (let x = 8; x <= w; x += 8) ctx.lineTo(x, ridgeY(x));
     ctx.lineTo(w, h); ctx.lineTo(0, h);
     ctx.closePath(); ctx.fill();
-    // The lava line itself, with a soft bloom.
-    ctx.beginPath();
-    ctx.moveTo(0, yAt(0));
-    for (let x = 8; x <= w; x += 8) ctx.lineTo(x, yAt(x));
-    ctx.strokeStyle = silColor(td.palette.mid, 1.0, 0.95);
-    ctx.lineWidth = 4;
-    ctx.shadowColor = silColor(td.palette.mid, 1.0, 0.9);
-    ctx.shadowBlur = 16;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    // Brighter pulses spaced along the line.
-    for (let x = 40; x < w; x += 128) {
-      const g = ctx.createRadialGradient(x, yAt(x), 1, x, yAt(x), 17);
-      g.addColorStop(0, silColor(td.palette.bright, 1.0, 0.55));
-      g.addColorStop(1, silColor(td.palette.bright, 1.0, 0));
-      ctx.fillStyle = g;
-      ctx.fillRect(x - 17, yAt(x) - 17, 34, 34);
+    // Crags standing on the ridge.
+    for (let k = 0; k < 5; k++) {
+      const cx = rnd() * w, cw = 26 + rnd() * 28, ch = 14 + rnd() * 20;
+      const ry = ridgeY(cx);
+      ctx.fillStyle = silColor(P.deep, 0.68);
+      ctx.beginPath();
+      ctx.moveTo(cx - cw / 2, ry + 3);
+      ctx.lineTo(cx - cw * (0.14 + rnd() * 0.1), ry - ch * (0.55 + rnd() * 0.2));
+      ctx.lineTo(cx + cw * (0.02 + rnd() * 0.12), ry - ch);
+      ctx.lineTo(cx + cw * (0.24 + rnd() * 0.1), ry - ch * (0.5 + rnd() * 0.2));
+      ctx.lineTo(cx + cw / 2, ry + 3);
+      ctx.closePath(); ctx.fill();
     }
+    // Facet shading inside the mass.
+    for (let k = 0; k < 6; k++) {
+      const fx = rnd() * w, fy = ridgeY(fx) + 14 + rnd() * (h * 0.4);
+      const fw = 40 + rnd() * 70, fh = 12 + rnd() * 20;
+      ctx.fillStyle = silColor(P.deep, rnd() < 0.5 ? 0.50 : 0.85, 0.55);
+      ctx.beginPath();
+      ctx.moveTo(fx, fy);
+      ctx.lineTo(fx + fw, fy + (rnd() - 0.5) * 8);
+      ctx.lineTo(fx + fw * (0.7 + rnd() * 0.3), fy + fh);
+      ctx.lineTo(fx + fw * (0.1 + rnd() * 0.2), fy + fh * (0.8 + rnd() * 0.3));
+      ctx.closePath(); ctx.fill();
+    }
+    // Lava trickles: short flows down the rock face from cracks,
+    // each ending in a small pool. Vertical, broken, sparse.
+    for (let k = 0; k < 3; k++) {
+      let tx = rnd() * w;
+      let ty = ridgeY(tx) + 2;
+      const pts: [number, number][] = [[tx, ty]];
+      const segs = 3 + Math.floor(rnd() * 2);
+      for (let s = 0; s < segs; s++) {
+        tx += (rnd() - 0.5) * 12;
+        ty += 9 + rnd() * 8;
+        pts.push([tx, ty]);
+      }
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = silColor(P.mid, 1.0, 0.28);
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      pts.forEach(([px, py], i) => i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py));
+      ctx.stroke();
+      ctx.strokeStyle = silColor(P.bright, 0.95, 0.75);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      pts.forEach(([px, py], i) => i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py));
+      ctx.stroke();
+      const [ex, ey] = pts[pts.length - 1];
+      const pr = 9 + rnd() * 5;
+      const pg = ctx.createRadialGradient(ex, ey, 0, ex, ey, pr);
+      pg.addColorStop(0, silColor(P.mid, 1.0, 0.32));
+      pg.addColorStop(1, silColor(P.mid, 1.0, 0));
+      ctx.fillStyle = pg;
+      ctx.fillRect(ex - pr, ey - pr, pr * 2, pr * 2);
+    }
+    // Two short seams glowing on the ridge surface itself.
+    for (let k = 0; k < 2; k++) {
+      const sx = rnd() * w, len = 15 + rnd() * 9;
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = silColor(P.mid, 1.0, 0.25);
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(sx, ridgeY(sx));
+      ctx.lineTo(sx + len * 0.5, ridgeY(sx + len * 0.5) + 1);
+      ctx.lineTo(sx + len, ridgeY(sx + len));
+      ctx.stroke();
+      ctx.strokeStyle = silColor(P.bright, 0.95, 0.65);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sx, ridgeY(sx));
+      ctx.lineTo(sx + len * 0.5, ridgeY(sx + len * 0.5) + 1);
+      ctx.lineTo(sx + len, ridgeY(sx + len));
+      ctx.stroke();
+    }
+    // The shelf's bottom edge dissolves into the scene.
+    const fade = ctx.createLinearGradient(0, h * 0.45, 0, h);
+    fade.addColorStop(0, 'rgba(0,0,0,0)');
+    fade.addColorStop(1, 'rgba(0,0,0,0.92)');
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = fade;
+    ctx.fillRect(0, h * 0.45, w, h * 0.55);
+    ctx.globalCompositeOperation = 'source-over';
   }
 
   // World 2 ground: abyssal dark with faint blue vent glows.
