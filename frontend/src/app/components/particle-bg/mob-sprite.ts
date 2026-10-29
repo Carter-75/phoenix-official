@@ -789,6 +789,447 @@ export function getBoltSpriteSet(variant: 'amber' | 'violet'): MobSpriteSet {
 }
 
 // ------------------------------------------------------------------
+// Ability sprites (Fix Round 2, A10): every ability gets its own
+// drawn look, keyed by body type + moveId (the executor already
+// stamps moveId on its projectiles; the direct fire spawns were
+// tagged for this). Shapes are drawn facing up and rotated to
+// travel by entity-sync, like the A6 bolts. Enemy casts of the
+// same moves take a hostile-shifted palette (and the watched
+// bird's casts in ai_vs_ai a violet shift), following the shipped
+// ownership color rule, so a friendly effect never reads hostile.
+// Mechanics are untouched: only the rendering of the same bodies
+// changes.
+// ------------------------------------------------------------------
+export type AbilityVariant = 'player' | 'hostile' | 'violet';
+export interface AbilitySpriteDef { sx: number; sy: number; pal: MobPalette; paint: Painter; }
+
+function flameBoltPaint(tips: number, wide: number): Painter {
+  return (ctx, cx, cy, u, pal) => {
+    const grad = ctx.createLinearGradient(0, cy - 1.3 * u, 0, cy + 1.4 * u);
+    grad.addColorStop(0, css(pal.core));
+    grad.addColorStop(0.4, css(pal.accent));
+    grad.addColorStop(1, css(pal.deep, 0.9));
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 1.35 * u);
+    ctx.bezierCurveTo(cx + wide * u, cy - 0.5 * u, cx + wide * 0.8 * u, cy + 0.3 * u, cx + wide * 0.3 * u, cy + 0.85 * u);
+    ctx.bezierCurveTo(cx + wide * 0.12 * u, cy + 1.15 * u, cx + wide * 0.06 * u, cy + 1.28 * u, cx, cy + 1.42 * u);
+    ctx.bezierCurveTo(cx - wide * 0.06 * u, cy + 1.28 * u, cx - wide * 0.12 * u, cy + 1.15 * u, cx - wide * 0.3 * u, cy + 0.85 * u);
+    ctx.bezierCurveTo(cx - wide * 0.8 * u, cy + 0.3 * u, cx - wide * u, cy - 0.5 * u, cx, cy - 1.35 * u);
+    ctx.fill();
+    if (tips > 1) {
+      for (const s of [-1, 1]) {
+        ctx.fillStyle = css(pal.body, 0.9);
+        poly(ctx, [[cx + s * wide * 0.55 * u, cy - 0.55 * u], [cx + s * wide * 1.05 * u, cy - 1.15 * u], [cx + s * wide * 0.95 * u, cy - 0.3 * u]]); ctx.fill();
+      }
+    }
+    glow(ctx, cx, cy - 0.6 * u, 0.4 * u, pal.core, 0.9);
+    ctx.fillStyle = css(pal.core);
+    ctx.beginPath(); ctx.ellipse(cx, cy - 0.62 * u, 0.16 * u, 0.27 * u, 0, 0, Math.PI * 2); ctx.fill();
+  };
+}
+
+const ABILITY_DEFS: Record<string, AbilitySpriteDef> = {
+  // Burst: a chunky three-tip flame bolt.
+  burst: { sx: 1.25, sy: 2.0, pal: { core: [1.0, 0.97, 0.85], body: [1.0, 0.55, 0.1], accent: [1.0, 0.8, 0.3], deep: [0.85, 0.25, 0.02] }, paint: flameBoltPaint(3, 0.62) },
+  // Inferno Wave: a radiant halo bolt.
+  inferno_wave: {
+    sx: 1.5, sy: 2.3, pal: { core: [1.0, 0.98, 0.9], body: [1.0, 0.62, 0.12], accent: [1.0, 0.85, 0.4], deep: [0.9, 0.3, 0.02] },
+    paint: (ctx, cx, cy, u, pal) => {
+      ctx.strokeStyle = css(pal.accent, 0.85); ctx.lineWidth = 0.09 * u;
+      circ(ctx, cx, cy - 0.55 * u, 0.52 * u); ctx.stroke();
+      flameBoltPaint(1, 0.5)(ctx, cx, cy, u, pal, 0);
+    },
+  },
+  // Phoenix Talon: three golden claw arcs in a fan.
+  phoenix_talon: {
+    sx: 1.7, sy: 1.9, pal: { core: [1.0, 0.95, 0.7], body: [1.0, 0.75, 0.25], accent: [1.0, 0.88, 0.45], deep: [0.8, 0.45, 0.05] },
+    paint: (ctx, cx, cy, u, pal) => {
+      for (const s of [-0.62, 0, 0.62]) {
+        ctx.strokeStyle = css(pal.body); ctx.lineWidth = 0.17 * u; ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(cx + s * u, cy + 0.75 * u);
+        ctx.quadraticCurveTo(cx + s * 1.25 * u, cy - 0.1 * u, cx + s * 0.55 * u, cy - 0.85 * u);
+        ctx.stroke();
+        ctx.strokeStyle = css(pal.core); ctx.lineWidth = 0.07 * u;
+        ctx.beginPath();
+        ctx.moveTo(cx + s * u, cy + 0.7 * u);
+        ctx.quadraticCurveTo(cx + s * 1.22 * u, cy - 0.1 * u, cx + s * 0.55 * u, cy - 0.82 * u);
+        ctx.stroke();
+      }
+      glow(ctx, cx, cy + 0.5 * u, 0.5 * u, pal.accent, 0.5);
+    },
+  },
+  // Fire Dart: a slim ember spearhead.
+  fire_dart: {
+    sx: 0.85, sy: 2.0, pal: { core: [1.0, 0.98, 0.92], body: [0.95, 0.3, 0.05], accent: [1.0, 0.6, 0.15], deep: [0.6, 0.12, 0.02] },
+    paint: (ctx, cx, cy, u, pal) => {
+      ctx.fillStyle = css(pal.body);
+      poly(ctx, [[cx, cy - 1.3 * u], [cx + 0.3 * u, cy - 0.1 * u], [cx + 0.16 * u, cy + 0.75 * u], [cx, cy + 0.45 * u], [cx - 0.16 * u, cy + 0.75 * u], [cx - 0.3 * u, cy - 0.1 * u]]); ctx.fill();
+      ctx.fillStyle = css(pal.accent);
+      poly(ctx, [[cx + 0.16 * u, cy + 0.75 * u], [cx + 0.42 * u, cy + 1.25 * u], [cx + 0.05 * u, cy + 1.05 * u]]); ctx.fill();
+      poly(ctx, [[cx - 0.16 * u, cy + 0.75 * u], [cx - 0.42 * u, cy + 1.25 * u], [cx - 0.05 * u, cy + 1.05 * u]]); ctx.fill();
+      ctx.fillStyle = css(pal.core);
+      poly(ctx, [[cx, cy - 1.3 * u], [cx + 0.11 * u, cy - 0.35 * u], [cx, cy - 0.05 * u], [cx - 0.11 * u, cy - 0.35 * u]]); ctx.fill();
+    },
+  },
+  // Spark Storm: a crackling spark orb.
+  spark_storm: {
+    sx: 1.5, sy: 1.5, pal: { core: [1.0, 1.0, 1.0], body: [0.45, 0.85, 1.0], accent: [0.75, 0.95, 1.0], deep: [0.15, 0.5, 0.85] },
+    paint: (ctx, cx, cy, u, pal) => {
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + 0.5;
+        const x1 = cx + Math.cos(a) * 0.42 * u, y1 = cy + Math.sin(a) * 0.42 * u;
+        const x2 = cx + Math.cos(a) * 0.95 * u, y2 = cy + Math.sin(a) * 0.95 * u;
+        const mx = cx + Math.cos(a + 0.35) * 0.68 * u, my = cy + Math.sin(a + 0.35) * 0.68 * u;
+        ctx.strokeStyle = css(pal.accent); ctx.lineWidth = 0.09 * u;
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(mx, my); ctx.lineTo(x2, y2); ctx.stroke();
+      }
+      glow(ctx, cx, cy, 0.55 * u, pal.body, 0.8);
+      ctx.fillStyle = css(pal.body);
+      circ(ctx, cx, cy, 0.4 * u); ctx.fill();
+      ctx.fillStyle = css(pal.core);
+      circ(ctx, cx, cy, 0.2 * u); ctx.fill();
+    },
+  },
+  // Fire Lance: a long white-gold lance.
+  fire_lance: {
+    sx: 0.75, sy: 2.6, pal: { core: [1.0, 1.0, 0.98], body: [1.0, 0.85, 0.4], accent: [1.0, 0.92, 0.6], deep: [0.85, 0.55, 0.1] },
+    paint: (ctx, cx, cy, u, pal) => {
+      ctx.fillStyle = css(pal.body);
+      poly(ctx, [[cx - 0.09 * u, cy + 1.3 * u], [cx + 0.09 * u, cy + 1.3 * u], [cx + 0.09 * u, cy - 0.55 * u], [cx - 0.09 * u, cy - 0.55 * u]]); ctx.fill();
+      ctx.fillStyle = css(pal.accent);
+      poly(ctx, [[cx, cy - 1.35 * u], [cx + 0.2 * u, cy - 0.5 * u], [cx, cy - 0.3 * u], [cx - 0.2 * u, cy - 0.5 * u]]); ctx.fill();
+      ctx.fillStyle = css(pal.core);
+      poly(ctx, [[cx, cy - 1.35 * u], [cx + 0.08 * u, cy - 0.6 * u], [cx, cy - 0.42 * u], [cx - 0.08 * u, cy - 0.6 * u]]); ctx.fill();
+      ctx.fillStyle = css(pal.deep);
+      ctx.fillRect(cx - 0.3 * u, cy + 0.55 * u, 0.6 * u, 0.1 * u);
+      glow(ctx, cx, cy - 0.7 * u, 0.35 * u, pal.core, 0.7);
+    },
+  },
+  // Phoenix Nova: a radiant sun orb.
+  phoenix_nova: {
+    sx: 1.8, sy: 1.8, pal: { core: [1.0, 0.98, 0.88], body: [1.0, 0.65, 0.15], accent: [1.0, 0.85, 0.4], deep: [0.9, 0.35, 0.02] },
+    paint: (ctx, cx, cy, u, pal) => {
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        const bx = cx + Math.cos(a) * 0.55 * u, by = cy + Math.sin(a) * 0.55 * u;
+        const tx = cx + Math.cos(a) * 0.98 * u, ty = cy + Math.sin(a) * 0.98 * u;
+        const px = Math.cos(a + Math.PI / 2) * 0.13 * u, py = Math.sin(a + Math.PI / 2) * 0.13 * u;
+        ctx.fillStyle = css(pal.body);
+        poly(ctx, [[bx + px, by + py], [tx, ty], [bx - px, by - py]]); ctx.fill();
+      }
+      glow(ctx, cx, cy, 0.62 * u, pal.body, 0.85);
+      ctx.fillStyle = css(pal.body);
+      circ(ctx, cx, cy, 0.52 * u); ctx.fill();
+      ctx.fillStyle = css(pal.core);
+      circ(ctx, cx, cy, 0.28 * u); ctx.fill();
+    },
+  },
+  // Fire Breath: a layered flame tongue.
+  fire_breath: {
+    sx: 1.4, sy: 1.4, pal: { core: [1.0, 0.95, 0.75], body: [0.95, 0.4, 0.05], accent: [1.0, 0.7, 0.2], deep: [0.8, 0.2, 0.02] },
+    paint: (ctx, cx, cy, u, pal) => {
+      const tongue = (w: number, h: number, c: Rgb, a: number) => {
+        ctx.fillStyle = css(c, a);
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - h * u);
+        ctx.bezierCurveTo(cx + w * u, cy - h * 0.3 * u, cx + w * 0.8 * u, cy + h * 0.5 * u, cx, cy + h * 0.72 * u);
+        ctx.bezierCurveTo(cx - w * 0.8 * u, cy + h * 0.5 * u, cx - w * u, cy - h * 0.3 * u, cx, cy - h * u);
+        ctx.fill();
+      };
+      tongue(0.95, 1.0, pal.deep, 0.95);
+      tongue(0.72, 0.82, pal.body, 0.95);
+      tongue(0.45, 0.6, pal.accent, 0.95);
+      tongue(0.22, 0.38, pal.core, 1);
+    },
+  },
+  // Phoenix Turret shots: a round ember pellet with a stub tail.
+  turret_shot: {
+    sx: 1.1, sy: 1.6, pal: { core: [1.0, 0.96, 0.8], body: [1.0, 0.5, 0.08], accent: [1.0, 0.75, 0.3], deep: [0.85, 0.28, 0.02] },
+    paint: (ctx, cx, cy, u, pal) => {
+      ctx.fillStyle = css(pal.body, 0.9);
+      poly(ctx, [[cx - 0.2 * u, cy + 0.3 * u], [cx + 0.2 * u, cy + 0.3 * u], [cx, cy + 1.1 * u]]); ctx.fill();
+      glow(ctx, cx, cy - 0.1 * u, 0.55 * u, pal.body, 0.8);
+      ctx.fillStyle = css(pal.body);
+      circ(ctx, cx, cy - 0.1 * u, 0.48 * u); ctx.fill();
+      ctx.fillStyle = css(pal.core);
+      circ(ctx, cx, cy - 0.15 * u, 0.22 * u); ctx.fill();
+    },
+  },
+  // Turret return blast: an eight-spike starburst.
+  turret_blast: {
+    sx: 1.9, sy: 1.9, pal: { core: [1.0, 0.98, 0.9], body: [1.0, 0.6, 0.1], accent: [1.0, 0.82, 0.35], deep: [0.88, 0.32, 0.02] },
+    paint: (ctx, cx, cy, u, pal) => {
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2 + 0.2;
+        const long = i % 2 === 0 ? 0.98 : 0.7;
+        const bx = cx + Math.cos(a) * 0.3 * u, by = cy + Math.sin(a) * 0.3 * u;
+        const tx = cx + Math.cos(a) * long * u, ty = cy + Math.sin(a) * long * u;
+        const px = Math.cos(a + Math.PI / 2) * 0.11 * u, py = Math.sin(a + Math.PI / 2) * 0.11 * u;
+        ctx.fillStyle = css(pal.accent);
+        poly(ctx, [[bx + px, by + py], [tx, ty], [bx - px, by - py]]); ctx.fill();
+      }
+      glow(ctx, cx, cy, 0.5 * u, pal.body, 0.9);
+      ctx.fillStyle = css(pal.body);
+      circ(ctx, cx, cy, 0.34 * u); ctx.fill();
+      ctx.fillStyle = css(pal.core);
+      circ(ctx, cx, cy, 0.17 * u); ctx.fill();
+    },
+  },
+  // Solar Bomb fuse sparks: a small orb in a big soft halo.
+  solar_fuse: {
+    sx: 1.6, sy: 1.6, pal: { core: [1.0, 0.98, 0.9], body: [1.0, 0.78, 0.3], accent: [1.0, 0.9, 0.55], deep: [0.9, 0.55, 0.08] },
+    paint: (ctx, cx, cy, u, pal) => {
+      glow(ctx, cx, cy, 0.98 * u, pal.body, 0.65);
+      ctx.fillStyle = css(pal.body);
+      circ(ctx, cx, cy, 0.3 * u); ctx.fill();
+      ctx.fillStyle = css(pal.core);
+      circ(ctx, cx, cy, 0.15 * u); ctx.fill();
+      ctx.strokeStyle = css(pal.accent); ctx.lineWidth = 0.06 * u;
+      for (const [dx, dy] of [[0, -0.85], [0, 0.85], [-0.85, 0], [0.85, 0]] as Array<[number, number]>) {
+        ctx.beginPath(); ctx.moveTo(cx + dx * 0.55 * u, cy + dy * 0.55 * u); ctx.lineTo(cx + dx * u, cy + dy * u); ctx.stroke();
+      }
+    },
+  },
+  // Phoenix Inferno beam segments: a long bright streak.
+  inferno_beam: {
+    sx: 0.85, sy: 2.8, pal: { core: [1.0, 1.0, 0.95], body: [1.0, 0.55, 0.08], accent: [1.0, 0.8, 0.35], deep: [0.88, 0.3, 0.02] },
+    paint: (ctx, cx, cy, u, pal) => {
+      const grad = ctx.createLinearGradient(0, cy - 1.4 * u, 0, cy + 1.4 * u);
+      grad.addColorStop(0, css(pal.body, 0.25));
+      grad.addColorStop(0.5, css(pal.body, 0.95));
+      grad.addColorStop(1, css(pal.body, 0.25));
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.ellipse(cx, cy, 0.42 * u, 1.38 * u, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = css(pal.accent, 0.9);
+      ctx.beginPath(); ctx.ellipse(cx, cy, 0.22 * u, 1.3 * u, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = css(pal.core);
+      ctx.beginPath(); ctx.ellipse(cx, cy, 0.09 * u, 1.22 * u, 0, 0, Math.PI * 2); ctx.fill();
+    },
+  },
+  // Supernova telegraph embers: a mote with an upward flicker.
+  supernova_ember: {
+    sx: 1.4, sy: 1.7, pal: { core: [1.0, 0.97, 0.85], body: [1.0, 0.55, 0.1], accent: [1.0, 0.78, 0.3], deep: [0.88, 0.3, 0.02] },
+    paint: (ctx, cx, cy, u, pal) => {
+      ctx.fillStyle = css(pal.body, 0.9);
+      poly(ctx, [[cx - 0.14 * u, cy - 0.1 * u], [cx + 0.14 * u, cy - 0.1 * u], [cx, cy - 0.95 * u]]); ctx.fill();
+      glow(ctx, cx, cy + 0.15 * u, 0.6 * u, pal.body, 0.8);
+      ctx.fillStyle = css(pal.body);
+      circ(ctx, cx, cy + 0.15 * u, 0.42 * u); ctx.fill();
+      ctx.fillStyle = css(pal.core);
+      circ(ctx, cx, cy + 0.12 * u, 0.2 * u); ctx.fill();
+    },
+  },
+  // Divine Wrath columns: a tall gold-white pillar shard.
+  wrath_column: {
+    sx: 1.0, sy: 2.5, pal: { core: [1.0, 1.0, 0.96], body: [1.0, 0.82, 0.35], accent: [1.0, 0.92, 0.6], deep: [0.9, 0.6, 0.1] },
+    paint: (ctx, cx, cy, u, pal) => {
+      glow(ctx, cx, cy, 0.9 * u, pal.body, 0.5);
+      ctx.fillStyle = css(pal.body, 0.92);
+      poly(ctx, [[cx, cy - 1.4 * u], [cx + 0.3 * u, cy - 0.5 * u], [cx + 0.22 * u, cy + 0.8 * u], [cx, cy + 1.4 * u], [cx - 0.22 * u, cy + 0.8 * u], [cx - 0.3 * u, cy - 0.5 * u]]); ctx.fill();
+      ctx.fillStyle = css(pal.core);
+      poly(ctx, [[cx, cy - 1.25 * u], [cx + 0.11 * u, cy - 0.4 * u], [cx + 0.08 * u, cy + 0.8 * u], [cx, cy + 1.25 * u], [cx - 0.08 * u, cy + 0.8 * u], [cx - 0.11 * u, cy - 0.4 * u]]); ctx.fill();
+    },
+  },
+  // Phoenix Singularity swirl: a violet orb with spiral arms.
+  singularity_swirl: {
+    sx: 1.6, sy: 1.6, pal: { core: [0.95, 0.9, 1.0], body: [0.55, 0.3, 0.9], accent: [0.8, 0.6, 1.0], deep: [0.25, 0.1, 0.5] },
+    paint: (ctx, cx, cy, u, pal) => {
+      for (let k = 0; k < 3; k++) {
+        const a0 = (k / 3) * Math.PI * 2;
+        ctx.strokeStyle = css(pal.body); ctx.lineWidth = 0.16 * u; ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.arc(cx + Math.cos(a0) * 0.3 * u, cy + Math.sin(a0) * 0.3 * u, 0.55 * u, a0, a0 + 2.2);
+        ctx.stroke();
+      }
+      glow(ctx, cx, cy, 0.45 * u, pal.accent, 0.8);
+      ctx.fillStyle = css(pal.deep);
+      circ(ctx, cx, cy, 0.3 * u); ctx.fill();
+      ctx.fillStyle = css(pal.core);
+      circ(ctx, cx, cy, 0.11 * u); ctx.fill();
+    },
+  },
+  // Rebirth volcanic fire: a ragged deep ember.
+  rebirth_fire: {
+    sx: 1.5, sy: 1.5, pal: { core: [1.0, 0.9, 0.6], body: [0.9, 0.3, 0.04], accent: [1.0, 0.55, 0.12], deep: [0.55, 0.1, 0.02] },
+    paint: (ctx, cx, cy, u, pal) => {
+      for (let i = 0; i < 7; i++) {
+        const a = (i / 7) * Math.PI * 2 + 0.3;
+        const tx = cx + Math.cos(a) * 0.92 * u, ty = cy + Math.sin(a) * 0.92 * u;
+        const bx = cx + Math.cos(a + 0.45) * 0.45 * u, by = cy + Math.sin(a + 0.45) * 0.45 * u;
+        const b2x = cx + Math.cos(a - 0.45) * 0.45 * u, b2y = cy + Math.sin(a - 0.45) * 0.45 * u;
+        ctx.fillStyle = css(pal.body);
+        poly(ctx, [[bx, by], [tx, ty], [b2x, b2y]]); ctx.fill();
+      }
+      glow(ctx, cx, cy, 0.55 * u, pal.accent, 0.85);
+      ctx.fillStyle = css(pal.body);
+      circ(ctx, cx, cy, 0.48 * u); ctx.fill();
+      ctx.fillStyle = css(pal.core);
+      circ(ctx, cx, cy, 0.22 * u); ctx.fill();
+    },
+  },
+  // Flame Tornado: a painted flame spiral (the mesh spins it).
+  flame_tornado: {
+    sx: 1.05, sy: 1.05, pal: { core: [1.0, 0.9, 0.55], body: [0.95, 0.45, 0.08], accent: [1.0, 0.75, 0.25], deep: [0.85, 0.3, 0.02] },
+    paint: (ctx, cx, cy, u, pal) => {
+      for (let arm = 0; arm < 3; arm++) {
+        ctx.strokeStyle = css(arm === 0 ? pal.accent : pal.body); ctx.lineWidth = 0.2 * u; ctx.lineCap = 'round';
+        ctx.beginPath();
+        for (let i = 0; i <= 24; i++) {
+          const f = i / 24;
+          const a = arm * (Math.PI * 2 / 3) + f * 4.6;
+          const r = 0.12 + f * 0.82;
+          const x = cx + Math.cos(a) * r * u, y = cy + Math.sin(a) * r * u;
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+      glow(ctx, cx, cy, 0.35 * u, pal.core, 0.8);
+      ctx.fillStyle = css(pal.core);
+      circ(ctx, cx, cy, 0.13 * u); ctx.fill();
+    },
+  },
+  // Solar Bomb: a corona orb.
+  solar_bomb: {
+    sx: 1.7, sy: 1.7, pal: { core: [1.0, 0.98, 0.92], body: [1.0, 0.75, 0.15], accent: [1.0, 0.88, 0.45], deep: [0.9, 0.45, 0.02] },
+    paint: (ctx, cx, cy, u, pal) => {
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2;
+        const long = i % 2 === 0 ? 0.99 : 0.82;
+        const bx = cx + Math.cos(a) * 0.62 * u, by = cy + Math.sin(a) * 0.62 * u;
+        const tx = cx + Math.cos(a) * long * u, ty = cy + Math.sin(a) * long * u;
+        const px = Math.cos(a + Math.PI / 2) * 0.07 * u, py = Math.sin(a + Math.PI / 2) * 0.07 * u;
+        ctx.fillStyle = css(pal.accent);
+        poly(ctx, [[bx + px, by + py], [tx, ty], [bx - px, by - py]]); ctx.fill();
+      }
+      glow(ctx, cx, cy, 0.75 * u, pal.body, 0.85);
+      ctx.fillStyle = css(pal.body);
+      circ(ctx, cx, cy, 0.6 * u); ctx.fill();
+      ctx.fillStyle = css(pal.core);
+      circ(ctx, cx, cy, 0.32 * u); ctx.fill();
+    },
+  },
+  // Aura: a flame-ticked ring (cyan for the player family).
+  aura: {
+    sx: 1.05, sy: 1.05, pal: { core: [0.85, 0.98, 1.0], body: [0.024, 0.714, 0.831], accent: [0.5, 0.9, 0.98], deep: [0.02, 0.4, 0.55] },
+    paint: (ctx, cx, cy, u, pal) => {
+      ctx.strokeStyle = css(pal.body); ctx.lineWidth = 0.16 * u;
+      circ(ctx, cx, cy, 0.78 * u); ctx.stroke();
+      ctx.strokeStyle = css(pal.accent, 0.8); ctx.lineWidth = 0.06 * u;
+      circ(ctx, cx, cy, 0.78 * u); ctx.stroke();
+      for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * Math.PI * 2;
+        const bx = cx + Math.cos(a) * 0.86 * u, by = cy + Math.sin(a) * 0.86 * u;
+        const tx = cx + Math.cos(a) * 1.0 * u, ty = cy + Math.sin(a) * 1.0 * u;
+        const px = Math.cos(a + Math.PI / 2) * 0.06 * u, py = Math.sin(a + Math.PI / 2) * 0.06 * u;
+        ctx.fillStyle = css(pal.body);
+        poly(ctx, [[bx + px, by + py], [tx, ty], [bx - px, by - py]]); ctx.fill();
+      }
+      glow(ctx, cx, cy, 0.5 * u, pal.body, 0.3);
+    },
+  },
+  // Phoenix Turret egg: a cracked phoenix egg.
+  egg: {
+    sx: 1.15, sy: 1.3, pal: { core: [1.0, 0.8, 0.4], body: [0.96, 0.87, 0.7], accent: [1.0, 0.6, 0.15], deep: [0.7, 0.55, 0.35] },
+    paint: (ctx, cx, cy, u, pal) => {
+      glow(ctx, cx, cy, 0.85 * u, pal.accent, 0.45);
+      ctx.fillStyle = css(pal.body);
+      ctx.beginPath(); ctx.ellipse(cx, cy, 0.68 * u, 0.85 * u, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = css(pal.deep, 0.5);
+      ctx.beginPath(); ctx.ellipse(cx, cy + 0.45 * u, 0.62 * u, 0.38 * u, 0, 0, Math.PI); ctx.fill();
+      ctx.strokeStyle = css(pal.accent); ctx.lineWidth = 0.07 * u;
+      ctx.beginPath(); ctx.moveTo(cx - 0.3 * u, cy - 0.5 * u); ctx.lineTo(cx - 0.05 * u, cy - 0.2 * u); ctx.lineTo(cx - 0.25 * u, cy + 0.05 * u); ctx.lineTo(cx + 0.02 * u, cy + 0.35 * u); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx + 0.35 * u, cy - 0.35 * u); ctx.lineTo(cx + 0.15 * u, cy - 0.05 * u); ctx.lineTo(cx + 0.3 * u, cy + 0.25 * u); ctx.stroke();
+      glow(ctx, cx, cy, 0.3 * u, pal.core, 0.5);
+    },
+  },
+  // Phoenix Turret: a mini phoenix on a perch.
+  turret: {
+    sx: 1.2, sy: 1.2, pal: { core: [1.0, 0.95, 0.75], body: [1.0, 0.6, 0.15], accent: [1.0, 0.8, 0.35], deep: [0.35, 0.25, 0.3] },
+    paint: (ctx, cx, cy, u, pal) => {
+      // Perch base.
+      ctx.fillStyle = css(pal.deep);
+      poly(ctx, [[cx - 0.7 * u, cy + 0.95 * u], [cx + 0.7 * u, cy + 0.95 * u], [cx + 0.45 * u, cy + 0.55 * u], [cx - 0.45 * u, cy + 0.55 * u]]); ctx.fill();
+      // Wings.
+      for (const s of [-1, 1]) {
+        ctx.fillStyle = css(pal.body);
+        poly(ctx, [[cx + s * 0.1 * u, cy - 0.1 * u], [cx + s * 0.85 * u, cy - 0.55 * u], [cx + s * 0.7 * u, cy + 0.15 * u], [cx + s * 0.2 * u, cy + 0.2 * u]]); ctx.fill();
+      }
+      // Body and head.
+      ctx.fillStyle = css(pal.body);
+      ctx.beginPath(); ctx.ellipse(cx, cy + 0.1 * u, 0.3 * u, 0.48 * u, 0, 0, Math.PI * 2); ctx.fill();
+      glow(ctx, cx, cy - 0.05 * u, 0.35 * u, pal.core, 0.65);
+      ctx.fillStyle = css(pal.accent);
+      circ(ctx, cx, cy - 0.52 * u, 0.19 * u); ctx.fill();
+      ctx.fillStyle = css(pal.core);
+      poly(ctx, [[cx - 0.04 * u, cy - 0.68 * u], [cx, cy - 0.95 * u], [cx + 0.04 * u, cy - 0.68 * u]]); ctx.fill();
+      poly(ctx, [[cx + 0.15 * u, cy - 0.5 * u], [cx + 0.38 * u, cy - 0.42 * u], [cx + 0.14 * u, cy - 0.38 * u]]); ctx.fill();
+      eye(ctx, cx - 0.07 * u, cy - 0.55 * u, 0.035 * u, pal.deep);
+      eye(ctx, cx + 0.07 * u, cy - 0.55 * u, 0.035 * u, pal.deep);
+    },
+  },
+};
+
+const abilityCache = new Map<string, MobSpriteSet>();
+function shiftPal(pal: MobPalette, target: Rgb, amt: number): MobPalette {
+  return { core: mix(pal.core, target, amt), body: mix(pal.body, target, amt), accent: mix(pal.accent, target, amt), deep: mix(pal.deep, target, amt) };
+}
+export function getAbilitySpriteSet(key: string, variant: AbilityVariant): { set: MobSpriteSet; sx: number; sy: number } | null {
+  const def = ABILITY_DEFS[key];
+  if (!def) return null;
+  const cacheKey = `${key}|${variant}`;
+  const hit = abilityCache.get(cacheKey);
+  if (hit) return { set: hit, sx: def.sx, sy: def.sy };
+  let pal = def.pal;
+  if (variant === 'hostile') pal = shiftPal(pal, [1.0, 0.22, 0.38], 0.55);
+  else if (variant === 'violet') pal = shiftPal(pal, [0.85, 0.28, 0.94], 0.45);
+  const W = 192, H = 192;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+  def.paint(ctx, W / 2, H / 2, W / 2 * 0.94, pal, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const set: MobSpriteSet = { maps: [tex], burstPositions: new Float32Array(0), burstColors: new Float32Array(0) };
+  abilityCache.set(cacheKey, set);
+  return { set, sx: def.sx, sy: def.sy };
+}
+
+// Which drawn look a body gets, from its type and casting move.
+// Returns null for bodies that keep the points rendering.
+export function abilitySpriteKey(type: string, moveId?: string): string | null {
+  if (type === 'dart') return 'fire_dart';
+  if (type === 'spark') return 'spark_storm';
+  if (type === 'lance') return 'fire_lance';
+  if (type === 'nova') return 'phoenix_nova';
+  if (type === 'flame_tornado') return 'flame_tornado';
+  if (type === 'solar_bomb') return 'solar_bomb';
+  if (type === 'aura') return 'aura';
+  if (type === 'egg') return 'egg';
+  if (type === 'turret') return 'turret';
+  if (type === 'projectile_player') {
+    if (moveId === 'burst') return 'burst';
+    if (moveId === 'phoenix_talon') return 'phoenix_talon';
+    if (moveId === 'inferno_wave') return 'inferno_wave';
+    return null; // plain auto-fire: the A6 bolt
+  }
+  if (type === 'fire') {
+    if (moveId === 'fire_breath') return 'fire_breath';
+    if (moveId === 'turret_shot') return 'turret_shot';
+    if (moveId === 'turret_blast') return 'turret_blast';
+    if (moveId === 'solar_fuse') return 'solar_fuse';
+    if (moveId === 'inferno_beam') return 'inferno_beam';
+    if (moveId === 'supernova_ember') return 'supernova_ember';
+    if (moveId === 'wrath_column') return 'wrath_column';
+    if (moveId === 'singularity_swirl') return 'singularity_swirl';
+    if (moveId === 'rebirth_fire') return 'rebirth_fire';
+    return null;
+  }
+  return null;
+}
+
+// ------------------------------------------------------------------
 // Pickup sprites (Fix Round 2, A12): every dropped item gets a
 // drawn body in the same style, in its shipped identity color, so
 // it reads instantly for what it is: gold coin, pink heart, violet

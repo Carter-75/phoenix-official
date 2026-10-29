@@ -85,6 +85,12 @@ export interface PhysicsEntity {
   // to their travel direction. Display only.
   vx?: number;
   vy?: number;
+  // Fix Round 2 (A10): the casting move's id and the body's owner
+  // side, published so the renderer can give every ability its own
+  // drawn look (ability sprites key on type + moveId). Display
+  // only; gameplay reads the same fields on EnemyData.
+  moveId?: string;
+  owner?: string;
 }
 
 export type Rgb = [number, number, number];

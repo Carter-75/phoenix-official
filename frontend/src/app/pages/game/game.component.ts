@@ -3316,7 +3316,10 @@ export class GameComponent implements OnInit, OnDestroy {
                      wash: data.type === 'boss' ? this.bossWash(data) : undefined,
                      // A6: travel direction for the bolt renderer.
                      vx: body.velocity.x,
-                     vy: body.velocity.y
+                     vy: body.velocity.y,
+                     // A10: per-ability drawn looks key on these.
+                     moveId: data.moveId,
+                     owner: data.owner
                  });
              }
          }
@@ -4084,7 +4087,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
                  const fireDir = { x: Math.cos(angle), y: Math.sin(angle) };
                  const proj = Matter.Bodies.circle(this.playerBody.position.x, this.playerBody.position.y, 15, {
                      isSensor: true, label: 'projectile',
-                     plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: this.gameState.currentStats().damage * 3 } as EnemyData }
+                     plugin: { data: { id: Math.random().toString(), type: 'fire', moveId: 'rebirth_fire', health: 1, maxHealth: 1, burstDamage: this.gameState.currentStats().damage * 3 } as EnemyData }
                  });
                  Matter.Body.setVelocity(proj, Matter.Vector.mult(fireDir, speed));
                  Matter.Composite.add(this.engine.world, proj);
@@ -5006,17 +5009,21 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
     if (allowance <= 0) return;
     numParticles = Math.min(numParticles, allowance);
     this.sparkFrameCount += numParticles;
-    const colors = ['#fbbf24', '#f97316', '#ffffff'];
-    
+    // Fix Round 2 (A10): impact sparks are now flame shards, not
+    // round dots: elongated slivers in a white-gold to flame-red
+    // family, spun as they fly. Counts, the per-frame budget,
+    // velocities, and durations are exactly as shipped.
+    const colors = ['#fff7e0', '#fbbf24', '#f97316', '#dc2626'];
+
     for (let i = 0; i < numParticles; i++) {
         const particle = document.createElement('div');
         particle.style.position = 'fixed';
         particle.style.left = `${x}px`;
         particle.style.top = `${y}px`;
-        particle.style.width = isBoss ? '12px' : '6px';
-        particle.style.height = isBoss ? '12px' : '6px';
+        particle.style.width = isBoss ? '14px' : '8px';
+        particle.style.height = isBoss ? '5px' : '3px';
         particle.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
-        particle.style.borderRadius = '50%';
+        particle.style.borderRadius = '2px';
         particle.style.pointerEvents = 'none';
         particle.style.zIndex = '100';
         document.body.appendChild(particle);
@@ -5028,6 +5035,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
             targets: particle,
             translateX: Math.cos(angle) * velocity,
             translateY: Math.sin(angle) * velocity + (isBoss ? 50 : 20), // slight gravity
+            rotate: (Math.random() * 360 - 180),
             opacity: [1, 0],
             scale: [1, 0],
             duration: isBoss ? 1500 : 800,

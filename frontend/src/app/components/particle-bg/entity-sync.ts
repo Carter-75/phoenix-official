@@ -9,7 +9,7 @@ import { GameStateService } from '../../services/game-state.service';
 import { PhysicsEntity, WorldTheme } from '../../models/game.models';
 import { WORLDS, HOSTILE_RGB } from '../../constants/game.constants';
 import { buildEntityGeometry } from './entity-builder';
-import { MOB_SPRITE_TYPES, getMobSpriteSet, getBossFormSets, getBoltSpriteSet, PICKUP_SPRITE_TYPES, getPickupSpriteSet } from './mob-sprite';
+import { MOB_SPRITE_TYPES, getMobSpriteSet, getBossFormSets, getBoltSpriteSet, PICKUP_SPRITE_TYPES, getPickupSpriteSet, abilitySpriteKey, getAbilitySpriteSet, AbilityVariant } from './mob-sprite';
 import { bossDefFor } from '../../data/boss-rig';
 import { PhoenixState, ParticleEntity, DyingBurst } from './phoenix-state';
 import { Rgb3 } from './phoenix-skins';
@@ -927,6 +927,8 @@ syncEntities() {
   // and the roulette wash. Hit flash whitens the material; the
   // Chanter buff tint composes here instead of the generic wash.
   private static readonly SPRITE_TURN_TYPES = new Set(['sentry_shard', 'shieldback', 'wraith', 'serpent', 'darter']);
+  // A10: ability looks that fly and must point along their travel.
+  private static readonly ABILITY_FLOW_KEYS = new Set(['burst', 'inferno_wave', 'phoenix_talon', 'fire_dart', 'spark_storm', 'fire_lance', 'phoenix_nova', 'fire_breath', 'turret_shot', 'turret_blast', 'rebirth_fire']);
 
 updateSpriteEntity(entity: ParticleEntity, data: PhysicsEntity, nowMs: number, dtSec: number, flashEnv: number): void {
     const spr = entity.sprite!;
@@ -943,7 +945,8 @@ updateSpriteEntity(entity: ParticleEntity, data: PhysicsEntity, nowMs: number, d
     // published facing wins for the aimed types; the boss faces
     // the player; everyone else turns by their motion.
     let heading = spr.heading;
-    if (data.type === 'projectile_player' && (data.vx || data.vy)) {
+    const flowAbility = !!spr.ability && EntitySync.ABILITY_FLOW_KEYS.has(spr.ability);
+    if ((data.type === 'projectile_player' || flowAbility) && (data.vx || data.vy)) {
       heading = Math.atan2(data.vy!, data.vx!);
     } else if (typeof data.facing === 'number') {
       heading = data.facing;
@@ -961,9 +964,9 @@ updateSpriteEntity(entity: ParticleEntity, data: PhysicsEntity, nowMs: number, d
     let dh = heading - spr.heading;
     while (dh > Math.PI) dh -= Math.PI * 2;
     while (dh < -Math.PI) dh += Math.PI * 2;
-    // Bolts snap to their travel direction (they spawn moving);
-    // mobs ease into theirs.
-    spr.heading += dh * (data.type === 'projectile_player' ? 1 : Math.min(1, dtSec * 12));
+    // Bolts and flying ability effects snap to their travel
+    // direction (they spawn moving); mobs ease into theirs.
+    spr.heading += dh * ((data.type === 'projectile_player' || flowAbility) ? 1 : Math.min(1, dtSec * 12));
     heading = spr.heading;
 
     // Rotation: only the aimed types turn (drawn facing up, so a
@@ -971,8 +974,17 @@ updateSpriteEntity(entity: ParticleEntity, data: PhysicsEntity, nowMs: number, d
     // The Golem's rock orbit becomes a whole-body spin at the
     // shipped orbit rate; the Wisp ring and the Chanter spark
     // ring rotate slowly so their gaps travel.
-    if (EntitySync.SPRITE_TURN_TYPES.has(data.type) || data.type === 'projectile_player') {
+    if (EntitySync.SPRITE_TURN_TYPES.has(data.type) || data.type === 'projectile_player' || flowAbility) {
       mesh.rotation.z = Math.atan2(-Math.cos(heading), -Math.sin(heading));
+    } else if (spr.ability === 'flame_tornado') {
+      // The vortex spin, at the shipped per-frame rate.
+      mesh.rotation.z -= 7.2 * dtSec;
+    } else if (spr.ability === 'singularity_swirl') {
+      mesh.rotation.z += 1.6 * dtSec;
+    } else if (spr.ability === 'aura') {
+      // The sync loop's tail spins the aura; leave rotation.z be.
+    } else if (spr.ability === 'egg') {
+      mesh.rotation.z = Math.sin(t * 0.002 + off) * 0.12;
     } else if (data.type === 'golem') {
       entity.orbitAngle = (entity.orbitAngle || 0) + dtSec * 0.96 * (1 + 2.2 * charge * charge);
       mesh.rotation.z = entity.orbitAngle;
@@ -1016,6 +1028,11 @@ updateSpriteEntity(entity: ParticleEntity, data: PhysicsEntity, nowMs: number, d
         ux = uy = 1 + 0.08 * Math.sin(data.bossFormFlow * Math.PI);
       }
     }
+    // A10 ability reads: the Solar Bomb swells toward detonation,
+    // the Aura breathes, the Turret bobs on its perch.
+    if (spr.ability === 'solar_bomb') { const p = 1 + 0.13 * Math.sin(t * 0.008 + off); ux *= p; uy *= p; }
+    else if (spr.ability === 'aura') { const p = 1 + 0.03 * Math.sin(t * 0.004 + off); ux *= p; uy *= p; }
+    else if (spr.ability === 'turret') { mesh.position.y += Math.sin(t * 0.002 + off) * 0.03; }
     mesh.scale.set(spr.baseScaleX * ux, spr.baseScaleY * uy, 1);
 
     // Chaos Demon forms: swap the drawn body at the form switch.
@@ -1058,15 +1075,24 @@ updateSpriteEntity(entity: ParticleEntity, data: PhysicsEntity, nowMs: number, d
     } else if (data.type === 'shieldback') {
       if (data.sparkUntil && t < data.sparkUntil) { r *= 1.5; g *= 1.45; b *= 1.3; }
     }
+    // A10: the fuse spark and the supernova embers flicker.
+    if (spr.ability === 'solar_fuse' || spr.ability === 'supernova_ember') {
+      const s = 0.88 + 0.3 * (0.5 + 0.5 * Math.sin(t * 0.025 + off));
+      r *= s; g *= s; b *= s;
+    }
     if (flashEnv > 0) { const f = 1 + flashEnv * 1.15; r *= f; g *= f; b *= f; }
     mat.color.setRGB(r, g, b);
 
     // Opacity: spawn fade, then the phase reads. Bolts skip the
     // fade: they live about a second and must read instantly.
     let op = 0.9;
-    if (data.type === 'projectile_player' || PICKUP_SPRITE_TYPES.has(data.type)) {
+    if (data.type === 'projectile_player' || PICKUP_SPRITE_TYPES.has(data.type) || spr.ability) {
       op = 0.95;
-    } else if (entity.bornMs !== undefined) {
+    }
+    // The tornado is a standing zone, not a body: slightly
+    // translucent so the field reads through it.
+    if (spr.ability === 'flame_tornado') op = 0.82;
+    if (op === 0.9 && entity.bornMs !== undefined) {
       const age = (nowMs - entity.bornMs) / 300;
       op *= Math.min(1, Math.max(0, age));
     }
@@ -1174,9 +1200,10 @@ createEntityMesh(data: PhysicsEntity): ParticleEntity {
     // the Shadow Lord's copies render as painted bodies, never
     // point clouds. The points geometry is still built above (the
     // codex shares it, and its extents size the sprite plane, so
-    // the mob keeps exactly its shipped footprint). Effects,
-    // projectiles, pickups, and zones keep the points path below.
-    if (MOB_SPRITE_TYPES.has(data.type) || data.type === 'projectile_player' || PICKUP_SPRITE_TYPES.has(data.type)) {
+    // the mob keeps exactly its shipped footprint). A6 bolts, A10
+    // ability looks, and A12 pickups share this branch.
+    const abilityKey = abilitySpriteKey(data.type, data.moveId);
+    if (abilityKey || MOB_SPRITE_TYPES.has(data.type) || data.type === 'projectile_player' || PICKUP_SPRITE_TYPES.has(data.type)) {
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
       const bp = built.positions;
       for (let i = 0; i < bp.length; i += 3) {
@@ -1190,20 +1217,28 @@ createEntityMesh(data: PhysicsEntity): ParticleEntity {
       // A6: the player's basic shots are elongated flame bolts
       // (the watched bird in ai_vs_ai fires the violet family, the
       // same ownership colors the points build used).
-      const isBolt = data.type === 'projectile_player';
+      const isBolt = data.type === 'projectile_player' && !abilityKey;
+      // A10: ability looks, with the ownership variant following
+      // the shipped color rule (hostile for enemy casts, violet
+      // for the watched bird's casts in ai_vs_ai).
+      const ability = abilityKey
+        ? getAbilitySpriteSet(abilityKey, (data.owner === 'enemy' ? 'hostile' : (data.ownerId === 'player' && buildCtx.gameMode === 'ai_vs_ai' ? 'violet' : 'player')) as AbilityVariant)
+        : null;
       const sets = data.type === 'boss'
         ? getBossFormSets(buildCtx.worldIndex, extentX, extentY)
-        : isBolt
-          ? [getBoltSpriteSet(data.ownerId === 'player' && buildCtx.gameMode === 'ai_vs_ai' ? 'violet' : 'amber')]
-          : PICKUP_SPRITE_TYPES.has(data.type)
-            ? [getPickupSpriteSet(data.type)]
-            : [getMobSpriteSet(data.type, buildCtx.worldIndex, extentX, extentY)];
+        : ability
+          ? [ability.set]
+          : isBolt
+            ? [getBoltSpriteSet(data.ownerId === 'player' && buildCtx.gameMode === 'ai_vs_ai' ? 'violet' : 'amber')]
+            : PICKUP_SPRITE_TYPES.has(data.type)
+              ? [getPickupSpriteSet(data.type)]
+              : [getMobSpriteSet(data.type, buildCtx.worldIndex, extentX, extentY)];
       const set = sets[0];
       const mat = new THREE.MeshBasicMaterial({ map: set.maps[0], transparent: true, opacity: 0.9, depthWrite: false });
       const plane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
       plane.frustumCulled = false;
-      const baseScaleX = extentX * 2 * (isBolt ? 1.3 : 1.06);
-      const baseScaleY = extentY * 2 * (isBolt ? 2.4 : 1.06);
+      const baseScaleX = extentX * 2 * (ability ? ability.sx : isBolt ? 1.3 : 1.06);
+      const baseScaleY = extentY * 2 * (ability ? ability.sy : isBolt ? 2.4 : 1.06);
       plane.scale.set(baseScaleX, baseScaleY, 1);
       return {
         mesh: plane,
@@ -1211,6 +1246,7 @@ createEntityMesh(data: PhysicsEntity): ParticleEntity {
         sprite: {
           sets, set, baseScaleX, baseScaleY,
           heading: -Math.PI / 2, prevX: 0, prevY: 0,
+          ability: abilityKey ?? undefined,
         },
         timeOffset: Math.random() * 1000,
         lastHealth: data.health,

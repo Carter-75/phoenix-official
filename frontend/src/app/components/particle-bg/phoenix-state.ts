@@ -86,6 +86,9 @@ export interface ParticleEntity {
     heading: number;
     prevX: number;
     prevY: number;
+    // A10: the ability look key when this sprite is an ability
+    // effect (burst, fire_dart, aura, turret, and the rest).
+    ability?: string;
   };
   basePositions?: Float32Array;
   timeOffset?: number;

@@ -315,7 +315,7 @@ triggerFireBreath(sourceBody: Matter.Body, targetX: number, targetY: number, sta
                   // fire breath cast was eaten by the caster's own body
                   // at spawn and damaged the caster instead of the
                   // target (probe: STAGE-S2.md).
-                  plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: damage, owner: ownerId, ownerId: ownerId } as EnemyData }
+                  plugin: { data: { id: Math.random().toString(), type: 'fire', moveId: 'fire_breath', health: 1, maxHealth: 1, burstDamage: damage, owner: ownerId, ownerId: ownerId } as EnemyData }
               });
               Matter.Body.setVelocity(proj, Matter.Vector.mult(fireDir, range));
               Matter.Composite.add(this.host.engine.world, proj);
@@ -413,7 +413,7 @@ triggerPhoenixTurret(sourceBody: Matter.Body, targetX: number, targetY: number, 
                   const fireDir = { x: Math.cos(angle), y: Math.sin(angle) };
                   const proj = Matter.Bodies.circle(egg.position.x, egg.position.y, 15, {
                       isSensor: true, label: 'projectile',
-                      plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: baseDamage * 5, owner: ownerId } as EnemyData }
+                      plugin: { data: { id: Math.random().toString(), type: 'fire', moveId: 'turret_blast', health: 1, maxHealth: 1, burstDamage: baseDamage * 5, owner: ownerId } as EnemyData }
                   });
                   Matter.Body.setVelocity(proj, Matter.Vector.mult(fireDir, speed));
                   Matter.Composite.add(this.host.engine.world, proj);
@@ -552,7 +552,7 @@ triggerPhoenixTurret(sourceBody: Matter.Body, targetX: number, targetY: number, 
                                   // not be skipped by the player collision
                                   // branch and damaged the player who
                                   // deployed the turret.
-                                  plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: baseDamage, owner: ownerId, ownerId: ownerId } as EnemyData }
+                                  plugin: { data: { id: Math.random().toString(), type: 'fire', moveId: 'turret_shot', health: 1, maxHealth: 1, burstDamage: baseDamage, owner: ownerId, ownerId: ownerId } as EnemyData }
                               });
                               Matter.Body.setVelocity(proj, Matter.Vector.mult(fireDir, this.host.scaledSpeed(7.5)));
                               Matter.Composite.add(this.host.engine.world, proj);
@@ -870,7 +870,7 @@ triggerSolarBomb(sourceBody: Matter.Body, targetX: number, targetY: number, stat
                       if (this.host.gameEnded()) return;
                       const blob = Matter.Bodies.circle(targetX, targetY, (12 + i * 10) * this.host.speedScale, {
                           label: 'projectile', isSensor: true,
-                          plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: 0, owner: ownerId === 'player' ? 'player' : 'enemy', ownerId } as EnemyData }
+                          plugin: { data: { id: Math.random().toString(), type: 'fire', moveId: 'solar_fuse', health: 1, maxHealth: 1, burstDamage: 0, owner: ownerId === 'player' ? 'player' : 'enemy', ownerId } as EnemyData }
                       });
                       Matter.Composite.add(this.host.engine.world, blob);
                       setTimeout(() => { if (blob.parent) Matter.Composite.remove(this.host.engine.world, blob); }, 420 - i * 200);
@@ -1063,7 +1063,7 @@ triggerPhoenixInferno(sourceBody: Matter.Body, targetX: number, targetY: number,
                   const by = sy + ay * range * (s / 6) + (Math.random() - 0.5) * 14 * this.host.speedScale;
                   const blob = Matter.Bodies.circle(bx, by, 13, {
                       isSensor: true, label: 'projectile',
-                      plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: 0, owner: ownerId, ownerId: ownerId } as EnemyData }
+                      plugin: { data: { id: Math.random().toString(), type: 'fire', moveId: 'inferno_beam', health: 1, maxHealth: 1, burstDamage: 0, owner: ownerId, ownerId: ownerId } as EnemyData }
                   });
                   Matter.Composite.add(this.host.engine.world, blob);
                   setTimeout(() => { if (blob.parent) Matter.Composite.remove(this.host.engine.world, blob); }, 260);
@@ -1153,7 +1153,7 @@ triggerSupernova(sourceBody: Matter.Body, targetX: number, targetY: number, stat
               if (this.host.gameEnded()) return;
               const blob = Matter.Bodies.circle(targetX, targetY, (10 + i * 10) * this.host.speedScale, {
                   label: 'projectile', isSensor: true,
-                  plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: 0, owner: ownerId === 'player' ? 'player' : 'enemy', ownerId } as EnemyData }
+                  plugin: { data: { id: Math.random().toString(), type: 'fire', moveId: 'supernova_ember', health: 1, maxHealth: 1, burstDamage: 0, owner: ownerId === 'player' ? 'player' : 'enemy', ownerId } as EnemyData }
               });
               Matter.Composite.add(this.host.engine.world, blob);
               setTimeout(() => { if (blob.parent) Matter.Composite.remove(this.host.engine.world, blob); }, 850 - i * 250);
@@ -1231,7 +1231,7 @@ spawnWrathColumn(x: number, y: number) {
       for (let i = 0; i < 4; i++) {
           const blob = Matter.Bodies.circle(x + (Math.random() - 0.5) * 20 * this.host.speedScale, y - i * 34 * this.host.speedScale, 12 * this.host.speedScale, {
               label: 'projectile', isSensor: true,
-              plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: 0 } as EnemyData }
+              plugin: { data: { id: Math.random().toString(), type: 'fire', moveId: 'wrath_column', health: 1, maxHealth: 1, burstDamage: 0 } as EnemyData }
           });
           Matter.Composite.add(this.host.engine.world, blob);
           setTimeout(() => { if (blob.parent) Matter.Composite.remove(this.host.engine.world, blob); }, 220);
@@ -1285,7 +1285,7 @@ triggerPhoenixSingularity(sourceBody: Matter.Body, targetX: number, targetY: num
               const a = Math.random() * Math.PI * 2;
               const blob = Matter.Bodies.circle(targetX + Math.cos(a) * radius * 0.7, targetY + Math.sin(a) * radius * 0.7, 9 * this.host.speedScale, {
                   label: 'projectile', isSensor: true,
-                  plugin: { data: { id: Math.random().toString(), type: 'fire', health: 1, maxHealth: 1, burstDamage: 0, owner: ownerId === 'player' ? 'player' : 'enemy', ownerId } as EnemyData }
+                  plugin: { data: { id: Math.random().toString(), type: 'fire', moveId: 'singularity_swirl', health: 1, maxHealth: 1, burstDamage: 0, owner: ownerId === 'player' ? 'player' : 'enemy', ownerId } as EnemyData }
               });
               Matter.Composite.add(this.host.engine.world, blob);
               setTimeout(() => { if (blob.parent) Matter.Composite.remove(this.host.engine.world, blob); }, 200);
