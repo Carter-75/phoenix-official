@@ -2104,9 +2104,15 @@ const DEFS: Record<string, EntityVisualDef> = {
     count: 800,
     animated: false,
     sample: (i, count, r, ctx, out) => {
-      out.x = (Math.random() - 0.5) * r * 2.5;
-      out.y = (Math.random() - 0.5) * r * 2.5;
-      out.z = (Math.random() - 0.5) * r * 2.5;
+      // Sphere sampling, like every other projectile and effect
+      // type (Worlds 2 to 10 pass): this builder used to sample
+      // a cube, so each fire cluster's silhouette was a square
+      // block and a stream of them (a rival's Fire Breath in a
+      // Battle duel) read as a column of dice instead of flame.
+      // The ball keeps the old cube's reach (half-side 1.25 r)
+      // at 1.15 r, so the visual footprint is unchanged to the
+      // eye; bodies, damage, and counts are untouched.
+      sphereVertex(out, r * 1.15);
       const rand = Math.random();
       if (rand > 0.6) { out.cr = 1.0; out.cg = 0.8; out.cb = 0.0; } // Yellow
       else if (rand > 0.3) { out.cr = 1.0; out.cg = 0.3; out.cb = 0.0; } // Orange
