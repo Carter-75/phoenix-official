@@ -14,7 +14,11 @@ const USERNAME_RE = /^[A-Za-z0-9_]{3,16}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Public client IDs from capacitor.config.ts (client IDs are not secrets).
+// New business project (phoenix-fall-testing) web + Android clients first,
+// old personal project clients kept so existing tokens keep working.
 const DEFAULT_GOOGLE_AUDIENCES = [
+  '396962735048-u6ke75eh6ir3qt6umnpj0s8mk7ubfhh1.apps.googleusercontent.com',
+  '396962735048-d4cuh1vl372pt8l5mk1dj197n19600pc.apps.googleusercontent.com',
   '108585498879-v35d0d196d4djglodbbjok452pr1e04r.apps.googleusercontent.com',
   '108585498879-o171u9a80ssqfkojpd8hohgq6dumk0iu.apps.googleusercontent.com'
 ];
@@ -231,9 +235,11 @@ router.post('/google/native', async (req, res) => {
   try {
     const { idToken } = req.body;
     if (!idToken) return res.status(400).json({ message: 'idToken required' });
-    const audiences = process.env.GOOGLE_CLIENT_IDS
-      ? process.env.GOOGLE_CLIENT_IDS.split(',').map(s => s.trim()).filter(Boolean)
-      : DEFAULT_GOOGLE_AUDIENCES;
+    // Union of env-configured IDs and the in-code allowlist, so the new
+    // clients are accepted without any Render dashboard change.
+    const envAudiences = (process.env.GOOGLE_CLIENT_IDS || '')
+      .split(',').map(s => s.trim()).filter(Boolean);
+    const audiences = Array.from(new Set([...envAudiences, ...DEFAULT_GOOGLE_AUDIENCES]));
     const client = new OAuth2Client();
     const ticket = await client.verifyIdToken({ idToken, audience: audiences });
     const payload = ticket.getPayload();

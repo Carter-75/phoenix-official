@@ -4,6 +4,6 @@
     <string name="title_activity_main">PhoenixFall</string>
     <string name="package_name">com.phoenix.fall</string>
     <string name="custom_url_scheme">com.phoenix.fall</string>
-    <string name="server_client_id">108585498879-v35d0d196d4djglodbbjok452pr1e04r.apps.googleusercontent.com</string>
+    <string name="server_client_id">396962735048-u6ke75eh6ir3qt6umnpj0s8mk7ubfhh1.apps.googleusercontent.com</string>
     <!-- AdMob app ID: Google TEST app ID. Replace with Carter's real AdMob app ID (config swap only). -->
 </resources>
