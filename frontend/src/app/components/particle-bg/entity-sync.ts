@@ -9,6 +9,7 @@ import { GameStateService } from '../../services/game-state.service';
 import { PhysicsEntity, WorldTheme } from '../../models/game.models';
 import { WORLDS, HOSTILE_RGB } from '../../constants/game.constants';
 import { buildEntityGeometry } from './entity-builder';
+import { buildBossAdornment, animateBossAdornment } from './boss-adornments';
 import { MOB_SPRITE_TYPES, getMobSpriteSet, getBossFormSets, getBoltSpriteSet, PICKUP_SPRITE_TYPES, getPickupSpriteSet, abilitySpriteKey, getAbilitySpriteSet, AbilityVariant } from './mob-sprite';
 import { bossDefFor } from '../../data/boss-rig';
 import { PhoenixState, ParticleEntity, DyingBurst } from './phoenix-state';
@@ -123,6 +124,11 @@ syncEntities() {
             });
           }
           this.host.scene.remove(entity.mesh);
+          const adorn = entity.mesh.getObjectByName('bossAdorn');
+          adorn?.traverse(o => {
+            const m = o as THREE.Mesh;
+            if (m.isMesh) { m.geometry.dispose(); (m.material as THREE.Material).dispose(); }
+          });
           entity.mesh.geometry.dispose();
           (entity.mesh.material as THREE.Material).dispose();
         } else if (EntitySync.BURST_TYPES.includes(entity.type)) {
@@ -937,6 +943,13 @@ updateSpriteEntity(entity: ParticleEntity, data: PhysicsEntity, nowMs: number, d
     const t = Date.now();
     const off = entity.timeOffset || 0;
     const charge = data.attackCharge ?? 0;
+    if (data.type === 'boss') {
+      const adorn = mesh.getObjectByName('bossAdorn') as THREE.Group | undefined;
+      if (adorn) {
+        const hpFrac = data.maxHealth ? (data.health ?? data.maxHealth) / data.maxHealth : 1;
+        animateBossAdornment(adorn, t, hpFrac < 0.33, charge > 0);
+      }
+    }
     // A sprite plane only ever turns in the screen plane.
     mesh.rotation.x = 0;
     mesh.rotation.y = 0;
@@ -1240,6 +1253,11 @@ createEntityMesh(data: PhysicsEntity): ParticleEntity {
       const baseScaleX = extentX * 2 * (ability ? ability.sx : isBolt ? 1.3 : 1.06);
       const baseScaleY = extentY * 2 * (ability ? ability.sy : isBolt ? 2.4 : 1.06);
       plane.scale.set(baseScaleX, baseScaleY, 1);
+      if (data.type === 'boss') {
+        const adorn = buildBossAdornment(buildCtx.worldIndex);
+        adorn.name = 'bossAdorn';
+        plane.add(adorn);
+      }
       return {
         mesh: plane,
         type: data.type,

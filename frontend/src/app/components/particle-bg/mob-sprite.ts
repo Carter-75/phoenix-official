@@ -91,32 +91,25 @@ const BASE: Record<string, { core: Rgb; body: Rgb; accent: Rgb }> = {
 };
 
 // Boss display palettes per world index (boss themes in order:
-// Inferno Guardian, Shadow Lord, Crystal Titan, Storm Wyvern,
-// Void Reaper, Phoenix King, Ice Empress, Dragon Emperor, Chaos
-// Demon, Eternal Phoenix).
+// Cinder Colossus, Umbral Matriarch, Prism Sentinel, Tempest Roc,
+// Grave Warden, Solar Monarch, Glacial Oracle, Wyrm Sovereign,
+// Entropy Engine, Phoenix Ascendant).
 const BOSS_BASE: Array<{ core: Rgb; body: Rgb; accent: Rgb }> = [
-  { core: [1.0, 0.55, 0.15], body: [0.45, 0.16, 0.08], accent: [1.0, 0.8, 0.35] },
-  { core: [0.7, 0.4, 1.0], body: [0.16, 0.1, 0.28], accent: [0.85, 0.6, 1.0] },
-  { core: [0.85, 0.9, 1.0], body: [0.35, 0.22, 0.6], accent: [0.7, 0.5, 1.0] },
-  { core: [0.95, 0.9, 0.4], body: [0.2, 0.3, 0.5], accent: [0.6, 0.85, 1.0] },
-  { core: [0.75, 0.3, 0.95], body: [0.1, 0.06, 0.18], accent: [0.9, 0.5, 1.0] },
-  { core: [1.0, 0.65, 0.2], body: [0.5, 0.14, 0.1], accent: [1.0, 0.85, 0.4] },
-  { core: [0.85, 0.95, 1.0], body: [0.4, 0.55, 0.75], accent: [0.95, 1.0, 1.0] },
-  { core: [1.0, 0.6, 0.2], body: [0.42, 0.12, 0.1], accent: [0.95, 0.75, 0.35] },
-  { core: [1.0, 0.3, 0.35], body: [0.3, 0.08, 0.25], accent: [0.65, 0.3, 1.0] },
-  { core: [1.0, 0.9, 0.55], body: [0.85, 0.5, 0.15], accent: [1.0, 0.95, 0.7] },
-];
-// Chaos Demon forms (World 9): the rig flows between three forms;
-// each gets its own tint of the same drawn body.
-const CHAOS_FORMS: Array<{ core: Rgb; body: Rgb; accent: Rgb }> = [
-  BOSS_BASE[8],
-  { core: [0.65, 0.35, 1.0], body: [0.2, 0.1, 0.4], accent: [1.0, 0.4, 0.4] },
-  { core: [0.5, 0.95, 0.8], body: [0.08, 0.25, 0.22], accent: [1.0, 0.9, 0.5] },
+  { core: [1.0, 0.5, 0.1], body: [0.3, 0.14, 0.1], accent: [1.0, 0.75, 0.3] },
+  { core: [0.75, 0.35, 1.0], body: [0.14, 0.08, 0.24], accent: [0.6, 0.85, 1.0] },
+  { core: [0.9, 1.0, 1.0], body: [0.3, 0.55, 0.75], accent: [1.0, 0.6, 0.95] },
+  { core: [0.95, 0.95, 0.5], body: [0.2, 0.26, 0.42], accent: [0.55, 0.85, 1.0] },
+  { core: [0.45, 1.0, 0.75], body: [0.12, 0.14, 0.18], accent: [0.6, 0.75, 0.7] },
+  { core: [1.0, 0.85, 0.35], body: [0.7, 0.35, 0.08], accent: [1.0, 0.95, 0.55] },
+  { core: [0.8, 0.95, 1.0], body: [0.35, 0.55, 0.8], accent: [0.9, 1.0, 1.0] },
+  { core: [1.0, 0.55, 0.15], body: [0.18, 0.32, 0.22], accent: [0.95, 0.8, 0.4] },
+  { core: [0.6, 1.0, 0.9], body: [0.25, 0.1, 0.35], accent: [1.0, 0.35, 0.55] },
+  { core: [1.0, 0.95, 0.7], body: [0.95, 0.45, 0.12], accent: [1.0, 0.85, 0.35] },
 ];
 
 export function mobPalette(type: string, worldIndex: number, form = 0): MobPalette {
   let base = BASE[type];
-  if (type === 'boss') base = worldIndex === 8 ? CHAOS_FORMS[form] ?? BOSS_BASE[8] : BOSS_BASE[worldIndex] ?? BOSS_BASE[0];
+  if (type === 'boss') base = BOSS_BASE[worldIndex] ?? BOSS_BASE[0];
   if (type === 'boss_shadow') base = BOSS_BASE[1];
   if (!base) base = BASE['slime'];
   let { core, body, accent } = base;
@@ -482,197 +475,178 @@ const PAINTERS: Record<string, Painter> = {
 
 // Boss painters, one drawn body per boss (world index order).
 const BOSS_PAINTERS: Painter[] = [
-  // 0 Inferno Guardian: horned magma guardian.
+  // 0 Cinder Colossus: hunched basalt giant with cracked magma plates,
+  // shoulder vents and a furnace mouth.
   (ctx, cx, cy, u, pal) => {
+    ctx.fillStyle = css(pal.deep);
+    poly(ctx, [[cx - 0.95 * u, cy - 0.2 * u], [cx - 0.55 * u, cy - 0.75 * u], [cx + 0.55 * u, cy - 0.75 * u], [cx + 0.95 * u, cy - 0.2 * u], [cx + 0.7 * u, cy + 0.85 * u], [cx - 0.7 * u, cy + 0.85 * u]]); ctx.fill();
     for (const s of [-1, 1]) {
       ctx.fillStyle = css(pal.body);
-      poly(ctx, [[cx + s * 0.3 * u, cy - 0.6 * u], [cx + s * 0.95 * u, cy - 1.0 * u], [cx + s * 0.75 * u, cy - 0.35 * u], [cx + s * 0.42 * u, cy - 0.3 * u]]); ctx.fill();
-      ctx.fillStyle = css(pal.deep);
-      poly(ctx, [[cx + s * 0.55 * u, cy + 0.1 * u], [cx + s * 1.0 * u, cy + 0.5 * u], [cx + s * 0.6 * u, cy + 0.75 * u], [cx + s * 0.35 * u, cy + 0.4 * u]]); ctx.fill();
+      poly(ctx, [[cx + s * 0.55 * u, cy - 0.8 * u], [cx + s * 0.98 * u, cy - 0.5 * u], [cx + s * 0.9 * u, cy - 0.1 * u], [cx + s * 0.5 * u, cy - 0.35 * u]]); ctx.fill();
+      glow(ctx, cx + s * 0.78 * u, cy - 0.78 * u, 0.25 * u, pal.core, 0.8);
+      ctx.fillStyle = css(pal.core); circ(ctx, cx + s * 0.78 * u, cy - 0.72 * u, 0.07 * u); ctx.fill();
     }
-    ctx.fillStyle = css(pal.deep);
-    ctx.beginPath(); ctx.ellipse(cx, cy, 0.62 * u, 0.75 * u, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = css(pal.body);
-    ctx.beginPath(); ctx.ellipse(cx, cy, 0.5 * u, 0.62 * u, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = css(pal.core, 0.9); ctx.lineWidth = 0.05 * u;
-    ctx.beginPath(); ctx.moveTo(cx - 0.3 * u, cy - 0.5 * u); ctx.lineTo(cx - 0.05 * u, cy - 0.1 * u); ctx.lineTo(cx - 0.25 * u, cy + 0.35 * u); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(cx + 0.32 * u, cy - 0.4 * u); ctx.lineTo(cx + 0.1 * u, cy + 0.05 * u); ctx.lineTo(cx + 0.28 * u, cy + 0.45 * u); ctx.stroke();
-    glow(ctx, cx, cy + 0.05 * u, 0.42 * u, pal.core, 0.85);
-    ctx.fillStyle = css(pal.core);
-    circ(ctx, cx, cy + 0.05 * u, 0.18 * u); ctx.fill();
-    eye(ctx, cx - 0.22 * u, cy - 0.35 * u, 0.06 * u, pal.accent);
-    eye(ctx, cx + 0.22 * u, cy - 0.35 * u, 0.06 * u, pal.accent);
+    poly(ctx, [[cx - 0.5 * u, cy - 0.6 * u], [cx + 0.5 * u, cy - 0.6 * u], [cx + 0.55 * u, cy + 0.6 * u], [cx - 0.55 * u, cy + 0.6 * u]]); ctx.fill();
+    ctx.strokeStyle = css(pal.core, 0.95); ctx.lineWidth = 0.045 * u;
+    for (const [a, b, c2] of [[-0.45, -0.1, 0.4], [0.4, 0.05, 0.5], [-0.1, 0.3, 0.2]]) {
+      ctx.beginPath(); ctx.moveTo(cx + a * u, cy - 0.55 * u); ctx.lineTo(cx + b * u, cy); ctx.lineTo(cx + c2 * u * Math.sign(a || 1), cy + 0.55 * u); ctx.stroke();
+    }
+    glow(ctx, cx, cy + 0.25 * u, 0.45 * u, pal.core, 0.9);
+    ctx.fillStyle = css(pal.core); poly(ctx, [[cx - 0.22 * u, cy + 0.15 * u], [cx + 0.22 * u, cy + 0.15 * u], [cx + 0.14 * u, cy + 0.38 * u], [cx - 0.14 * u, cy + 0.38 * u]]); ctx.fill();
+    eye(ctx, cx - 0.2 * u, cy - 0.32 * u, 0.065 * u, pal.accent);
+    eye(ctx, cx + 0.2 * u, cy - 0.32 * u, 0.065 * u, pal.accent);
   },
-  // 1 Shadow Lord: hooded wraith with a scythe arc.
-  (ctx, cx, cy, u, pal) => {
-    ctx.strokeStyle = css(pal.accent); ctx.lineWidth = 0.09 * u;
-    ctx.beginPath(); ctx.arc(cx + 0.25 * u, cy - 0.35 * u, 0.72 * u, -0.4, 1.9); ctx.stroke();
-    ctx.fillStyle = css(pal.deep);
-    ctx.beginPath();
-    ctx.moveTo(cx, cy - 0.95 * u);
-    ctx.bezierCurveTo(cx + 0.6 * u, cy - 0.85 * u, cx + 0.66 * u, cy - 0.1 * u, cx + 0.5 * u, cy + 0.5 * u);
-    ctx.lineTo(cx + 0.62 * u, cy + 0.95 * u); ctx.lineTo(cx + 0.2 * u, cy + 0.6 * u); ctx.lineTo(cx, cy + 1.0 * u);
-    ctx.lineTo(cx - 0.2 * u, cy + 0.6 * u); ctx.lineTo(cx - 0.62 * u, cy + 0.95 * u); ctx.lineTo(cx - 0.5 * u, cy + 0.5 * u);
-    ctx.bezierCurveTo(cx - 0.66 * u, cy - 0.1 * u, cx - 0.6 * u, cy - 0.85 * u, cx, cy - 0.95 * u);
-    ctx.fill();
+  // 1 Umbral Matriarch: veiled spider queen, eight lance legs and a
+  // crescent crown.
+  (ctx, cx, cy, u, pal, frame) => {
+    ctx.strokeStyle = css(pal.deep); ctx.lineWidth = 0.07 * u; ctx.lineCap = 'round';
+    for (const s of [-1, 1]) for (let i = 0; i < 4; i++) {
+      const a = -0.6 + i * 0.42 + (frame % 2) * 0.05 * s;
+      ctx.beginPath(); ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + s * 0.55 * u * Math.cos(a), cy + 0.55 * u * Math.sin(a) - 0.1 * u);
+      ctx.lineTo(cx + s * 0.98 * u * Math.cos(a * 1.2), cy + 0.9 * u * Math.sin(a * 1.2) + 0.15 * u); ctx.stroke();
+    }
     ctx.fillStyle = css(pal.body);
-    ctx.beginPath(); ctx.ellipse(cx, cy - 0.35 * u, 0.36 * u, 0.42 * u, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = css([0.02, 0.01, 0.05]);
-    ctx.beginPath(); ctx.ellipse(cx, cy - 0.32 * u, 0.24 * u, 0.3 * u, 0, 0, Math.PI * 2); ctx.fill();
-    eye(ctx, cx - 0.1 * u, cy - 0.35 * u, 0.05 * u, pal.core);
-    eye(ctx, cx + 0.1 * u, cy - 0.35 * u, 0.05 * u, pal.core);
-    glow(ctx, cx, cy + 0.35 * u, 0.3 * u, pal.core, 0.5);
+    ctx.beginPath(); ctx.ellipse(cx, cy + 0.25 * u, 0.42 * u, 0.5 * u, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = css(pal.deep);
+    ctx.beginPath(); ctx.ellipse(cx, cy - 0.3 * u, 0.3 * u, 0.32 * u, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = css(pal.accent); ctx.lineWidth = 0.06 * u;
+    ctx.beginPath(); ctx.arc(cx, cy - 0.55 * u, 0.32 * u, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
+    glow(ctx, cx, cy + 0.25 * u, 0.32 * u, pal.core, 0.6);
+    ctx.fillStyle = css(pal.core); poly(ctx, [[cx, cy + 0.05 * u], [cx + 0.1 * u, cy + 0.25 * u], [cx, cy + 0.45 * u], [cx - 0.1 * u, cy + 0.25 * u]]); ctx.fill();
+    for (const [x, y] of [[-0.12, -0.34], [0.12, -0.34], [-0.06, -0.22], [0.06, -0.22]]) eye(ctx, cx + x * u, cy + y * u, 0.035 * u, pal.core);
   },
-  // 2 Crystal Titan: shard-cluster golem.
+  // 2 Prism Sentinel: floating faceted octahedron with a lens eye and
+  // orbiting prisms.
   (ctx, cx, cy, u, pal) => {
-    const shard = (x: number, y: number, w: number, h: number, c: Rgb) => {
-      ctx.fillStyle = css(c);
-      poly(ctx, [[x, y - h], [x + w, y], [x, y + h * 0.6], [x - w, y]]); ctx.fill();
-    };
-    shard(cx - 0.62 * u, cy - 0.45 * u, 0.26 * u, 0.55 * u, pal.body);
-    shard(cx + 0.62 * u, cy - 0.45 * u, 0.26 * u, 0.55 * u, pal.body);
-    shard(cx - 0.5 * u, cy + 0.45 * u, 0.22 * u, 0.4 * u, pal.deep);
-    shard(cx + 0.5 * u, cy + 0.45 * u, 0.22 * u, 0.4 * u, pal.deep);
-    shard(cx, cy - 0.1 * u, 0.45 * u, 0.85 * u, pal.body);
-    shard(cx, cy + 0.35 * u, 0.34 * u, 0.5 * u, pal.deep);
-    ctx.fillStyle = css(pal.accent, 0.55);
-    poly(ctx, [[cx, cy - 0.95 * u], [cx + 0.16 * u, cy - 0.3 * u], [cx, cy + 0.05 * u], [cx - 0.16 * u, cy - 0.3 * u]]); ctx.fill();
-    eye(ctx, cx, cy - 0.28 * u, 0.09 * u, pal.core);
+    const facets: Array<[Array<[number, number]>, Rgb]> = [
+      [[[0, -1], [0.7, 0], [0, 0]], pal.accent], [[[0, -1], [-0.7, 0], [0, 0]], pal.body],
+      [[[0, 1], [0.7, 0], [0, 0]], pal.body], [[[0, 1], [-0.7, 0], [0, 0]], pal.deep],
+    ];
+    for (const [pts, c] of facets) { ctx.fillStyle = css(c); poly(ctx, pts.map(([x, y]) => [cx + x * u, cy + y * 0.95 * u] as [number, number])); ctx.fill(); }
+    ctx.strokeStyle = css(pal.core, 0.8); ctx.lineWidth = 0.03 * u;
+    poly(ctx, [[cx, cy - 0.95 * u], [cx + 0.7 * u, cy], [cx, cy + 0.95 * u], [cx - 0.7 * u, cy]]); ctx.stroke();
+    for (const [x, y] of [[-0.9, -0.6], [0.9, -0.6], [-0.85, 0.65], [0.85, 0.65]]) {
+      ctx.fillStyle = css(pal.accent, 0.9); poly(ctx, [[cx + x * u, cy + (y - 0.15) * u], [cx + (x + 0.08) * u, cy + y * u], [cx + x * u, cy + (y + 0.15) * u], [cx + (x - 0.08) * u, cy + y * u]]); ctx.fill();
+    }
+    glow(ctx, cx, cy, 0.4 * u, pal.core, 0.9);
+    ctx.fillStyle = css(pal.core); circ(ctx, cx, cy, 0.14 * u); ctx.fill();
+    ctx.fillStyle = css(pal.deep); circ(ctx, cx, cy, 0.06 * u); ctx.fill();
   },
-  // 3 Storm Wyvern: horned dragon with wings.
-  (ctx, cx, cy, u, pal) => {
+  // 3 Tempest Roc: storm bird with wide jagged wings and lightning
+  // crest.
+  (ctx, cx, cy, u, pal, frame) => {
+    const f = frame % 2 ? 0.12 : 0;
     for (const s of [-1, 1]) {
       ctx.fillStyle = css(pal.body);
-      poly(ctx, [[cx + s * 0.2 * u, cy - 0.3 * u], [cx + s * 1.0 * u, cy - 0.75 * u], [cx + s * 0.88 * u, cy - 0.15 * u], [cx + s * 0.6 * u, cy - 0.3 * u], [cx + s * 0.55 * u, cy + 0.15 * u], [cx + s * 0.25 * u, cy + 0.1 * u]]); ctx.fill();
-      ctx.fillStyle = css(pal.accent);
-      poly(ctx, [[cx + s * 0.25 * u, cy - 0.62 * u], [cx + s * 0.5 * u, cy - 0.98 * u], [cx + s * 0.42 * u, cy - 0.5 * u]]); ctx.fill();
+      poly(ctx, [[cx + s * 0.15 * u, cy - 0.15 * u], [cx + s * 1.0 * u, cy - (0.7 - f) * u], [cx + s * 0.85 * u, cy - 0.35 * u], [cx + s * 0.98 * u, cy - 0.2 * u], [cx + s * 0.7 * u, cy + 0.0 * u], [cx + s * 0.8 * u, cy + 0.2 * u], [cx + s * 0.2 * u, cy + 0.25 * u]]); ctx.fill();
     }
     ctx.fillStyle = css(pal.deep);
-    ctx.beginPath(); ctx.ellipse(cx, cy + 0.05 * u, 0.42 * u, 0.68 * u, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = css(pal.body);
-    ctx.beginPath(); ctx.ellipse(cx, cy - 0.35 * u, 0.3 * u, 0.38 * u, 0, 0, Math.PI * 2); ctx.fill();
-    poly(ctx, [[cx - 0.12 * u, cy - 0.62 * u], [cx + 0.12 * u, cy - 0.62 * u], [cx + 0.2 * u, cy - 0.42 * u], [cx - 0.2 * u, cy - 0.42 * u]]); ctx.fill();
-    eye(ctx, cx - 0.13 * u, cy - 0.42 * u, 0.05 * u, pal.core);
-    eye(ctx, cx + 0.13 * u, cy - 0.42 * u, 0.05 * u, pal.core);
-    ctx.strokeStyle = css(pal.core, 0.9); ctx.lineWidth = 0.04 * u;
-    ctx.beginPath(); ctx.moveTo(cx + 0.55 * u, cy + 0.5 * u); ctx.lineTo(cx + 0.4 * u, cy + 0.68 * u); ctx.lineTo(cx + 0.58 * u, cy + 0.8 * u); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(cx, cy + 0.1 * u, 0.25 * u, 0.55 * u, 0, 0, Math.PI * 2); ctx.fill();
+    poly(ctx, [[cx - 0.18 * u, cy + 0.55 * u], [cx, cy + 0.98 * u], [cx + 0.18 * u, cy + 0.55 * u]]); ctx.fill();
+    ctx.strokeStyle = css(pal.core); ctx.lineWidth = 0.05 * u;
+    ctx.beginPath(); ctx.moveTo(cx, cy - 0.95 * u); ctx.lineTo(cx + 0.12 * u, cy - 0.7 * u); ctx.lineTo(cx - 0.06 * u, cy - 0.62 * u); ctx.lineTo(cx + 0.05 * u, cy - 0.4 * u); ctx.stroke();
+    ctx.fillStyle = css(pal.accent); poly(ctx, [[cx - 0.07 * u, cy - 0.3 * u], [cx + 0.07 * u, cy - 0.3 * u], [cx, cy - 0.12 * u]]); ctx.fill();
+    eye(ctx, cx - 0.1 * u, cy - 0.38 * u, 0.045 * u, pal.core);
+    eye(ctx, cx + 0.1 * u, cy - 0.38 * u, 0.045 * u, pal.core);
   },
-  // 4 Void Reaper: hood, scythe, void chest.
+  // 4 Grave Warden: armored lantern knight with a soul scythe.
   (ctx, cx, cy, u, pal) => {
+    ctx.strokeStyle = css(pal.deep); ctx.lineWidth = 0.06 * u;
+    ctx.beginPath(); ctx.moveTo(cx + 0.6 * u, cy + 0.95 * u); ctx.lineTo(cx + 0.6 * u, cy - 0.8 * u); ctx.stroke();
     ctx.strokeStyle = css(pal.accent); ctx.lineWidth = 0.08 * u;
-    ctx.beginPath(); ctx.moveTo(cx + 0.55 * u, cy + 0.9 * u); ctx.lineTo(cx + 0.55 * u, cy - 0.7 * u); ctx.stroke();
-    ctx.beginPath(); ctx.arc(cx + 0.1 * u, cy - 0.55 * u, 0.5 * u, -0.3, 1.6); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx + 0.15 * u, cy - 0.8 * u, 0.45 * u, -0.15, 0.9); ctx.stroke();
+    ctx.fillStyle = css(pal.deep);
+    poly(ctx, [[cx - 0.45 * u, cy - 0.4 * u], [cx + 0.45 * u, cy - 0.4 * u], [cx + 0.6 * u, cy + 0.95 * u], [cx - 0.6 * u, cy + 0.95 * u]]); ctx.fill();
+    ctx.fillStyle = css(pal.body);
+    poly(ctx, [[cx - 0.3 * u, cy - 0.9 * u], [cx + 0.3 * u, cy - 0.9 * u], [cx + 0.35 * u, cy - 0.35 * u], [cx, cy - 0.2 * u], [cx - 0.35 * u, cy - 0.35 * u]]); ctx.fill();
+    ctx.fillStyle = css([0.02, 0.01, 0.04]); poly(ctx, [[cx - 0.22 * u, cy - 0.65 * u], [cx + 0.22 * u, cy - 0.65 * u], [cx + 0.18 * u, cy - 0.5 * u], [cx - 0.18 * u, cy - 0.5 * u]]); ctx.fill();
+    eye(ctx, cx - 0.09 * u, cy - 0.58 * u, 0.04 * u, pal.core);
+    eye(ctx, cx + 0.09 * u, cy - 0.58 * u, 0.04 * u, pal.core);
+    ctx.strokeStyle = css(pal.accent, 0.8); ctx.lineWidth = 0.03 * u;
+    ctx.beginPath(); ctx.moveTo(cx - 0.35 * u, cy + 0.05 * u); ctx.lineTo(cx - 0.35 * u, cy + 0.3 * u); ctx.stroke();
+    glow(ctx, cx - 0.35 * u, cy + 0.45 * u, 0.3 * u, pal.core, 0.9);
+    ctx.fillStyle = css(pal.core); circ(ctx, cx - 0.35 * u, cy + 0.45 * u, 0.1 * u); ctx.fill();
+  },
+  // 5 Solar Monarch: radiant crowned bird-king with a sun disc halo.
+  (ctx, cx, cy, u, pal) => {
+    glow(ctx, cx, cy - 0.2 * u, 0.95 * u, pal.core, 0.45);
+    ctx.strokeStyle = css(pal.accent); ctx.lineWidth = 0.05 * u;
+    for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * 0.6 * u, cy - 0.2 * u + Math.sin(a) * 0.6 * u); ctx.lineTo(cx + Math.cos(a) * 0.85 * u, cy - 0.2 * u + Math.sin(a) * 0.85 * u); ctx.stroke(); }
+    for (const s of [-1, 1]) { ctx.fillStyle = css(pal.body); poly(ctx, [[cx + s * 0.2 * u, cy], [cx + s * 0.95 * u, cy + 0.1 * u], [cx + s * 0.7 * u, cy + 0.4 * u], [cx + s * 0.25 * u, cy + 0.45 * u]]); ctx.fill(); }
+    ctx.fillStyle = css(pal.deep); ctx.beginPath(); ctx.ellipse(cx, cy + 0.25 * u, 0.3 * u, 0.6 * u, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = css(pal.body); circ(ctx, cx, cy - 0.3 * u, 0.25 * u); ctx.fill();
+    ctx.fillStyle = css(pal.accent); poly(ctx, [[cx - 0.25 * u, cy - 0.5 * u], [cx - 0.2 * u, cy - 0.85 * u], [cx - 0.08 * u, cy - 0.6 * u], [cx, cy - 0.95 * u], [cx + 0.08 * u, cy - 0.6 * u], [cx + 0.2 * u, cy - 0.85 * u], [cx + 0.25 * u, cy - 0.5 * u]]); ctx.fill();
+    eye(ctx, cx - 0.09 * u, cy - 0.3 * u, 0.045 * u, pal.core);
+    eye(ctx, cx + 0.09 * u, cy - 0.3 * u, 0.045 * u, pal.core);
+  },
+  // 6 Glacial Oracle: tall ice seer, robe of shards, floating rune ring.
+  (ctx, cx, cy, u, pal) => {
+    ctx.strokeStyle = css(pal.accent, 0.8); ctx.lineWidth = 0.035 * u;
+    ctx.beginPath(); ctx.ellipse(cx, cy - 0.15 * u, 0.85 * u, 0.3 * u, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = css(pal.body);
+    poly(ctx, [[cx, cy - 0.55 * u], [cx + 0.45 * u, cy + 0.1 * u], [cx + 0.55 * u, cy + 0.95 * u], [cx + 0.2 * u, cy + 0.75 * u], [cx, cy + 0.98 * u], [cx - 0.2 * u, cy + 0.75 * u], [cx - 0.55 * u, cy + 0.95 * u], [cx - 0.45 * u, cy + 0.1 * u]]); ctx.fill();
+    ctx.fillStyle = css(pal.deep); poly(ctx, [[cx, cy - 0.3 * u], [cx + 0.15 * u, cy + 0.6 * u], [cx - 0.15 * u, cy + 0.6 * u]]); ctx.fill();
+    ctx.fillStyle = css(pal.accent);
+    for (const [x, h] of [[-0.2, 0.35], [0, 0.5], [0.2, 0.35]]) { poly(ctx, [[cx + (x - 0.06) * u, cy - 0.6 * u], [cx + x * u, cy - (0.6 + h) * u], [cx + (x + 0.06) * u, cy - 0.6 * u]]); ctx.fill(); }
+    ctx.fillStyle = css(pal.body); circ(ctx, cx, cy - 0.5 * u, 0.18 * u); ctx.fill();
+    glow(ctx, cx, cy - 0.5 * u, 0.3 * u, pal.core, 0.8);
+    eye(ctx, cx, cy - 0.5 * u, 0.06 * u, pal.core);
+  },
+  // 7 Wyrm Sovereign: coiled long-necked dragon with twin horns and
+  // ember throat.
+  (ctx, cx, cy, u, pal, frame) => {
+    ctx.strokeStyle = css(pal.deep); ctx.lineWidth = 0.32 * u; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(cx, cy + 0.35 * u, 0.45 * u, 0.2, Math.PI * 1.75); ctx.stroke();
+    ctx.strokeStyle = css(pal.body); ctx.lineWidth = 0.2 * u;
+    ctx.beginPath(); ctx.arc(cx, cy + 0.35 * u, 0.45 * u, 0.2, Math.PI * 1.75); ctx.stroke();
+    for (const s of [-1, 1]) { ctx.fillStyle = css(pal.deep, 0.9); poly(ctx, [[cx + s * 0.3 * u, cy - 0.1 * u], [cx + s * 1.0 * u, cy - (0.6 + (frame % 2) * 0.1) * u], [cx + s * 0.9 * u, cy + 0.1 * u], [cx + s * 0.45 * u, cy + 0.2 * u]]); ctx.fill(); }
+    ctx.strokeStyle = css(pal.body); ctx.lineWidth = 0.18 * u;
+    ctx.beginPath(); ctx.moveTo(cx + 0.3 * u, cy + 0.05 * u); ctx.quadraticCurveTo(cx + 0.35 * u, cy - 0.5 * u, cx, cy - 0.6 * u); ctx.stroke();
+    ctx.fillStyle = css(pal.body); ctx.beginPath(); ctx.ellipse(cx - 0.05 * u, cy - 0.65 * u, 0.24 * u, 0.17 * u, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = css(pal.accent);
+    for (const s of [-1, 1]) { poly(ctx, [[cx + s * 0.1 * u - 0.05 * u, cy - 0.75 * u], [cx + s * 0.3 * u - 0.05 * u, cy - 1.0 * u], [cx + s * 0.18 * u - 0.05 * u, cy - 0.7 * u]]); ctx.fill(); }
+    glow(ctx, cx + 0.3 * u, cy - 0.25 * u, 0.22 * u, pal.core, 0.8);
+    eye(ctx, cx - 0.13 * u, cy - 0.68 * u, 0.04 * u, pal.core);
+    eye(ctx, cx + 0.03 * u, cy - 0.68 * u, 0.04 * u, pal.core);
+  },
+  // 8 Entropy Engine: a clockwork core of broken gear plates around
+  // an unstable singular eye.
+  (ctx, cx, cy, u, pal) => {
     ctx.fillStyle = css(pal.deep);
     ctx.beginPath();
-    ctx.moveTo(cx, cy - 0.9 * u);
-    ctx.bezierCurveTo(cx + 0.55 * u, cy - 0.8 * u, cx + 0.6 * u, cy, cx + 0.45 * u, cy + 0.55 * u);
-    ctx.lineTo(cx + 0.55 * u, cy + 0.98 * u); ctx.lineTo(cx, cy + 0.7 * u); ctx.lineTo(cx - 0.55 * u, cy + 0.98 * u); ctx.lineTo(cx - 0.45 * u, cy + 0.55 * u);
-    ctx.bezierCurveTo(cx - 0.6 * u, cy, cx - 0.55 * u, cy - 0.8 * u, cx, cy - 0.9 * u);
-    ctx.fill();
-    ctx.fillStyle = css([0.01, 0.0, 0.03]);
-    ctx.beginPath(); ctx.ellipse(cx, cy - 0.4 * u, 0.26 * u, 0.32 * u, 0, 0, Math.PI * 2); ctx.fill();
-    eye(ctx, cx - 0.1 * u, cy - 0.42 * u, 0.05 * u, pal.core);
-    eye(ctx, cx + 0.1 * u, cy - 0.42 * u, 0.05 * u, pal.core);
-    glow(ctx, cx, cy + 0.3 * u, 0.34 * u, pal.core, 0.75);
-    ctx.fillStyle = css(pal.core);
-    circ(ctx, cx, cy + 0.3 * u, 0.11 * u); ctx.fill();
-  },
-  // 5 Phoenix King: crowned regal phoenix (dark against the
-  // player's bright bird).
-  (ctx, cx, cy, u, pal) => {
-    for (const s of [-1, 1]) {
-      ctx.fillStyle = css(pal.body);
-      poly(ctx, [[cx + s * 0.1 * u, cy - 0.2 * u], [cx + s * 0.98 * u, cy - 0.7 * u], [cx + s * 0.85 * u, cy - 0.1 * u], [cx + s * 0.6 * u, cy - 0.05 * u], [cx + s * 0.62 * u, cy + 0.35 * u], [cx + s * 0.2 * u, cy + 0.3 * u]]); ctx.fill();
-      ctx.fillStyle = css(pal.deep);
-      poly(ctx, [[cx + s * 0.12 * u, cy + 0.35 * u], [cx + s * 0.45 * u, cy + 0.95 * u], [cx + s * 0.18 * u, cy + 0.9 * u], [cx + s * 0.05 * u, cy + 0.5 * u]]); ctx.fill();
-    }
+    for (let i = 0; i < 24; i++) { const a = i * Math.PI / 12; const r = (i % 2 ? 0.78 : 0.92) * u; ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); }
+    ctx.closePath(); ctx.fill();
     ctx.fillStyle = css(pal.body);
-    ctx.beginPath(); ctx.ellipse(cx, cy + 0.05 * u, 0.3 * u, 0.52 * u, 0, 0, Math.PI * 2); ctx.fill();
-    glow(ctx, cx, cy, 0.36 * u, pal.core, 0.7);
-    ctx.fillStyle = css(pal.core);
-    circ(ctx, cx, cy - 0.05 * u, 0.13 * u); ctx.fill();
-    // Crown crest.
-    ctx.fillStyle = css(pal.accent);
-    poly(ctx, [[cx - 0.2 * u, cy - 0.62 * u], [cx - 0.14 * u, cy - 0.85 * u], [cx - 0.05 * u, cy - 0.68 * u], [cx, cy - 0.92 * u], [cx + 0.05 * u, cy - 0.68 * u], [cx + 0.14 * u, cy - 0.85 * u], [cx + 0.2 * u, cy - 0.62 * u]]); ctx.fill();
-    eye(ctx, cx - 0.1 * u, cy - 0.45 * u, 0.04 * u, pal.accent);
-    eye(ctx, cx + 0.1 * u, cy - 0.45 * u, 0.04 * u, pal.accent);
-  },
-  // 6 Ice Empress: shard crown over an ice gown.
-  (ctx, cx, cy, u, pal) => {
-    ctx.fillStyle = css(pal.body, 0.95);
-    poly(ctx, [[cx - 0.16 * u, cy - 0.5 * u], [cx + 0.16 * u, cy - 0.5 * u], [cx + 0.42 * u, cy + 0.4 * u], [cx + 0.72 * u, cy + 0.95 * u], [cx + 0.3 * u, cy + 0.8 * u], [cx, cy + 1.0 * u], [cx - 0.3 * u, cy + 0.8 * u], [cx - 0.72 * u, cy + 0.95 * u], [cx - 0.42 * u, cy + 0.4 * u]]); ctx.fill();
-    ctx.fillStyle = css(pal.accent, 0.5);
-    poly(ctx, [[cx - 0.08 * u, cy - 0.45 * u], [cx + 0.08 * u, cy - 0.45 * u], [cx + 0.2 * u, cy + 0.4 * u], [cx, cy + 0.75 * u], [cx - 0.2 * u, cy + 0.4 * u]]); ctx.fill();
-    ctx.fillStyle = css(pal.accent);
-    for (const dx of [-0.22, 0, 0.22]) {
-      const h = dx === 0 ? 0.5 : 0.34;
-      poly(ctx, [[cx + dx * u - 0.07 * u, cy - 0.62 * u], [cx + dx * u, cy - (0.62 + h) * u], [cx + dx * u + 0.07 * u, cy - 0.62 * u]]); ctx.fill();
+    for (let q = 0; q < 4; q++) {
+      const a0 = q * Math.PI / 2 + 0.12, a1 = a0 + Math.PI / 2 - 0.24;
+      ctx.beginPath(); ctx.arc(cx, cy, 0.7 * u, a0, a1); ctx.arc(cx, cy, 0.38 * u, a1, a0, true); ctx.closePath(); ctx.fill();
     }
-    ctx.fillStyle = css(pal.body);
-    circ(ctx, cx, cy - 0.48 * u, 0.2 * u); ctx.fill();
-    eye(ctx, cx - 0.08 * u, cy - 0.5 * u, 0.04 * u, pal.core);
-    eye(ctx, cx + 0.08 * u, cy - 0.5 * u, 0.04 * u, pal.core);
-    glow(ctx, cx, cy + 0.1 * u, 0.3 * u, pal.core, 0.45);
+    ctx.strokeStyle = css(pal.accent, 0.9); ctx.lineWidth = 0.035 * u;
+    for (let q = 0; q < 4; q++) { const a = q * Math.PI / 2 + Math.PI / 4; ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * 0.4 * u, cy + Math.sin(a) * 0.4 * u); ctx.lineTo(cx + Math.cos(a) * 0.68 * u, cy + Math.sin(a) * 0.68 * u); ctx.stroke(); }
+    glow(ctx, cx, cy, 0.45 * u, pal.core, 0.95);
+    ctx.fillStyle = css([0.02, 0.0, 0.04]); circ(ctx, cx, cy, 0.2 * u); ctx.fill();
+    ctx.strokeStyle = css(pal.core); ctx.lineWidth = 0.04 * u; circ(ctx, cx, cy, 0.24 * u); ctx.stroke();
+    eye(ctx, cx, cy, 0.06 * u, pal.accent);
   },
-  // 7 Dragon Emperor: horned dragon head with a mane.
-  (ctx, cx, cy, u, pal) => {
-    for (const s of [-1, 1]) {
-      ctx.fillStyle = css(pal.accent);
-      poly(ctx, [[cx + s * 0.28 * u, cy - 0.55 * u], [cx + s * 0.72 * u, cy - 1.0 * u], [cx + s * 0.55 * u, cy - 0.4 * u]]); ctx.fill();
-      ctx.fillStyle = css(pal.deep);
-      poly(ctx, [[cx + s * 0.3 * u, cy - 0.1 * u], [cx + s * 0.85 * u, cy + 0.35 * u], [cx + s * 0.45 * u, cy + 0.42 * u], [cx + s * 0.28 * u, cy + 0.2 * u]]); ctx.fill();
+  // 9 Phoenix Ascendant: a radiant six-winged phoenix with a
+  // flame-feather tail and a halo.
+  (ctx, cx, cy, u, pal, frame) => {
+    glow(ctx, cx, cy, 1.0 * u, pal.core, 0.4);
+    const lift = frame % 2 ? 0.08 : 0;
+    for (const s of [-1, 1]) for (let k = 0; k < 3; k++) {
+      ctx.fillStyle = css(k === 1 ? pal.accent : pal.body, 0.95 - k * 0.15);
+      const y0 = -0.35 + k * 0.32;
+      poly(ctx, [[cx + s * 0.15 * u, cy + y0 * u], [cx + s * (1.0 - k * 0.12) * u, cy + (y0 - 0.45 + lift) * u], [cx + s * (0.75 - k * 0.1) * u, cy + (y0 + 0.05) * u], [cx + s * 0.2 * u, cy + (y0 + 0.2) * u]]); ctx.fill();
     }
     ctx.fillStyle = css(pal.deep);
-    ctx.beginPath(); ctx.ellipse(cx, cy + 0.1 * u, 0.55 * u, 0.72 * u, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = css(pal.body);
-    ctx.beginPath(); ctx.ellipse(cx, cy - 0.05 * u, 0.44 * u, 0.58 * u, 0, 0, Math.PI * 2); ctx.fill();
-    poly(ctx, [[cx - 0.2 * u, cy - 0.35 * u], [cx + 0.2 * u, cy - 0.35 * u], [cx + 0.3 * u, cy + 0.05 * u], [cx - 0.3 * u, cy + 0.05 * u]]); ctx.fill();
-    ctx.fillStyle = css(pal.accent);
-    poly(ctx, [[cx - 0.07 * u, cy + 0.02 * u], [cx, cy - 0.14 * u], [cx + 0.07 * u, cy + 0.02 * u], [cx, cy + 0.1 * u]]); ctx.fill();
-    eye(ctx, cx - 0.2 * u, cy - 0.28 * u, 0.055 * u, pal.core);
-    eye(ctx, cx + 0.2 * u, cy - 0.28 * u, 0.055 * u, pal.core);
-    ctx.fillStyle = css(pal.core, 0.85);
-    circ(ctx, cx - 0.12 * u, cy + 0.28 * u, 0.035 * u); ctx.fill();
-    circ(ctx, cx + 0.12 * u, cy + 0.28 * u, 0.035 * u); ctx.fill();
-  },
-  // 8 Chaos Demon: bat wings, horns, jagged maw (form tints come
-  // from the palette; the silhouette is shared).
-  (ctx, cx, cy, u, pal) => {
-    for (const s of [-1, 1]) {
-      ctx.fillStyle = css(pal.deep);
-      poly(ctx, [[cx + s * 0.2 * u, cy - 0.3 * u], [cx + s * 1.0 * u, cy - 0.85 * u], [cx + s * 0.92 * u, cy - 0.3 * u], [cx + s * 0.7 * u, cy - 0.42 * u], [cx + s * 0.68 * u, cy - 0.05 * u], [cx + s * 0.45 * u, cy - 0.18 * u], [cx + s * 0.3 * u, cy + 0.15 * u]]); ctx.fill();
-      ctx.fillStyle = css(pal.body);
-      poly(ctx, [[cx + s * 0.26 * u, cy - 0.6 * u], [cx + s * 0.62 * u, cy - 1.02 * u], [cx + s * 0.5 * u, cy - 0.42 * u]]); ctx.fill();
-    }
-    ctx.fillStyle = css(pal.deep);
-    ctx.beginPath(); ctx.ellipse(cx, cy + 0.05 * u, 0.5 * u, 0.66 * u, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = css(pal.body);
-    ctx.beginPath(); ctx.ellipse(cx, cy, 0.4 * u, 0.54 * u, 0, 0, Math.PI * 2); ctx.fill();
-    glow(ctx, cx, cy + 0.28 * u, 0.3 * u, pal.core, 0.8);
-    ctx.fillStyle = css(pal.core);
-    poly(ctx, [[cx - 0.2 * u, cy + 0.18 * u], [cx - 0.1 * u, cy + 0.34 * u], [cx, cy + 0.2 * u], [cx + 0.1 * u, cy + 0.36 * u], [cx + 0.2 * u, cy + 0.18 * u], [cx + 0.14 * u, cy + 0.42 * u], [cx - 0.14 * u, cy + 0.42 * u]]); ctx.fill();
-    eye(ctx, cx - 0.18 * u, cy - 0.3 * u, 0.055 * u, pal.accent);
-    eye(ctx, cx + 0.18 * u, cy - 0.3 * u, 0.055 * u, pal.accent);
-  },
-  // 9 Eternal Phoenix: radiant phoenix with a halo ring.
-  (ctx, cx, cy, u, pal) => {
-    ctx.strokeStyle = css(pal.accent, 0.85); ctx.lineWidth = 0.06 * u;
-    circ(ctx, cx, cy - 0.15 * u, 0.82 * u); ctx.stroke();
-    for (const s of [-1, 1]) {
-      ctx.fillStyle = css(pal.body);
-      poly(ctx, [[cx + s * 0.08 * u, cy - 0.25 * u], [cx + s * 0.95 * u, cy - 0.8 * u], [cx + s * 0.8 * u, cy - 0.15 * u], [cx + s * 0.5 * u, cy - 0.05 * u], [cx + s * 0.55 * u, cy + 0.3 * u], [cx + s * 0.15 * u, cy + 0.25 * u]]); ctx.fill();
-      ctx.fillStyle = css(pal.accent, 0.8);
-      poly(ctx, [[cx + s * 0.1 * u, cy + 0.3 * u], [cx + s * 0.4 * u, cy + 0.95 * u], [cx + s * 0.16 * u, cy + 0.85 * u], [cx + s * 0.04 * u, cy + 0.45 * u]]); ctx.fill();
-    }
-    ctx.fillStyle = css(pal.body);
-    ctx.beginPath(); ctx.ellipse(cx, cy, 0.26 * u, 0.46 * u, 0, 0, Math.PI * 2); ctx.fill();
-    glow(ctx, cx, cy - 0.1 * u, 0.34 * u, pal.core, 0.85);
-    ctx.fillStyle = css(pal.core);
-    circ(ctx, cx, cy - 0.12 * u, 0.12 * u); ctx.fill();
-    ctx.fillStyle = css(pal.accent);
-    poly(ctx, [[cx - 0.05 * u, cy - 0.62 * u], [cx, cy - 0.88 * u], [cx + 0.05 * u, cy - 0.62 * u]]); ctx.fill();
-    eye(ctx, cx - 0.09 * u, cy - 0.42 * u, 0.04 * u, pal.deep);
-    eye(ctx, cx + 0.09 * u, cy - 0.42 * u, 0.04 * u, pal.deep);
+    for (const dx of [-0.15, 0, 0.15]) { poly(ctx, [[cx + dx * u - 0.06 * u, cy + 0.4 * u], [cx + dx * 1.8 * u, cy + 0.98 * u], [cx + dx * u + 0.06 * u, cy + 0.4 * u]]); ctx.fill(); }
+    ctx.fillStyle = css(pal.body); ctx.beginPath(); ctx.ellipse(cx, cy + 0.05 * u, 0.2 * u, 0.45 * u, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = css(pal.accent); ctx.lineWidth = 0.04 * u; ctx.beginPath(); ctx.ellipse(cx, cy - 0.72 * u, 0.25 * u, 0.08 * u, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = css(pal.core); circ(ctx, cx, cy - 0.45 * u, 0.13 * u); ctx.fill();
+    eye(ctx, cx, cy - 0.47 * u, 0.04 * u, pal.accent);
+    glow(ctx, cx, cy + 0.05 * u, 0.3 * u, pal.core, 0.9);
   },
 ];
 
@@ -741,10 +715,9 @@ export function getMobSpriteSet(type: string, worldIndex: number, extentX: numbe
   return set;
 }
 
-// Chaos Demon form sets (World 9 boss): one set per form.
+// Boss sprite sets: one drawn body per realm boss.
 export function getBossFormSets(worldIndex: number, extentX: number, extentY: number): MobSpriteSet[] {
-  if (worldIndex !== 8) return [getMobSpriteSet('boss', worldIndex, extentX, extentY, 0)];
-  return [0, 1, 2].map(f => getMobSpriteSet('boss', worldIndex, extentX, extentY, f));
+  return [getMobSpriteSet('boss', worldIndex, extentX, extentY, 0)];
 }
 
 // ------------------------------------------------------------------
