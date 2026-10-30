@@ -247,6 +247,8 @@ export class GameStateService {
   // (Fix Round 3 published this only for the parked branch, as
   // parkedTargetAngle; the unified controller supersedes it.)
   public aimTargetAngle: number | null = null;
+  // Distance to that target as a fraction of the auto-fire range (0..1).
+  public aimTargetRangeFrac = 1;
   public phoenixOverridePosition = signal<{x: number, y: number} | null>(null);
   public aiPhoenixScreenPos = signal<{x: number, y: number}>({x: window.innerWidth / 2, y: 100});
   public aiMousePos = signal<{x: number, y: number}>({ x: window.innerWidth / 2, y: 100 });

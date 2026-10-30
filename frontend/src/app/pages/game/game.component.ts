@@ -1483,6 +1483,7 @@ export class GameComponent implements OnInit, OnDestroy {
       const dist = Math.hypot(dx, dy);
       if (dist >= 2 && dist <= range && dist < bestDist) { best = e; bestDist = dist; }
     }
+    gs.aimTargetRangeFrac = best && range > 0 ? Math.min(1, bestDist / range) : 1;
     gs.aimTargetAngle = best
       ? Math.atan2(-(best.position.y - py), best.position.x - px)
       : null;

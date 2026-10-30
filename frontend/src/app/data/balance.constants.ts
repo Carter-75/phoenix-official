@@ -94,6 +94,13 @@ export const TURNING = {
   bodyFollowTauSec: 0.09,
   fullAimSpeedRatio: 0.18,
   fullVelocitySpeedRatio: 0.62,
+  // Proximity override: a mob this close (fraction of the auto-fire
+  // range) owns the facing at any speed, so the phoenix looks back
+  // and turns to shoot it while flying the other way. Between the
+  // two fractions the speed blend's velocity weight fades out by
+  // smoothstep; at or beyond farAimRangeFrac speed alone decides.
+  closeAimRangeFrac: 0.35,
+  farAimRangeFrac: 0.7,
   bendMaxDeg: 75,
   bendNeckNz: 0.24,
   bendCurveExponent: 1.35,

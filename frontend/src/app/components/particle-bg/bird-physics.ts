@@ -473,13 +473,16 @@ updateBirdPhysics(bird: PhoenixState, targetWaypoint: THREE.Vector3, baseSpeed: 
             if (aim !== null) {
                 const cruise = Math.max(1, bird.cruiseSpeedNow || baseSpeed);
                 const ratio = velLen / cruise;
-                if (velAngle === null || ratio <= TURNING.fullAimSpeedRatio) {
+                if (velAngle === null) {
                     desired = aim;
-                } else if (ratio >= TURNING.fullVelocitySpeedRatio) {
-                    desired = velAngle;
                 } else {
-                    const t = (ratio - TURNING.fullAimSpeedRatio) / (TURNING.fullVelocitySpeedRatio - TURNING.fullAimSpeedRatio);
-                    const w = t * t * (3 - 2 * t);
+                    // Speed weight: 0 = aim owns, 1 = velocity owns.
+                    const st = Math.min(1, Math.max(0, (ratio - TURNING.fullAimSpeedRatio) / (TURNING.fullVelocitySpeedRatio - TURNING.fullAimSpeedRatio)));
+                    const wSpeed = st * st * (3 - 2 * st);
+                    // Proximity: a very close mob wins at any speed.
+                    const frac = gsT.aimTargetRangeFrac;
+                    const pt = Math.min(1, Math.max(0, (frac - TURNING.closeAimRangeFrac) / (TURNING.farAimRangeFrac - TURNING.closeAimRangeFrac)));
+                    const w = wSpeed * (pt * pt * (3 - 2 * pt));
                     let dAim = velAngle - aim;
                     while (dAim > Math.PI) dAim -= Math.PI * 2;
                     while (dAim < -Math.PI) dAim += Math.PI * 2;
