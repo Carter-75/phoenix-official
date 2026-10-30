@@ -1,4 +1,4 @@
-import { Component, inject, computed, signal } from '@angular/core';
+import { Component, inject, computed, signal, effect, untracked } from '@angular/core';
 import { GameStateService } from '../../services/game-state.service';
 import { AuthService } from '../../services/auth.service';
 import { AudioService } from '../../services/audio.service';
@@ -419,6 +419,17 @@ export class MainMenuComponent {
     return Number.isInteger(idx) && idx >= 0 && idx < WORLDS.length ? idx : 0;
   }
   currentBattleWorld = computed(() => WORLDS[this.selectedBattleWorldIndex()]);
+  // Keep both pickers on the same realm the background renders
+  // (gameState.selectedWorldIndex). The menu can mount before the
+  // saved or server-restored realm lands, so a one-time read is not
+  // enough: whenever the shared realm changes, the pickers follow.
+  private readonly syncPickers = effect(() => {
+    const idx = this.initialWorldIndex();
+    untracked(() => {
+      if (this.campaignWorldIndex() !== idx) this.campaignWorldIndex.set(idx);
+      if (this.selectedBattleWorldIndex() !== idx) this.selectedBattleWorldIndex.set(idx);
+    });
+  });
   // Locked realms are progression gated, not unreleased: say how to unlock.
   unlockHint(index: number): string {
     const prev = this.gameState.worlds[index - 1];
