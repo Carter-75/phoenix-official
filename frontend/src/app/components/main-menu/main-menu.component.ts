@@ -398,7 +398,7 @@ import { shouldOfferTutorial, writeTutorialState } from '../../tutorial/tutorial
           <h2 class="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-orange-300 to-red-400">New to Phoenix?</h2>
           <p class="mt-2 text-sm text-white/75">Take a quick hands-on tutorial in a safe practice arena. No damage, no ads, and it never touches your progress. You can replay it anytime from Settings > Replay Tutorial.</p>
           <div class="mt-5 flex flex-col gap-2">
-            <button (click)="acceptTutorialOffer()" class="press w-full py-3 rounded-full font-black text-white bg-gradient-to-r from-orange-500 to-red-600 shadow-[0_0_20px_rgba(255,90,20,0.45)]">Start tutorial</button>
+            <button data-ap="tutorial-start" (click)="acceptTutorialOffer()" class="press w-full py-3 rounded-full font-black text-white bg-gradient-to-r from-orange-500 to-red-600 shadow-[0_0_20px_rgba(255,90,20,0.45)]">Start tutorial</button>
             <button data-ap="tutorial-decline" (click)="declineTutorialOffer()" class="press w-full py-2 rounded-full font-bold text-white/55 hover:text-white">Not now</button>
           </div>
         </div>

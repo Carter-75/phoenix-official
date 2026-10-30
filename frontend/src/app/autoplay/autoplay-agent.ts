@@ -32,6 +32,10 @@ export interface Observation {
   buttons: ObsButton[];
   events: string[];
   secondsLeft: number | null;
+  /** Per-screen manifest: valid actions, controls and how-tos. */
+  guide?: import('./screen-manifest').ScreenManifest;
+  /** Code-verified things done this session (purchases, runs). */
+  progress?: string[];
 }
 
 export type AgentAction =
@@ -42,7 +46,7 @@ export type AgentAction =
   | { action: 'play'; seconds: number; until?: 'time' | 'death' | 'run_end'; aggression?: number; abilities?: boolean; why?: string }
   | { action: 'use_ability'; slot: 'tap' | 'double' | 'triple' | 'hold'; why?: string }
   | { action: 'wait'; seconds: number; why?: string }
-  | { action: 'finish'; report: string };
+  | { action: 'finish'; report: string; outcome?: 'goal_met' | 'impossible'; reason?: string };
 
 export interface StepResult { ok: boolean; note: string; }
 
@@ -51,7 +55,31 @@ export interface AgentEnv {
   execute(a: AgentAction): Promise<StepResult>;
   now(): number;
   log(kind: string, text: string): void;
+  /** True while a manual touch has the AI paused; the loop waits, it never ends. */
+  isPaused?(): boolean;
+  /** Compact state key (screen, realm, coins, loadout, run) for loop detection. */
+  stateKey?(): string;
 }
+
+/** A finish that only asks the tester something is not a real finish. */
+/** goal_met while a gameplay goal's run is still live is premature: keep playing. */
+export const GAMEPLAY_RE = /surviv|speed|realms|\bdie\b|death|clear|beat|\bwin\b|\bplay\b|boss|minutes?/i;
+
+export function prematureGoal(a: { outcome?: string }, obs: Observation, prompt: string, played = true): boolean {
+  if (a.outcome !== 'goal_met') return false;
+  if (!GAMEPLAY_RE.test(prompt)) return false;
+  if (!played) return true;
+  return !!obs.run && !obs.run.ended;
+}
+
+export function finishIsQuestion(a: { report: string; outcome?: string }): boolean {
+  if (a.outcome === 'goal_met' || a.outcome === 'impossible') return false;
+  return true;
+}
+
+/** Same action 3x with no state change, or 6 steps with no progress. */
+export const LOOP_REPEAT = 3;
+export const NO_PROGRESS_STEPS = 6;
 
 export interface HistoryItem { step: number; action: string; ok: boolean; note: string; }
 
@@ -79,11 +107,13 @@ export function parseAction(raw: unknown): AgentAction | null {
     case 'tap_button': return typeof r.id === 'string' && r.id ? { action: 'tap_button', id: r.id.slice(0, 80), why, allowGems: r.allowGems === true, gemQuote: typeof r.gemQuote === 'string' ? r.gemQuote.slice(0, 300) : undefined } : null;
     case 'select_realm': return { action: 'select_realm', realm: Math.round(num(r.realm, 1, 10, 1)), why };
     case 'navigate': return r.page === 'menu' || r.page === 'shop' ? { action: 'navigate', page: r.page, why } : null;
-    case 'start_run': return ['campaign', 'endless', 'battle'].includes(r.mode) ? { action: 'start_run', mode: r.mode, realm: r.realm === undefined ? undefined : Math.round(num(r.realm, 1, 10, 1)), why } : null;
+    case 'start_run': return r.mode === undefined || ['campaign', 'endless', 'battle'].includes(r.mode) ? { action: 'start_run', mode: r.mode ?? 'campaign', realm: r.realm === undefined ? undefined : Math.round(num(r.realm, 1, 10, 1)), why } : null;
     case 'play': return { action: 'play', seconds: num(r.seconds, 1, MAX_PLAY_SECONDS, 60), until: ['time', 'death', 'run_end'].includes(r.until) ? r.until : 'run_end', aggression: num(r.aggression, 0, 1, 0.5), abilities: r.abilities !== false, why };
     case 'use_ability': return ['tap', 'double', 'triple', 'hold'].includes(r.slot) ? { action: 'use_ability', slot: r.slot, why } : null;
     case 'wait': return { action: 'wait', seconds: num(r.seconds, 0.2, 10, 1), why };
-    case 'finish': return { action: 'finish', report: String(r.report ?? '').replace(/\u2014|\u2013/g, '-') };
+    case 'finish': return { action: 'finish', report: String(r.report ?? '').replace(/\u2014|\u2013/g, '-'),
+      outcome: r.outcome === 'goal_met' || r.outcome === 'impossible' ? r.outcome : undefined,
+      reason: typeof r.reason === 'string' ? r.reason.slice(0, 300) : undefined };
   }
   return null;
 }
@@ -93,18 +123,35 @@ export function parseAction(raw: unknown): AgentAction | null {
  * Gems only when the LLM explicitly claims permission AND cites a
  * quote that appears verbatim in the tester's prompt and mentions gems.
  */
+/** "buy one thing", "buy 1 upgrade", "a single item": the prompt caps purchases at one. */
+export function singlePurchasePrompt(prompt: string): boolean {
+  return /\b(buy|purchase|get)\s+(only\s+)?(one|1|a single|a|an)\s+(\w+\s+)?(thing|upgrade|item|stat|level)\b/i.test(prompt) || /\bbuy\s+(one|1)\b/i.test(prompt);
+}
+
 export function railCheck(a: AgentAction, obs: Observation, prompt: string): string | null {
   if (a.action !== 'tap_button') return null;
+  const tb = obs.buttons.find(x => x.id === a.id);
+  const isBuy = a.id.startsWith('buy-') || tb?.currency === 'coins' || tb?.currency === 'gems';
+  if (isBuy && singlePurchasePrompt(prompt) && (obs.progress || []).some(p => /^- (?!PROBLEM)/.test(p)))
+    return 'the prompt asked for one purchase and it is already done (see progress): call finish goal_met now';
   const b = obs.buttons.find(x => x.id === a.id);
   if (!b) return `no visible button "${a.id}"`;
   if (!b.enabled) return `button "${a.id}" is disabled`;
   if (b.currency === 'money') return 'real-money purchases are never allowed';
   if (b.currency === 'ad') return 'ads are never allowed during autoplay';
   if (b.currency === 'gems') {
+    if (gemsAllowedByPrompt(prompt)) return null;
     if (!a.allowGems || !a.gemQuote) return 'gem spending needs explicit permission in the prompt (cite it in gemQuote)';
     if (!gemQuoteValid(a.gemQuote, prompt)) return 'gemQuote is not a gem permission found in the prompt';
   }
   return null;
+}
+
+/** The prompt itself grants gem spending (e.g. "you may spend gems"). */
+export function gemsAllowedByPrompt(prompt: string): boolean {
+  const p = prompt.toLowerCase();
+  if (/\b(don'?t|do not|never|no)\b[^.]*\bgems?\b/.test(p)) return false;
+  return /\b(may|can|allowed to|ok to|okay to|feel free to)\s+(spend|use)\s+(my\s+|the\s+|some\s+)?gems?\b/.test(p) || /\b(spend|use)\s+(my\s+|the\s+)?gems?\b/.test(p);
 }
 
 export function gemQuoteValid(quote: string, prompt: string): boolean {
@@ -154,10 +201,16 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
   const maxSteps = opt.maxSteps ?? MAX_STEPS;
   const sleep = opt.sleep ?? ((ms: number) => new Promise<void>(r => setTimeout(r, ms)));
   const history: HistoryItem[] = [];
-  let badReplies = 0, rateHits = 0, finalCall = false, step = 0;
+  let badReplies = 0, rateHits = 0, finalCall = false, step = 0, played = false, impossibleRejected = false;
+  let lastKey = env.stateKey?.() ?? '', lastLabel = '', repeat = 0, noProgress = 0;
   while (step < maxSteps) {
     step++;
     if (opt.shouldStop?.()) return { report: null, endReason: 'Stopped by tester', steps: step - 1 };
+    // A manual touch only pauses: wait here, never end the session.
+    if (env.isPaused?.()) {
+      while (env.isPaused?.() && !opt.shouldStop?.()) await sleep(250);
+      if (opt.shouldStop?.()) return { report: null, endReason: 'Stopped by tester', steps: step - 1 };
+    }
     const obs = env.observe();
     if (opt.deadline !== null) obs.secondsLeft = Math.max(0, Math.round((opt.deadline - env.now()) / 1000));
     let raw: unknown;
@@ -184,8 +237,24 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
       if (badReplies >= 3) { env.log('error', 'AI returned 3 invalid actions; stopping.'); return { report: null, endReason: 'AI returned invalid actions', steps: step }; }
       continue;
     }
+    if (a.action === 'finish' && !finalCall && finishIsQuestion(a)) {
+      env.log('safety', 'AI tried to finish without meeting the goal (asked the tester instead). Autoplay is autonomous; continuing.');
+      history.push({ step, action: 'finish', ok: false, note: 'REJECTED: you are autonomous and must never ask the tester anything. Keep working toward the goal. Only finish with outcome "goal_met", or "impossible" plus a reason.' });
+      continue;
+    }
+    if (a.action === 'finish' && !finalCall && !impossibleRejected && a.outcome === 'impossible' && GAMEPLAY_RE.test(prompt)) {
+      impossibleRejected = true;
+      env.log('safety', 'AI called a gameplay goal impossible; asking it to retry once (a death or empty wallet is not impossible).');
+      history.push({ step, action: 'finish', ok: false, note: 'REJECTED once: a gameplay goal is not impossible just because of a KO, 0 coins, or an ended run. Runs earn coins. Tap give-up on KO, then start_run and play again. Only call impossible again if truly blocked.' });
+      continue;
+    }
+    if (a.action === 'finish' && !finalCall && prematureGoal(a, obs, prompt, played)) {
+      env.log('safety', 'AI claimed goal_met while the run is still live; continuing.');
+      history.push({ step, action: 'finish', ok: false, note: 'REJECTED: the prompt is a gameplay goal and it is not done yet (no run played, or the run is still live). Use start_run and play. Use play (until run_end or death). If the phoenix is down, tap give-up, then shop/upgrade and start_run again as the prompt says.' });
+      continue;
+    }
     if (a.action === 'finish') {
-      env.log('ai', 'AI finished the session.');
+      env.log('ai', `AI finished the session (${a.outcome || 'time limit'}${a.reason ? `: ${a.reason}` : ''}).`);
       return { report: a.report.slice(0, opt.reportMaxChars), endReason: 'AI finished', steps: step };
     }
     if (finalCall) return { report: null, endReason: 'Time limit reached without finish', steps: step };
@@ -198,9 +267,23 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
     }
     env.log('ai', `${label}${a.why ? `: ${a.why}` : ''}`);
     let res: StepResult;
+    if (a.action === 'play') played = true;
     try { res = await env.execute(a); } catch (e: any) { res = { ok: false, note: `executor error: ${String(e?.message || e).slice(0, 160)}` }; }
     env.log(res.ok ? 'done' : 'failed', `${label} -> ${res.note}`);
     history.push({ step, action: label, ok: res.ok, note: res.note.slice(0, 300) });
+    const key = env.stateKey?.() ?? '';
+    const progressed = key !== lastKey;
+    lastKey = key;
+    if (progressed) { noProgress = 0; repeat = label === lastLabel ? 1 : 0; }
+    else { noProgress++; repeat = label === lastLabel ? repeat + 1 : 1; }
+    lastLabel = label;
+    if (repeat >= LOOP_REPEAT) {
+      const warn = `LOOP: ${label} repeated ${repeat}x with no state change. Do something else. Valid on ${obs.screen}: ${(obs.guide?.valid || []).join(', ')}.`;
+      env.log('safety', warn); history.push({ step, action: 'loop warning', ok: false, note: warn }); repeat = 0;
+    } else if (noProgress >= NO_PROGRESS_STEPS) {
+      const warn = `NO PROGRESS for ${noProgress} steps. Re-read the observation guide.howTo and change approach.`;
+      env.log('safety', warn); history.push({ step, action: 'no progress', ok: false, note: warn }); noProgress = 0;
+    }
     if (opt.deadline !== null && env.now() >= opt.deadline) {
       // One last call so the AI still writes the report (allowed even past the step cap).
       opt = { ...opt, deadline: null };

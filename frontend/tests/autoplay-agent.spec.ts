@@ -53,7 +53,7 @@ describe('AI agent loop (mocked LLM)', () => {
     const { llm, calls } = mock((r) => {
       const o = r.observation;
       const bought = r.history.some(h => h.action === 'tap_button(buy-damage)' && h.ok);
-      if (bought) return { action: 'finish', report: `Bought damage once. ${r.history.at(-1)!.note}` };
+      if (bought) return { action: 'finish', outcome: 'goal_met', report: `Bought damage once. ${r.history.at(-1)!.note}` };
       if (o.screen === 'menu') return { action: 'tap_button', id: 'open-shop' };
       return { action: 'tap_button', id: o.buttons.find(b => b.currency === 'coins' && b.enabled)!.id };
     });
@@ -74,7 +74,7 @@ describe('AI agent loop (mocked LLM)', () => {
     const { llm } = mock((r, n) => n === 1 ? { action: 'start_run', mode: 'campaign', realm: 1 }
       : n === 2 ? { action: 'play', seconds: 120, until: 'run_end' }
       : r.observation.screen === 'ko' && n === 3 ? { action: 'tap_button', id: 'give-up' }
-      : { action: 'finish', report: 'Played one run.' });
+      : { action: 'finish', outcome: 'goal_met', report: 'Played one run.' });
     const out = await runAgent('play realm 1 for 2 minutes', llm, g, opts);
     expect(g.runs).toBe(1); expect(g.plays).toBe(1);
     expect(g.gems).toBe(50);
@@ -86,7 +86,7 @@ describe('AI agent loop (mocked LLM)', () => {
     const { llm, calls } = mock((_r, n) => n === 1 ? { action: 'tap_button', id: 'b-gem-pack' }
       : n === 2 ? { action: 'tap_button', id: 'b-gem-pack', allowGems: true, gemQuote: 'you may spend gems' }
       : n === 3 ? { action: 'tap_button', id: 'b-remove-ads' }
-      : { action: 'finish', report: 'done' });
+      : { action: 'finish', outcome: 'goal_met', report: 'done' });
     await runAgent('buy some upgrades', llm, g, opts);
     expect(g.gems).toBe(50);
     expect(g.taps).toEqual([]);
@@ -100,7 +100,7 @@ describe('AI agent loop (mocked LLM)', () => {
   it('allows gems only when the quote really is in the prompt', async () => {
     const g = new FakeGame(); g.screen = 'ko';
     const prompt = 'Clear realm 2. You can use gems to revive.';
-    const { llm } = mock((_r, n) => n === 1 ? { action: 'tap_button', id: 'revive-gems', allowGems: true, gemQuote: 'you can use gems to revive' } : { action: 'finish', report: 'ok' });
+    const { llm } = mock((_r, n) => n === 1 ? { action: 'tap_button', id: 'revive-gems', allowGems: true, gemQuote: 'you can use gems to revive' } : { action: 'finish', outcome: 'goal_met', report: 'ok' });
     await runAgent(prompt, llm, g, opts);
     expect(g.gems).toBe(40);
   });
@@ -117,7 +117,7 @@ describe('AI agent loop (mocked LLM)', () => {
 
   it('time limit forces a final finish call', async () => {
     const g = new FakeGame();
-    const { llm, calls } = mock((r) => r.history.some(h => h.action === 'time limit') ? { action: 'finish', report: 'out of time' } : { action: 'wait', seconds: 1 });
+    const { llm, calls } = mock((r) => r.history.some(h => h.action === 'time limit') ? { action: 'finish', outcome: 'goal_met', report: 'out of time' } : { action: 'wait', seconds: 1 });
     const out = await runAgent('just wait', llm, g, { deadline: 3000, reportMaxChars: 100 });
     expect(out.report).toBe('out of time');
     expect(calls.length).toBeLessThan(10);
@@ -125,7 +125,7 @@ describe('AI agent loop (mocked LLM)', () => {
 
   it('report is capped and em dashes removed', async () => {
     const g = new FakeGame();
-    const out = await runAgent('x', async () => ({ action: 'finish', report: 'a \u2014 b ' + 'z'.repeat(5000) }), g, { deadline: null, reportMaxChars: 300 });
+    const out = await runAgent('x', async () => ({ action: 'finish', outcome: 'goal_met', report: 'a \u2014 b ' + 'z'.repeat(5000) }), g, { deadline: null, reportMaxChars: 300 });
     expect(out.report!.length).toBe(300);
     expect(out.report).not.toContain('\u2014');
   });
@@ -196,7 +196,7 @@ describe('step cap scales with the chosen duration', () => {
     const g = new FakeGame();
     const waits: number[] = [];
     let n = 0;
-    const out = await runAgent('x', async () => { n++; if (n <= 2) throw new AgentApiError('rate_limited'); return { action: 'finish', report: 'ok' }; }, g,
+    const out = await runAgent('x', async () => { n++; if (n <= 2) throw new AgentApiError('rate_limited'); return { action: 'finish', outcome: 'goal_met', report: 'ok' }; }, g,
       { ...opts, sleep: async (ms) => { waits.push(ms); } });
     expect(waits).toEqual([RATE_LIMIT_BACKOFF_MS, RATE_LIMIT_BACKOFF_MS]);
     expect(out.endReason).toBe('AI finished');

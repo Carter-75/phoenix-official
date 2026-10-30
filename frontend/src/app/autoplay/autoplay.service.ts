@@ -5,6 +5,7 @@
 // executes the chosen action, verifies it, and enforces the hard
 // safety rails (no real money, no ads, gems only with a quoted
 // permission from the prompt). Ads stay suppressed by AdGuard.
+import { buildManifest } from './screen-manifest';
 import { highlightPurchase } from './purchase-highlight';
 import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
@@ -19,7 +20,7 @@ import { GestureStep, SlotFamily, synthTapChain, synthFlick, synthRoll, synthBra
 import { decide, Snapshot, Threat, Foe, Pt } from './autoplay-pilot';
 import { AttemptRecord, BossRecord, Telemetry, addFinding, newTelemetry } from './autoplay-report';
 import { autoplayAllowed, DevFlags } from './autoplay-gate';
-import { AgentAction, AgentApiError, AgentEnv, LlmRequest, ObsButton, Observation, StepResult, classifyCurrency, gemQuoteValid, parseCost, runAgent, stepCapFor } from './autoplay-agent';
+import { AgentAction, AgentApiError, AgentEnv, LlmRequest, ObsButton, Observation, StepResult, classifyCurrency, gemQuoteValid, gemsAllowedByPrompt, parseCost, runAgent, stepCapFor } from './autoplay-agent';
 
 const AD_REASON = 'autoplay';
 const OUT_KEY = 'phoenix_autoplay_output';
@@ -255,6 +256,12 @@ export class AutoplayService {
     this.resumeTimer = setTimeout(() => { if (this.running()) { this.paused.set(false); this.log('safety', 'Resuming AI play.'); } }, 4000);
   }
 
+  /** Phoenix KO'd (panel up or dead) in the current run. */
+  private isDown(): boolean {
+    const g = this.game;
+    return this.gs.activeScreen() === 'game' && !!g && (!!g.isDead?.() || !!g.koPanelOpen?.() || this.gs.playerDownPhase() !== 'none');
+  }
+
   private where(): string {
     const g = this.game;
     return `screen ${this.gs.activeScreen()}, mode ${this.gs.currentGameMode()}, realm ${this.gs.selectedWorldIndex() + 1}` +
@@ -343,7 +350,9 @@ export class AutoplayService {
       used.add(id);
       this.btnMap.set(id, b);
       const disabled = (b as HTMLButtonElement).disabled === true;
-      const currency = classifyCurrency(clean(b.textContent) + ' ' + clean(b.getAttribute('aria-label')), tag || '');
+      // Gem prices are often just the gem icon image: count it as gems.
+      const gemImg = b.querySelector('img[src*="gem"]') ? ' gems' : '';
+      const currency = classifyCurrency(clean(b.textContent) + ' ' + clean(b.getAttribute('aria-label')) + gemImg, tag || '');
       const ob: ObsButton = { id, label, enabled: !disabled };
       if (currency) ob.currency = currency;
       const cost = currency === 'coins' || currency === 'gems' ? parseCost(clean(b.textContent)) : undefined;
@@ -372,6 +381,8 @@ export class AutoplayService {
       buttons,
       events: [...this.events],
       secondsLeft: null,
+      progress: this.ledger.slice(-6),
+      guide: buildManifest(String(this.gs.activeScreen()), sel + 1, buttons.map(b => b.id)),
     };
   }
 
@@ -413,6 +424,8 @@ export class AutoplayService {
       execute: (a) => this.execute(a),
       now: () => Date.now(),
       log: (k, t) => this.log(k, t),
+      isPaused: () => this.paused(),
+      stateKey: () => { const f = this.fingerprint(); const g = this.game; return JSON.stringify([f, this.gs.activeScreen() === 'game' && g ? [Math.round(g.currentHealth?.() ?? 0), Math.round(g.timeRemaining?.() ?? 0), !!g.isDead?.()] : 0]); },
     };
   }
 
@@ -422,7 +435,7 @@ export class AutoplayService {
       case 'tap_button': {
         const el = this.btnMap.get(a.id);
         if (!el || !el.isConnected) return { ok: false, note: `button ${a.id} is gone` };
-        if (a.allowGems && a.gemQuote && gemQuoteValid(a.gemQuote, this.prompt)) this.gemPermitted = true;
+        if (gemsAllowedByPrompt(this.prompt) || (a.allowGems && a.gemQuote && gemQuoteValid(a.gemQuote, this.prompt))) this.gemPermitted = true;
         if (el.getAttribute('data-ap') === 'play' || el.getAttribute('data-ap') === 'play-battle') this.beginAttempt();
         this.clickEl(el);
         await sleep(700);
@@ -443,7 +456,11 @@ export class AutoplayService {
         return { ok: false, note: 'tapped, but no visible change (balances, loadout, screen all the same)' };
       }
       case 'select_realm': {
-        if (this.gs.activeScreen() !== 'menu') return { ok: false, note: 'select_realm only works on the menu' };
+        if (this.gs.selectedWorldIndex() === a.realm - 1) return { ok: false, note: `realm ${a.realm} is already selected, do something else` };
+        const fromShop = this.gs.activeScreen() === 'shop';
+        if (this.gs.activeScreen() === 'game') return { ok: false, note: 'select_realm is not available during a run; navigate menu first' };
+        if (this.gs.activeScreen() !== 'menu') { await this.execute({ action: 'navigate', page: 'menu' }); }
+        if (this.gs.activeScreen() !== 'menu') return { ok: false, note: `could not reach the menu to select a realm (on ${this.gs.activeScreen()})` };
         const want = a.realm - 1;
         if (!this.gs.unlockedWorlds().includes(want)) return { ok: false, note: `realm ${a.realm} is locked` };
         if (!this.btn('world-next') && !this.btn('world-prev')) { this.click('mode-normal'); await sleep(500); }
@@ -452,16 +469,18 @@ export class AutoplayService {
           await sleep(450);
         }
         const ok = this.gs.selectedWorldIndex() === want;
-        return { ok, note: ok ? `realm ${a.realm} selected` : `could not select realm ${a.realm} (now ${this.gs.selectedWorldIndex() + 1})` };
+        if (ok && fromShop) { this.click('open-shop'); await sleep(600); }
+        return { ok, note: ok ? `realm ${a.realm} selected${fromShop ? ', back on shop' : ''}` : `could not select realm ${a.realm} (now ${this.gs.selectedWorldIndex() + 1})` };
       }
       case 'navigate': {
         const scr = this.gs.activeScreen();
+        if (scr === a.page) return { ok: false, note: `already on ${a.page}, do something else (valid here: see guide.valid)` };
         if (a.page === 'menu') {
           if (scr === 'shop') this.click('shop-close');
           else if (scr === 'game' && this.game) { try { this.game.quitGame(); } catch { } }
           else if (scr !== 'menu') this.gs.activeScreen.set('menu');
         } else {
-          if (scr === 'game') return { ok: false, note: 'leave the run first (navigate menu)' };
+          if (scr === 'game') return { ok: false, note: 'you are in a live run: use play (it returns at death or run end), then navigate shop' };
           if (scr !== 'shop' && !this.click('open-shop')) { if (scr !== 'menu') this.gs.activeScreen.set('menu'); await sleep(500); this.click('open-shop'); }
         }
         await sleep(700);
@@ -469,19 +488,29 @@ export class AutoplayService {
         return { ok, note: ok ? `on ${a.page}` : `still on ${this.gs.activeScreen()}` };
       }
       case 'start_run': {
-        if (this.gs.activeScreen() !== 'menu') return { ok: false, note: 'start_run needs the menu screen' };
+        if (this.gs.activeScreen() === 'game') {
+          if (!this.isDown() && !this.game?.gameEnded?.()) return { ok: false, note: 'already in a run; use play, or navigate menu to quit it first' };
+          // KO or finished run: leave it so the retry the AI asked for can start.
+          if (this.click('give-up')) await sleep(900);
+          if (this.click('quit-game')) await sleep(900);
+          if (this.gs.activeScreen() === 'game' && this.game) { try { this.game.quitGame(); } catch { } await sleep(700); }
+        }
+        if (this.gs.activeScreen() !== 'menu') {
+          await this.execute({ action: 'navigate', page: 'menu' });
+          if (this.gs.activeScreen() !== 'menu') return { ok: false, note: `start_run could not reach the menu (on ${this.gs.activeScreen()}); try navigate menu` };
+        }
         this.click('tutorial-decline'); await sleep(400);
         if (a.mode === 'battle') {
           if (!this.btn('play-battle')) { this.click('mode-battle'); await sleep(500); }
         } else {
-          if (a.realm) { const r = await this.execute({ action: 'select_realm', realm: a.realm }); if (!r.ok) return r; }
+          if (a.realm && this.gs.selectedWorldIndex() !== a.realm - 1) { const r = await this.execute({ action: 'select_realm', realm: a.realm }); if (!r.ok) return r; }
           this.click(a.mode === 'endless' ? 'mode-endless' : 'mode-normal'); await sleep(400);
         }
         this.beginAttempt();
         if (!this.click(a.mode === 'battle' ? 'play-battle' : 'play')) return { ok: false, note: 'Play button not available' };
         for (let i = 0; i < 20 && this.gs.activeScreen() !== 'game'; i++) await sleep(200);
         const ok = this.gs.activeScreen() === 'game';
-        return { ok, note: ok ? `run started: ${this.gs.currentGameMode()} realm ${this.gs.selectedWorldIndex() + 1}` : 'the run did not start' };
+        return { ok, note: ok ? `run started: ${this.gs.currentGameMode()} realm ${this.gs.selectedWorldIndex() + 1}. If the prompt only asked to start a run, call finish goal_met now; otherwise use play until run_end` : 'the run did not start' };
       }
       case 'play': return this.playFor(a.seconds, a.until || 'run_end', a.abilities !== false);
       case 'use_ability': {
@@ -498,7 +527,14 @@ export class AutoplayService {
         this.count(`${a.slot} ability`);
         return { ok: true, note: `${a.slot} gesture sent` };
       }
-      case 'wait': await sleep(a.seconds * 1000); return { ok: true, note: `waited ${a.seconds} s; ${this.diff(before, this.fingerprint()).join(', ') || 'no change'}` };
+      case 'wait':
+        // Waiting in a live run would just stand still and get hit: fly instead.
+        if (this.gs.activeScreen() === 'game' && this.game && !this.game.isDead?.() && !this.game.gameEnded?.()) {
+          const r = await this.playFor(a.seconds, 'time', true);
+          return { ok: r.ok, note: `in a live run, wait flies with the pilot: ${r.note}` };
+        }
+        if (this.isDown()) return { ok: false, note: 'the phoenix is down (KO screen): waiting does nothing. Use start_run to retry (it gives up the KO run for you), or tap revive-gems if gems are allowed' };
+        await sleep(a.seconds * 1000); return { ok: true, note: `waited ${a.seconds} s; ${this.diff(before, this.fingerprint()).join(', ') || 'no change'}` };
       case 'finish': return { ok: true, note: 'finish' };
     }
   }
@@ -517,7 +553,7 @@ export class AutoplayService {
       if (this.deadline && Date.now() >= this.deadline) { why = 'session time limit'; break; }
       if (Date.now() - t0 >= seconds * 1000) { why = 'time up'; break; }
       if (this.gs.activeScreen() !== 'game' || !g) { why = 'left the run'; break; }
-      if (g.isDead?.() || g.koPanelOpen?.() || this.gs.playerDownPhase() !== 'none') { if (until !== 'time' || g.koPanelOpen?.()) { why = 'phoenix is down (KO screen)'; break; } }
+      if (g.isDead?.() || g.koPanelOpen?.() || this.gs.playerDownPhase() !== 'none') { if (until !== 'time' || g.koPanelOpen?.()) { why = 'phoenix is down (KO screen): call start_run to retry (it gives up the KO run), or tap revive-gems if the prompt allows gems'; break; } }
       if (g.gameEnded?.()) { why = g.gameWon?.() ? 'run won' : 'run ended'; break; }
       const gg = this.gemGuard(gems0); if (gg) return { ok: false, note: gg };
     }

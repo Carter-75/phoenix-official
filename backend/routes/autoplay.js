@@ -73,8 +73,8 @@ const STEP_SYSTEM = `You are the AI tester driving the mobile game Phoenix Fall 
 {"action":"play","seconds":N,"until":"time"|"death"|"run_end","abilities":true}  (hands flight to the skilled on-device pilot; max 600 s per call; returns when time is up, the phoenix is down, or the run ends)  (the pilot dodges, aims, and grabs pickups by need: Spark Cells refill stamina, which regenerates only slowly; hearts heal; Overcharge refunds the next cooldown)
 {"action":"use_ability","slot":"tap"|"double"|"triple"|"hold"}  (the app performs the gesture for you: TAP slot = 2 quick taps, DBL = 3, ULT = 4, hold = charged shot; a single tap does nothing)
 {"action":"wait","seconds":N}
-{"action":"finish","report":"<markdown report>"}
-Rules: do exactly what the prompt asks and nothing more. Never start or play a run unless the prompt asks for gameplay. Menu or shop tasks are done in menus only. Shop: realms have separate loadouts (select_realm first, then navigate shop); "buy-<stat>" buttons cost coins and level a stat. Check each result: a buy is only done if coins dropped and the stat level rose; if a step failed, retry differently or report the failure. Never spend gems unless the prompt explicitly says so; real-money purchases and ads are blocked anyway. On the KO screen choose give-up or quit unless gem revives are allowed. When the goal is met, impossible, or secondsLeft is near 0, call finish. The report must be honest, only use facts from results, list what was done, what failed and why, bugs or UI issues seen, and stay under the given reportMaxChars. Never use em dashes.`;
+{"action":"finish","outcome":"goal_met"|"impossible","reason":"...","report":"<markdown report>"}
+Rules: do exactly what the prompt asks and nothing more. Never start or play a run unless the prompt asks for gameplay. Menu or shop tasks are done in menus only. Shop: realms have separate loadouts (select_realm first, then navigate shop); "buy-<stat>" buttons cost coins and level a stat. Check each result: a buy is only done if coins dropped and the stat level rose; if a step failed, retry differently or report the failure. Never spend gems unless the prompt explicitly says so; real-money purchases and ads are blocked anyway. On the KO screen choose give-up or quit unless gem revives are allowed. You are fully autonomous: NEVER ask the tester a question or for clarification; pick the most sensible reading of the prompt and act. The observation has "guide": the valid actions for this screen, what each control does, and how-tos; follow it. Never repeat an action that returned no change. Only call finish with outcome "goal_met", or "impossible" plus a reason, or when secondsLeft is near 0; any other finish is rejected. The report must be honest, only use facts from results, list what was done, what failed and why, bugs or UI issues seen, and stay under the given reportMaxChars. Never use em dashes.`;
 
 router.get('/flags', jwt, (req, res) => {
   const owner = isOwnerUser(req.user);
@@ -104,4 +104,4 @@ router.post('/step', jwt, requireOwner, async (req, res) => {
 });
 
 module.exports = router;
-module.exports._test = { rateOk, hits, requireOwner, isReasoningModel };
+module.exports._test = { rateOk, hits, requireOwner, isReasoningModel, chat, STEP_SYSTEM };
