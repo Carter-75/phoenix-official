@@ -10,6 +10,7 @@
 //
 // Gesture rules come from tutorial-input.ts, a pure mirror of the
 // game component's touch grammar using the game's own constants.
+import { AutoplayService } from '../../autoplay/autoplay.service';
 import { AfterViewInit, Component, ElementRef, NgZone, OnDestroy, ViewChild, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { GameStateService } from '../../services/game-state.service';
@@ -56,8 +57,8 @@ const FAMILY_LABEL: Record<SlotFamily, string> = { tap: 'TAP (2 taps)', double: 
           <span data-tut="level" class="shrink-0 px-2 py-0.5 rounded-full bg-orange-500/15 border border-orange-500/40 text-orange-300 font-black text-[11px] tracking-widest">LV {{ gameState.level() }}</span>
         </div>
       </div>
-      <div class="flex items-end justify-between gap-3">
-        <div class="flex items-center gap-2 pb-1">
+      <div class="flex items-end justify-between gap-2 min-[380px]:gap-3">
+        <div class="relative flex items-center gap-2 pb-1 min-w-0">
           <div data-tut="stamina" class="relative w-9 h-9 rounded-full flex items-center justify-center transition-shadow duration-300 shrink-0"
                [style.background]="staminaBg()"
                [style.box-shadow]="gliding() ? '0 0 14px rgba(255,255,255,0.55)' : '0 0 6px rgba(0,0,0,0.5)'">
@@ -67,7 +68,7 @@ const FAMILY_LABEL: Record<SlotFamily, string> = { tap: 'TAP (2 taps)', double: 
                     [class]="staminaFlash()!.startsWith('+') ? 'text-emerald-300' : 'text-orange-200'">{{ staminaFlash() }}</span>
             }
           </div>
-          <div data-tut="pills" class="flex items-center gap-1.5 transition-opacity duration-300"
+          <div data-tut="pills" class="flex items-center gap-1.5 transition-opacity duration-300 max-[379px]:absolute max-[379px]:left-0 max-[379px]:bottom-full max-[379px]:mb-1 max-[379px]:pointer-events-none"
                [style.opacity]="step().id === 'gadgets' ? 1 : 0.0">
             <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border bg-orange-400/20 border-orange-300/70 shadow-[0_0_12px_rgba(255,120,40,0.55)] animate-pulse">
               <span class="text-sm">🛡️</span><span class="text-[10px] font-black tracking-widest uppercase text-orange-200">Aegis</span>
@@ -77,10 +78,10 @@ const FAMILY_LABEL: Record<SlotFamily, string> = { tap: 'TAP (2 taps)', double: 
             </div>
           </div>
         </div>
-        <div data-tut="slots" class="flex gap-2 md:gap-3">
+        <div data-tut="slots" class="flex gap-1.5 min-[380px]:gap-2 md:gap-3 shrink-0">
           @for (s of slotDefs; track s.key) {
             <div [attr.data-tut]="'slot-' + s.key"
-                 class="relative w-14 h-14 md:w-16 md:h-16 bg-zinc-950/70 backdrop-blur-md border border-white/15 rounded-2xl overflow-hidden flex items-center justify-center transition-transform duration-150"
+                 class="relative w-12 h-12 min-[380px]:w-14 min-[380px]:h-14 md:w-16 md:h-16 bg-zinc-950/70 backdrop-blur-md border border-white/15 rounded-2xl overflow-hidden flex items-center justify-center transition-transform duration-150"
                  [class.scale-110]="slotPulse() === s.key"
                  [class.ring-2]="s.key === 'hold' && holdProgress() > 0" [class.ring-orange-300]="s.key === 'hold' && holdProgress() > 0">
               <span class="text-3xl z-10" [class.opacity-50]="cooldownLeft(s.key) > 0">{{ s.icon }}</span>
@@ -147,7 +148,7 @@ const FAMILY_LABEL: Record<SlotFamily, string> = { tap: 'TAP (2 taps)', double: 
           <div class="h-full rounded-full bg-gradient-to-r from-orange-400 to-red-500 transition-all duration-500" [style.width]="((index() + 1) / steps.length * 100) + '%'"></div>
         </div>
       </div>
-      <button (click)="skipAll()" class="press glass px-3 h-9 rounded-full text-white/70 hover:text-white text-xs font-bold tracking-widest uppercase shrink-0">Skip</button>
+      <button data-ap="tut-skip-all" (click)="skipAll()" class="press glass px-3 h-9 rounded-full text-white/70 hover:text-white text-xs font-bold tracking-widest uppercase shrink-0">Skip</button>
     </div>
 
     <!-- Step card. -->
@@ -183,12 +184,12 @@ const FAMILY_LABEL: Record<SlotFamily, string> = { tap: 'TAP (2 taps)', double: 
           <div class="mt-3 flex items-center justify-end gap-2">
             @if (step().goal === 'info') {
               @if (isLast()) {
-                <button (click)="finish()" class="press px-5 py-2 rounded-full font-black text-white bg-gradient-to-r from-orange-500 to-red-600 shadow-[0_0_20px_rgba(255,90,20,0.45)]">Back to menu</button>
+                <button data-ap="tut-finish" (click)="finish()" class="press px-5 py-2 rounded-full font-black text-white bg-gradient-to-r from-orange-500 to-red-600 shadow-[0_0_20px_rgba(255,90,20,0.45)]">Back to menu</button>
               } @else {
-                <button (click)="next()" class="press px-5 py-2 rounded-full font-black text-white bg-gradient-to-r from-orange-500 to-red-600 shadow-[0_0_20px_rgba(255,90,20,0.45)]">Next</button>
+                <button data-ap="tut-next" (click)="next()" class="press px-5 py-2 rounded-full font-black text-white bg-gradient-to-r from-orange-500 to-red-600 shadow-[0_0_20px_rgba(255,90,20,0.45)]">Next</button>
               }
             } @else {
-              <button (click)="next()" class="press px-3 py-1.5 rounded-full text-[11px] font-bold text-white/45 hover:text-white/80 uppercase tracking-widest">Skip step</button>
+              <button data-ap="tut-skip-step" (click)="next()" class="press px-3 py-1.5 rounded-full text-[11px] font-bold text-white/45 hover:text-white/80 uppercase tracking-widest">Skip step</button>
             }
           </div>
         </div>
@@ -256,6 +257,7 @@ export class TutorialComponent implements AfterViewInit, OnDestroy {
   public gameState = inject(GameStateService);
   private storage = inject(StorageService);
   private zone = inject(NgZone);
+  private autoplay = inject(AutoplayService);
 
   @ViewChild('root', { static: true }) rootRef!: ElementRef<HTMLDivElement>;
   @ViewChild('canvas', { static: true }) canvasRef!: ElementRef<HTMLCanvasElement>;
@@ -332,6 +334,7 @@ export class TutorialComponent implements AfterViewInit, OnDestroy {
   }
 
   ngAfterViewInit(): void {
+    this.autoplay.attachTutorial(this);
     try {
       const frames = getPhoenixFrames(phoenixSkinById('ember')).frames;
       this.sprite = frames.map(t => t.image as HTMLCanvasElement).filter(Boolean);
@@ -363,6 +366,7 @@ export class TutorialComponent implements AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.autoplay.detachTutorial(this);
     cancelAnimationFrame(this.raf);
     this.parser.dispose();
     this.timers.forEach(clearTimeout);

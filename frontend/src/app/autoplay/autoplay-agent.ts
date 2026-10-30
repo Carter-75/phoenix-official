@@ -20,6 +20,20 @@ export interface ObsButton {
   currency?: 'coins' | 'gems' | 'money' | 'ad';
 }
 
+/** Screens the checklist tracks (overlays count as screens). */
+export const CHECK_SCREENS = ['menu', 'shop', 'settings', 'codex', 'leaderboard', 'tutorial', 'game', 'pause'];
+export const NAV_PAGES = ['menu', 'shop', 'settings', 'tutorial', 'codex', 'leaderboard'] as const;
+export type NavPage = typeof NAV_PAGES[number];
+
+/** Code-tracked progress the AI must satisfy before goal_met is accepted. */
+export interface Checklist {
+  visited: string[]; notVisited: string[];
+  deaths: number; buys: number;
+  retriedAfterDeath: boolean; retriedAfterBuy: boolean;
+  tutorialDone: boolean; tutorialPassed: number; tutorialSkipped: number;
+  uiFindings: number; bugs: number;
+}
+
 export interface Observation {
   screen: string;
   coins: number;
@@ -36,12 +50,13 @@ export interface Observation {
   guide?: import('./screen-manifest').ScreenManifest;
   /** Code-verified things done this session (purchases, runs). */
   progress?: string[];
+  checklist?: Checklist;
 }
 
 export type AgentAction =
   | { action: 'tap_button'; id: string; why?: string; allowGems?: boolean; gemQuote?: string }
   | { action: 'select_realm'; realm: number; why?: string }
-  | { action: 'navigate'; page: 'menu' | 'shop'; why?: string }
+  | { action: 'navigate'; page: NavPage; why?: string }
   | { action: 'start_run'; mode: 'campaign' | 'endless' | 'battle'; realm?: number; why?: string }
   | { action: 'play'; seconds: number; until?: 'time' | 'death' | 'run_end'; aggression?: number; abilities?: boolean; why?: string }
   | { action: 'use_ability'; slot: 'tap' | 'double' | 'triple' | 'hold'; why?: string }
@@ -70,6 +85,34 @@ export function prematureGoal(a: { outcome?: string }, obs: Observation, prompt:
   if (!GAMEPLAY_RE.test(prompt)) return false;
   if (!played) return true;
   return !!obs.run && !obs.run.ended;
+}
+
+const MENU_SCREENS = ['menu', 'shop', 'settings', 'codex', 'leaderboard'];
+/** Screens a prompt needs visited: "every menu" means all menu screens; a UI bug hunt means the named ones (or all menus). */
+export function requiredScreens(prompt: string): string[] {
+  const p = prompt.toLowerCase();
+  const every = /\b(every|all)\b[^.]*\b(menus?|screens?|pages?)\b/.test(p);
+  const hunt = /\bbugs?\b|\bui\b|layout|overlap/.test(p);
+  if (every) return [...MENU_SCREENS];
+  if (!hunt) return [];
+  const named = MENU_SCREENS.filter(x => new RegExp(`\\b${x}\\b`).test(p));
+  return named.length ? named : [...MENU_SCREENS];
+}
+
+/** Sub-goals of the prompt that code has not verified yet (empty: goal_met may stand). */
+export function unmetSubgoals(prompt: string, c: Checklist | undefined): string[] {
+  if (!c) return [];
+  const p = prompt.toLowerCase(), out: string[] = [];
+  const die = /\bdie\b|\bdeath\b|get killed|on purpose/.test(p) && !/no deaths?|without dying|don.t die|survive/.test(p);
+  const buy = /\bbuy\b|\bpurchase\b/.test(p);
+  const retry = /\bretry\b|try again|\bagain\b/.test(p);
+  if (die && c.deaths < 1) out.push('die: no death recorded yet (start_run, then play until death with aggression 0 so the pilot stops dodging)');
+  if (die && buy && c.buys < 1) out.push('buy: no verified purchase yet (navigate shop, tap a buy- button you can afford)');
+  if (retry && !(buy ? c.retriedAfterBuy : c.retriedAfterDeath)) out.push(buy ? 'retry: no run started after the purchase yet (start_run)' : 'retry: no run started after the death yet (start_run)');
+  if (/tutorial/.test(p) && !c.tutorialDone) out.push('tutorial: not completed (navigate tutorial, then play until it returns to the menu)');
+  const need = requiredScreens(prompt).filter(x => !c.visited.includes(x));
+  if (need.length) out.push(`screens not visited yet: ${need.join(', ')} (navigate each once)`);
+  return out;
 }
 
 export function finishIsQuestion(a: { report: string; outcome?: string }): boolean {
@@ -106,7 +149,7 @@ export function parseAction(raw: unknown): AgentAction | null {
   switch (r.action) {
     case 'tap_button': return typeof r.id === 'string' && r.id ? { action: 'tap_button', id: r.id.slice(0, 80), why, allowGems: r.allowGems === true, gemQuote: typeof r.gemQuote === 'string' ? r.gemQuote.slice(0, 300) : undefined } : null;
     case 'select_realm': return { action: 'select_realm', realm: Math.round(num(r.realm, 1, 10, 1)), why };
-    case 'navigate': return r.page === 'menu' || r.page === 'shop' ? { action: 'navigate', page: r.page, why } : null;
+    case 'navigate': return (NAV_PAGES as readonly string[]).includes(r.page) ? { action: 'navigate', page: r.page, why } : null;
     case 'start_run': return r.mode === undefined || ['campaign', 'endless', 'battle'].includes(r.mode) ? { action: 'start_run', mode: r.mode ?? 'campaign', realm: r.realm === undefined ? undefined : Math.round(num(r.realm, 1, 10, 1)), why } : null;
     case 'play': return { action: 'play', seconds: num(r.seconds, 1, MAX_PLAY_SECONDS, 60), until: ['time', 'death', 'run_end'].includes(r.until) ? r.until : 'run_end', aggression: num(r.aggression, 0, 1, 0.5), abilities: r.abilities !== false, why };
     case 'use_ability': return ['tap', 'double', 'triple', 'hold'].includes(r.slot) ? { action: 'use_ability', slot: r.slot, why } : null;
@@ -133,7 +176,12 @@ export function railCheck(a: AgentAction, obs: Observation, prompt: string): str
   const tb = obs.buttons.find(x => x.id === a.id);
   const isBuy = a.id.startsWith('buy-') || tb?.currency === 'coins' || tb?.currency === 'gems';
   if (isBuy && singlePurchasePrompt(prompt) && (obs.progress || []).some(p => /^- (?!PROBLEM)/.test(p)))
-    return 'the prompt asked for one purchase and it is already done (see progress): call finish goal_met now';
+  {
+    const todo = unmetSubgoals(prompt, obs.checklist);
+    return todo.length
+      ? `the prompt asked for one purchase and it is already done; next: ${todo.join('; ')}`
+      : 'the prompt asked for one purchase and it is already done (see progress): call finish goal_met now';
+  }
   const b = obs.buttons.find(x => x.id === a.id);
   if (!b) return `no visible button "${a.id}"`;
   if (!b.enabled) return `button "${a.id}" is disabled`;
@@ -242,7 +290,7 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
       history.push({ step, action: 'finish', ok: false, note: 'REJECTED: you are autonomous and must never ask the tester anything. Keep working toward the goal. Only finish with outcome "goal_met", or "impossible" plus a reason.' });
       continue;
     }
-    if (a.action === 'finish' && !finalCall && !impossibleRejected && a.outcome === 'impossible' && GAMEPLAY_RE.test(prompt)) {
+    if (a.action === 'finish' && !finalCall && !impossibleRejected && a.outcome === 'impossible' && (GAMEPLAY_RE.test(prompt) || requiredScreens(prompt).some(x => !(obs.checklist?.visited || []).includes(x)))) {
       impossibleRejected = true;
       env.log('safety', 'AI called a gameplay goal impossible; asking it to retry once (a death or empty wallet is not impossible).');
       history.push({ step, action: 'finish', ok: false, note: 'REJECTED once: a gameplay goal is not impossible just because of a KO, 0 coins, or an ended run. Runs earn coins. Tap give-up on KO, then start_run and play again. Only call impossible again if truly blocked.' });
@@ -252,6 +300,14 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
       env.log('safety', 'AI claimed goal_met while the run is still live; continuing.');
       history.push({ step, action: 'finish', ok: false, note: 'REJECTED: the prompt is a gameplay goal and it is not done yet (no run played, or the run is still live). Use start_run and play. Use play (until run_end or death). If the phoenix is down, tap give-up, then shop/upgrade and start_run again as the prompt says.' });
       continue;
+    }
+    if (a.action === 'finish' && !finalCall && a.outcome === 'goal_met') {
+      const unmet = unmetSubgoals(prompt, obs.checklist);
+      if (unmet.length) {
+        env.log('safety', `AI claimed goal_met but code has not verified: ${unmet.join('; ')}. Continuing.`);
+        history.push({ step, action: 'finish', ok: false, note: `REJECTED: not verified by code yet: ${unmet.join('; ')}` });
+        continue;
+      }
     }
     if (a.action === 'finish') {
       env.log('ai', `AI finished the session (${a.outcome || 'time limit'}${a.reason ? `: ${a.reason}` : ''}).`);

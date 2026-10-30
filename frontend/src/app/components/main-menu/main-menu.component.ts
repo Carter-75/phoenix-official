@@ -153,10 +153,10 @@ import { shouldOfferTutorial, writeTutorialState } from '../../tutorial/tutorial
 
       <!-- Navigation -->
       <div class="menu-header-nav glass flex items-center gap-1 p-1 rounded-full pointer-events-auto">
-        <button (click)="openCodex()" class="press px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-widest text-white/70 hover:text-white hover:bg-white/10 transition">
+        <button data-ap="open-codex" (click)="openCodex()" class="press px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-widest text-white/70 hover:text-white hover:bg-white/10 transition">
           Codex
         </button>
-        <button (click)="openLeaderboard()" class="press px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-widest text-white/70 hover:text-white hover:bg-white/10 transition">
+        <button data-ap="open-leaderboard" (click)="openLeaderboard()" class="press px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-widest text-white/70 hover:text-white hover:bg-white/10 transition">
           Leaderboard
         </button>
         <button (click)="openProfile()" class="press px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-widest text-white/70 hover:text-white hover:bg-white/10 transition">
@@ -186,7 +186,7 @@ import { shouldOfferTutorial, writeTutorialState } from '../../tutorial/tutorial
       }
 
       <!-- Settings Button -->
-      <button (click)="showSettings = true" class="press glass pointer-events-auto shrink-0 px-4 py-2 rounded-full text-white/60 hover:text-white font-bold transition">
+      <button data-ap="open-settings" (click)="showSettings = true" class="press glass pointer-events-auto shrink-0 px-4 py-2 rounded-full text-white/60 hover:text-white font-bold transition">
          SETTINGS ⚙️
       </button>
     </div>

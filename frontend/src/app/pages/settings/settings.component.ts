@@ -146,7 +146,7 @@ import { copyText } from '../../services/clipboard';
                 @if (gameState.activeScreen() === 'menu') {
                     <div class="separator"></div>
                     <button class="press w-full py-2.5 rounded-xl font-bold text-orange-200 bg-orange-500/10 border border-orange-400/30 hover:bg-orange-500/20 transition"
-                            (click)="replayTutorial()">🎓 Replay Tutorial</button>
+                            data-ap="replay-tutorial" (click)="replayTutorial()">🎓 Replay Tutorial</button>
                 }
 
                 @if (ap.allowed()) {
@@ -217,7 +217,7 @@ import { copyText } from '../../services/clipboard';
             </div>
             
 
-            <button class="btn btn-primary btn-sheen press mt-4 w-full shrink-0" (click)="close.emit()">DONE</button>
+            <button class="btn btn-primary btn-sheen press mt-4 w-full shrink-0" data-ap="settings-close" (click)="close.emit()">DONE</button>
         </div>
     </div>
   `,

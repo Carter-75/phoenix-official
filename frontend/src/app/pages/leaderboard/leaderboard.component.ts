@@ -13,7 +13,7 @@ import { TrioMode } from '../../data/mode-records';
   imports: [CommonModule],
   template: `
     <div class="fixed inset-0 flex flex-col items-center p-4 md:p-8 z-50 overflow-y-auto">
-      <button (click)="goBack()" class="press absolute top-4 left-4 md:top-6 md:left-6 text-white/50 hover:text-white transition flex items-center gap-2">
+      <button data-ap="leaderboard-back" (click)="goBack()" class="press absolute top-4 left-4 md:top-6 md:left-6 text-white/50 hover:text-white transition flex items-center gap-2">
         <span class="text-2xl">←</span> Back
       </button>
 

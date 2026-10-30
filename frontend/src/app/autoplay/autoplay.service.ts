@@ -17,9 +17,11 @@ import { AuthService } from '../services/auth.service';
 import { AdGuard } from './ad-guard';
 import { CappedOutput, OUTPUT_CAP_CHARS, REPORT_RESERVE_CHARS } from './autoplay-output';
 import { GestureStep, SlotFamily, synthTapChain, synthFlick, synthRoll, synthBrake, holdChargeMs, chainIsValid } from './autoplay-gestures';
+import { TOUCH_DRAG_SCALE } from '../data/balance.constants';
 import { decide, Snapshot, Threat, Foe, Pt } from './autoplay-pilot';
 import { AttemptRecord, BossRecord, Telemetry, addFinding, newTelemetry } from './autoplay-report';
 import { autoplayAllowed, DevFlags } from './autoplay-gate';
+import { CHECK_SCREENS, Checklist, requiredScreens, unmetSubgoals } from './autoplay-agent';
 import { AgentAction, AgentApiError, AgentEnv, LlmRequest, ObsButton, Observation, StepResult, classifyCurrency, gemQuoteValid, gemsAllowedByPrompt, parseCost, runAgent, stepCapFor } from './autoplay-agent';
 
 const AD_REASON = 'autoplay';
@@ -101,6 +103,32 @@ export class AutoplayService {
   allowed(): boolean { return autoplayAllowed(this.auth.currentUser() as any, this.flags()); }
 
   // ---------- game registration ----------
+  attachTutorial(t: any) { this.tut = t; }
+  detachTutorial(t: any) { if (this.tut === t) { this.releaseFingers(); this.tut = null; } }
+  private tut: any = null;
+  private visited = new Set<string>();
+  private passive = false;
+  private ck = { deaths: 0, buys: 0, lastDeathAt: 0, lastBuyAt: 0, runAfterDeath: false, runAfterBuy: false, tutorialDone: false, tutPassed: [] as string[], tutSkipped: [] as string[] };
+
+  /** Screen name for the checklist: overlays (settings, pause, KO) count as their own screens. */
+  screenName(): string {
+    const scr = String(this.gs.activeScreen());
+    if (scr === 'menu' && document.querySelector('app-settings')) return 'settings';
+    if (scr === 'game') { if (this.game && this.isDown()) return 'ko'; if (this.gs.isPaused()) return 'pause'; }
+    return scr;
+  }
+
+  checklist(): Checklist {
+    const visited = [...this.visited];
+    return {
+      visited, notVisited: CHECK_SCREENS.filter(x => !this.visited.has(x)),
+      deaths: this.ck.deaths, buys: this.ck.buys,
+      retriedAfterDeath: this.ck.runAfterDeath, retriedAfterBuy: this.ck.runAfterBuy,
+      tutorialDone: this.ck.tutorialDone, tutorialPassed: this.ck.tutPassed.length, tutorialSkipped: this.ck.tutSkipped.length,
+      uiFindings: this.tm.ui.length, bugs: this.tm.bugs.length,
+    };
+  }
+
   attachGame(g: any) { this.game = g; this.inGameAt = Date.now(); this.lastHp = 0; }
   detachGame(g: any) { if (this.game === g) { this.releaseFingers(); this.game = null; } }
 
@@ -118,6 +146,8 @@ export class AutoplayService {
     this.stopReason = '';
     this.playing = false;
     this.events = []; this.ledger = []; this.model = '';
+    this.visited = new Set(); this.passive = false;
+    this.ck = { deaths: 0, buys: 0, lastDeathAt: 0, lastBuyAt: 0, runAfterDeath: false, runAfterBuy: false, tutorialDone: false, tutPassed: [], tutSkipped: [] };
     this.tm = newTelemetry(Date.now());
     this.out.setStart(this.tm.startedAt);
     const user: any = this.auth.currentUser();
@@ -178,11 +208,11 @@ export class AutoplayService {
     this.tm.endedAt = Date.now();
     this.tm.coinsEnd = this.gs.coins(); this.tm.gemsEnd = this.gs.gems();
     if (report !== null) {
-      const facts = [`Verified by code: coins ${this.tm.coinsStart} -> ${this.tm.coinsEnd}, gems ${this.tm.gemsStart} -> ${this.tm.gemsEnd}.`, ...this.ledger.slice(-20)].join('\n');
+      const facts = [`Verified by code: coins ${this.tm.coinsStart} -> ${this.tm.coinsEnd}, gems ${this.tm.gemsStart} -> ${this.tm.gemsEnd}.`, this.checklistLine(), ...this.ledger.slice(-20), ...this.findingLines()].join('\n');
       this.out.setReport(`Report written by: OpenAI (${this.model || 'unknown'})\n\n${report}\n\n## Code-verified ledger\nSteps taken: ${steps}.\n${facts}`);
     } else if (!this.out.text().includes('AUTOPLAY STOPPED')) {
       const secs = Math.round((this.tm.endedAt - this.tm.startedAt) / 1000);
-      this.out.setReport(`Autoplay ended: ${reason}.\nSteps taken: ${steps}. Ran ${secs} s.\nVerified by code: coins ${this.tm.coinsStart} -> ${this.tm.coinsEnd}, gems ${this.tm.gemsStart} -> ${this.tm.gemsEnd}.${this.ledger.length ? '\n' + this.ledger.slice(-20).join('\n') : ''}\nThe AI did not write a report because the run ended before it called finish.`);
+      this.out.setReport(`Autoplay ended: ${reason}.\nSteps taken: ${steps}. Ran ${secs} s.\nVerified by code: coins ${this.tm.coinsStart} -> ${this.tm.coinsEnd}, gems ${this.tm.gemsStart} -> ${this.tm.gemsEnd}.${this.ledger.length ? '\n' + this.ledger.slice(-20).join('\n') : ''}\nThe AI did not write a report because the run ended before it called finish.\n${[this.checklistLine(), ...this.findingLines()].join('\n')}`);
     }
     this.publish();
     this.cleanup.forEach(f => { try { f(); } catch { } }); this.cleanup = [];
@@ -332,6 +362,33 @@ export class AutoplayService {
     });
   }
 
+  private checklistLine(): string {
+    const c = this.checklist();
+    return `Checklist (code-verified): visited ${c.visited.join(', ') || 'none'}; not visited ${c.notVisited.join(', ') || 'none'}; deaths ${c.deaths}; buys ${c.buys}; retried after death ${c.retriedAfterDeath ? 'yes' : 'no'}; retried after buy ${c.retriedAfterBuy ? 'yes' : 'no'}; tutorial ${c.tutorialDone ? 'completed' : 'not completed'} (${c.tutorialPassed} steps done by gesture, ${c.tutorialSkipped} skipped); UI findings ${c.uiFindings}; bugs ${c.bugs}.`;
+  }
+  private findingLines(): string[] {
+    const all = [...this.tm.ui, ...this.tm.bugs];
+    if (!all.length) return [];
+    return ['UI and bug findings (code scan):', ...all.slice(0, 12).map(f => `- [${f.kind}] ${f.text} (${f.context}${f.count > 1 ? `, x${f.count}` : ''})`)];
+  }
+
+  /** Back to the main menu from any screen or overlay. */
+  private async toMenu() {
+    for (let i = 0; i < 3; i++) {
+      const scr = this.gs.activeScreen();
+      const here = this.screenName();
+      if (here === 'menu') return;
+      if (here === 'settings') this.click('settings-close');
+      else if (scr === 'shop') this.click('shop-close');
+      else if (scr === 'codex') { if (!this.click('codex-back')) this.gs.activeScreen.set('menu'); }
+      else if (scr === 'leaderboard') { if (!this.click('leaderboard-back')) this.gs.activeScreen.set('menu'); }
+      else if (scr === 'tutorial') { if (!this.click('tut-skip-all')) this.gs.activeScreen.set('menu'); }
+      else if (scr === 'game' && this.game) { try { this.game.quitGame(); } catch { } }
+      else this.gs.activeScreen.set('menu');
+      await sleep(600);
+    }
+  }
+
   private observe(): Observation {
     const clean = (t: string | null | undefined) => (t || '').replace(/\s+/g, ' ').trim();
     this.btnMap.clear();
@@ -382,13 +439,14 @@ export class AutoplayService {
       events: [...this.events],
       secondsLeft: null,
       progress: this.ledger.slice(-6),
-      guide: buildManifest(String(this.gs.activeScreen()), sel + 1, buttons.map(b => b.id)),
+      checklist: this.checklist(),
+      guide: buildManifest(this.screenName(), sel + 1, buttons.map(b => b.id)),
     };
   }
 
   private fingerprint() {
     const sel = this.gs.selectedWorldIndex();
-    return { coins: this.gs.coins(), gems: this.gs.gems(), screen: String(this.gs.activeScreen()), realm: sel + 1, loadout: JSON.stringify(this.gs.worldUpgrades()[sel] || {}), mode: String(this.gs.currentGameMode()), paused: this.gs.isPaused() };
+    return { coins: this.gs.coins(), gems: this.gs.gems(), screen: this.screenName(), realm: sel + 1, loadout: JSON.stringify(this.gs.worldUpgrades()[sel] || {}), mode: String(this.gs.currentGameMode()), paused: this.gs.isPaused() };
   }
 
   private diff(a: ReturnType<AutoplayService['fingerprint']>, b: ReturnType<AutoplayService['fingerprint']>): string[] {
@@ -450,6 +508,7 @@ export class AutoplayService {
             this.ledger.push(`- PROBLEM ${msg}`);
             return { ok: false, note: msg };
           }
+          if (spent) { this.ck.buys++; this.ck.lastBuyAt = Date.now(); }
           if (spent) this.ledger.push(`- ${a.id}: ${d.join(', ')} (verified by code)`);
           return { ok: true, note: d.join(', ') };
         }
@@ -459,7 +518,7 @@ export class AutoplayService {
         if (this.gs.selectedWorldIndex() === a.realm - 1) return { ok: false, note: `realm ${a.realm} is already selected, do something else` };
         const fromShop = this.gs.activeScreen() === 'shop';
         if (this.gs.activeScreen() === 'game') return { ok: false, note: 'select_realm is not available during a run; navigate menu first' };
-        if (this.gs.activeScreen() !== 'menu') { await this.execute({ action: 'navigate', page: 'menu' }); }
+        if (this.screenName() !== 'menu') await this.toMenu();
         if (this.gs.activeScreen() !== 'menu') return { ok: false, note: `could not reach the menu to select a realm (on ${this.gs.activeScreen()})` };
         const want = a.realm - 1;
         if (!this.gs.unlockedWorlds().includes(want)) return { ok: false, note: `realm ${a.realm} is locked` };
@@ -473,19 +532,28 @@ export class AutoplayService {
         return { ok, note: ok ? `realm ${a.realm} selected${fromShop ? ', back on shop' : ''}` : `could not select realm ${a.realm} (now ${this.gs.selectedWorldIndex() + 1})` };
       }
       case 'navigate': {
-        const scr = this.gs.activeScreen();
-        if (scr === a.page) return { ok: false, note: `already on ${a.page}, do something else (valid here: see guide.valid)` };
-        if (a.page === 'menu') {
-          if (scr === 'shop') this.click('shop-close');
-          else if (scr === 'game' && this.game) { try { this.game.quitGame(); } catch { } }
-          else if (scr !== 'menu') this.gs.activeScreen.set('menu');
-        } else {
-          if (scr === 'game') return { ok: false, note: 'you are in a live run: use play (it returns at death or run end), then navigate shop' };
-          if (scr !== 'shop' && !this.click('open-shop')) { if (scr !== 'menu') this.gs.activeScreen.set('menu'); await sleep(500); this.click('open-shop'); }
+        const here = this.screenName();
+        if (here === a.page) return { ok: false, note: `already on ${a.page}, do something else (valid here: see guide.valid)` };
+        const needBuy = /\bbuy\b|\bpurchase\b/i.test(this.prompt) && this.ck.buys === 0 && this.ck.deaths > 0;
+        if (a.page !== 'menu' && !needBuy && this.gs.activeScreen() === 'game' && !this.isDown() && !this.game?.gameEnded?.()) return { ok: false, note: `you are in a live run: use play (it returns at death or run end), then navigate ${a.page}` };
+        await this.toMenu();
+        if (a.page === 'shop') { this.click('open-shop'); }
+        else if (a.page === 'settings' || a.page === 'tutorial') {
+          this.click('open-settings'); await sleep(600);
+          if (this.screenName() === 'settings') { this.visited.add('settings'); this.scanUi(); }
+          if (a.page === 'tutorial') { this.click('replay-tutorial'); }
         }
-        await sleep(700);
-        const ok = this.gs.activeScreen() === a.page;
-        return { ok, note: ok ? `on ${a.page}` : `still on ${this.gs.activeScreen()}` };
+        else if (a.page === 'codex') this.click('open-codex');
+        else if (a.page === 'leaderboard') this.click('open-leaderboard');
+        await sleep(800);
+        const now = this.screenName();
+        this.visited.add(now);
+        const ok = now === a.page;
+        const req = requiredScreens(this.prompt);
+        const left = (req.length ? req : CHECK_SCREENS).filter(x => !this.visited.has(x));
+        const todo = unmetSubgoals(this.prompt, this.checklist());
+        const tail = req.length ? (left.length ? `Screens the prompt still needs: ${left.join(', ')}` : 'All screens the prompt needs are visited: call finish goal_met now and report the findings') : `Screens not visited yet: ${left.join(', ') || 'none'}`;
+        return { ok, note: ok ? `on ${a.page}. ${tail}${todo.length && !req.length ? `. Still to do: ${todo.join('; ')}` : ''}` : `still on ${now}` };
       }
       case 'start_run': {
         if (this.gs.activeScreen() === 'game') {
@@ -495,8 +563,8 @@ export class AutoplayService {
           if (this.click('quit-game')) await sleep(900);
           if (this.gs.activeScreen() === 'game' && this.game) { try { this.game.quitGame(); } catch { } await sleep(700); }
         }
-        if (this.gs.activeScreen() !== 'menu') {
-          await this.execute({ action: 'navigate', page: 'menu' });
+        if (this.screenName() !== 'menu') {
+          await this.toMenu();
           if (this.gs.activeScreen() !== 'menu') return { ok: false, note: `start_run could not reach the menu (on ${this.gs.activeScreen()}); try navigate menu` };
         }
         this.click('tutorial-decline'); await sleep(400);
@@ -510,9 +578,12 @@ export class AutoplayService {
         if (!this.click(a.mode === 'battle' ? 'play-battle' : 'play')) return { ok: false, note: 'Play button not available' };
         for (let i = 0; i < 20 && this.gs.activeScreen() !== 'game'; i++) await sleep(200);
         const ok = this.gs.activeScreen() === 'game';
+        if (ok) { if (this.ck.lastDeathAt) this.ck.runAfterDeath = true; if (this.ck.lastBuyAt) this.ck.runAfterBuy = true; this.visited.add('game'); }
         return { ok, note: ok ? `run started: ${this.gs.currentGameMode()} realm ${this.gs.selectedWorldIndex() + 1}. If the prompt only asked to start a run, call finish goal_met now; otherwise use play until run_end` : 'the run did not start' };
       }
-      case 'play': return this.playFor(a.seconds, a.until || 'run_end', a.abilities !== false);
+      case 'play':
+        if (this.gs.activeScreen() === 'tutorial') return this.tutorialPlay(a.seconds);
+        return this.playFor(a.seconds, a.until || 'run_end', a.abilities !== false, a.aggression ?? 0.5);
       case 'use_ability': {
         const g = this.game;
         if (!g || this.gs.activeScreen() !== 'game') return { ok: false, note: 'not in a run' };
@@ -540,11 +611,108 @@ export class AutoplayService {
   }
 
   /** Hands flight to the on-device pilot until time, death, or the run ends. */
-  private async playFor(seconds: number, until: 'time' | 'death' | 'run_end', abilities: boolean): Promise<StepResult> {
+  // ---------- tutorial play-through ----------
+  /** Plays the tutorial for real: performs each step's gesture, taps Next on info steps, then Back to menu. */
+  private async tutorialPlay(seconds: number): Promise<StepResult> {
+    const t = this.tut;
+    if (this.gs.activeScreen() !== 'tutorial' || !t) return { ok: false, note: 'not in the tutorial: navigate tutorial first (Settings > Replay Tutorial)' };
+    const t0 = Date.now(); const done: string[] = [], skipped: string[] = [];
+    let why = 'time up';
+    while (true) {
+      if (this.stopRequested || !this.running()) { why = 'stopped'; break; }
+      if (this.deadline && Date.now() >= this.deadline) { why = 'session time limit'; break; }
+      if (Date.now() - t0 >= seconds * 1000) break;
+      if (this.gs.activeScreen() !== 'tutorial' || !this.tut) { why = 'left the tutorial'; break; }
+      if (this.paused()) { this.releaseFingers(); await sleep(300); continue; }
+      const idx: number = t.index(); const step = t.step(); const last: boolean = t.isLast();
+      if (step.goal === 'info') {
+        await sleep(700);
+        if (!this.click(last ? 'tut-finish' : 'tut-next')) { if (last) t.finish(); else t.next(); }
+        done.push(step.id); this.ck.tutPassed.push(step.id);
+        await sleep(500);
+        if (last) { this.ck.tutorialDone = true; why = 'tutorial completed, back on the menu (if the prompt was the tutorial, call finish goal_met now with a report of each step)'; break; }
+        continue;
+      }
+      const ok = await this.tutorialGesture(step.goal, idx, 15000);
+      this.releaseFingers();
+      if (ok) { done.push(step.id); this.ck.tutPassed.push(step.id); }
+      else {
+        skipped.push(step.id); this.ck.tutSkipped.push(step.id);
+        addFinding(this.tm.bugs, 'tutorial', `step "${step.id}" (${step.goal}) did not complete from the autoplay gesture within 15 s; skipped`, 'tutorial');
+        if (!this.click('tut-skip-step')) t.next();
+      }
+      await sleep(400);
+    }
+    this.releaseFingers();
+    if (this.gs.activeScreen() !== 'tutorial' && t.isLast?.()) this.ck.tutorialDone = true;
+    const note = `tutorial: ${why}; steps done by gesture or Next: ${done.length} (${done.join(', ')}); skipped: ${skipped.length}${skipped.length ? ' (' + skipped.join(', ') + ')' : ''}; screen now ${this.screenName()}`;
+    return { ok: this.ck.tutorialDone || done.length > 0, note };
+  }
+
+  /** One tutorial gesture step; true once the tutorial advances past it. */
+  private async tutorialGesture(goal: string, idx: number, budgetMs: number): Promise<boolean> {
+    const t = this.tut;
+    const t0 = Date.now();
+    const adv = () => !this.tut || this.gs.activeScreen() !== 'tutorial' || t.index() !== idx;
+    const box = () => { const r = (t.rootRef.nativeElement as HTMLElement).getBoundingClientRect(); return { l: r.left, t: r.top, w: r.width, h: r.height }; };
+    const centre = () => { const b = box(); return { x: b.l + b.w * 0.5, y: b.t + b.h * 0.55 }; };
+    const wait = async (ms: number) => { const end = Date.now() + ms; while (Date.now() < end) { if (adv()) return true; await sleep(40); } return adv(); };
+    const play = async (steps: GestureStep[]) => { const base = Date.now(); for (const st of steps) { const d = base + st.at - Date.now(); if (d > 0) await sleep(d); this.touch(st.type, st.id, st.x, st.y); } };
+    // Closed-loop steering: drag finger 1 so the phoenix target moves toward goal (canvas coords).
+    const steer = async (goalFn: () => { x: number; y: number } | null, ms: number) => {
+      const b = box(); const c = centre();
+      let fx = c.x, fy = c.y; this.touch('start', 1, fx, fy);
+      const end = Date.now() + ms;
+      while (Date.now() < end && !adv()) {
+        const g = goalFn(); if (!g) break;
+        let dx = (g.x - (t.tx ?? 0)) / TOUCH_DRAG_SCALE, dy = (g.y - (t.ty ?? 0)) / TOUCH_DRAG_SCALE;
+        const m = Math.hypot(dx, dy), cap = 14; if (m > cap) { dx = dx / m * cap; dy = dy / m * cap; }
+        fx += dx; fy += dy;
+        if (fx < b.l + 10 || fx > b.l + b.w - 10 || fy < b.t + 60 || fy > b.t + b.h - 60) { this.touch('end', 1, fx, fy); await sleep(60); fx = c.x; fy = c.y; this.touch('start', 1, fx, fy); }
+        else this.touch('move', 1, fx, fy);
+        await sleep(33);
+      }
+      if (this.f1) this.touch('end', 1, fx, fy);
+    };
+    while (Date.now() - t0 < budgetMs && !adv()) {
+      const c = centre(); const W = t.W || innerWidth, H = t.H || innerHeight;
+      switch (goal) {
+        case 'steer': { let k = 0; await steer(() => { k++; const a = k / 25; return { x: W / 2 + Math.cos(a) * W * 0.3, y: H * 0.5 + Math.sin(a) * H * 0.2 }; }, 4000); break; }
+        case 'slot-tap': case 'slot-double': case 'slot-triple': {
+          const fam: SlotFamily = goal === 'slot-tap' ? 'tap' : goal === 'slot-double' ? 'double' : 'triple';
+          const ch = synthTapChain(fam, c.x, c.y); await play(ch.steps); await wait(ch.quietMs + 900); break;
+        }
+        case 'hold': { this.touch('start', 1, c.x, c.y); await wait(holdChargeMs(false) + 300); this.touch('end', 1, c.x, c.y); await wait(800); break; }
+        case 'dash': { await play(synthFlick(c.x - 40, c.y, 1, 0, innerWidth, innerHeight)); await wait(900); break; }
+        case 'roll': { this.touch('start', 1, c.x, c.y); await sleep(120); await play(synthRoll(c.x + 90, c.y - 60)); await sleep(80); this.touch('end', 1, c.x, c.y); await wait(900); break; }
+        case 'brake': { this.touch('start', 1, c.x, c.y); await sleep(150); this.touch('start', 2, c.x + 90, c.y - 60); await wait(1500); this.touch('end', 2, c.x + 90, c.y - 60); this.touch('end', 1, c.x, c.y); await wait(500); break; }
+        case 'glide': {
+          // Glide builds after 1.2 s of steady heading: park at one side, then chase a target sliding at constant speed.
+          const y0 = H * 0.5; await steer(() => ({ x: W * 0.12, y: y0 }), 1500);
+          const g0 = Date.now(); await steer(() => ({ x: Math.min(W * 0.92, W * 0.12 + (Date.now() - g0) / 1000 * W * 0.3), y: y0 }), 3200);
+          await wait(500); break;
+        }
+        case 'spark': case 'pickups': {
+          await steer(() => { const ps: any[] = (t.pickups || []).filter((p: any) => !p.taken); if (!ps.length) return null; const px = t.px ?? 0, py = t.py ?? 0; ps.sort((a, b) => Math.hypot(a.x - px, a.y - py) - Math.hypot(b.x - px, b.y - py)); return { x: ps[0].x, y: ps[0].y }; }, 6000);
+          await wait(600); break;
+        }
+        default: await wait(1000);
+      }
+      if (await wait(250)) break;
+    }
+    return adv();
+  }
+
+  private async playFor(seconds: number, until: 'time' | 'death' | 'run_end', abilities: boolean, aggression = 0.5): Promise<StepResult> {
     if (this.gs.activeScreen() !== 'game' || !this.game) return { ok: false, note: 'not in a run; use start_run first' };
+    // until death means until death: a 1 s call can never get there.
+    if (until === 'death') seconds = Math.max(seconds, 150);
     const t0 = Date.now(), deaths0 = this.attempt?.deaths ?? 0, cleared0 = this.tm.realmsCleared.length, realm0 = this.gs.selectedWorldIndex() + 1;
     const coins0 = this.gs.coins(), gems0 = this.gs.gems();
     this.playing = true; this.useAbilities = abilities;
+    // Die on purpose: until death with aggression 0 hands the phoenix no pilot, so it stops dodging.
+    this.passive = until === 'death' && aggression <= 0.05;
+    if (this.passive) { this.useAbilities = false; this.releaseFingers(); }
     let why = 'time up';
     while (true) {
       await sleep(250);
@@ -553,13 +721,15 @@ export class AutoplayService {
       if (this.deadline && Date.now() >= this.deadline) { why = 'session time limit'; break; }
       if (Date.now() - t0 >= seconds * 1000) { why = 'time up'; break; }
       if (this.gs.activeScreen() !== 'game' || !g) { why = 'left the run'; break; }
-      if (g.isDead?.() || g.koPanelOpen?.() || this.gs.playerDownPhase() !== 'none') { if (until !== 'time' || g.koPanelOpen?.()) { why = 'phoenix is down (KO screen): call start_run to retry (it gives up the KO run), or tap revive-gems if the prompt allows gems'; break; } }
+      if (g.isDead?.() || g.koPanelOpen?.() || this.gs.playerDownPhase() !== 'none') { if (until !== 'time' || g.koPanelOpen?.()) { why = 'phoenix is down (KO screen): to buy first, navigate shop (it gives up the KO run); to retry, call start_run; or tap revive-gems if the prompt allows gems'; break; } }
       if (g.gameEnded?.()) { why = g.gameWon?.() ? 'run won' : 'run ended'; break; }
       const gg = this.gemGuard(gems0); if (gg) return { ok: false, note: gg };
     }
-    this.playing = false;
+    this.playing = false; const wasPassive = this.passive; this.passive = false;
     this.releaseFingers();
-    const parts = [`played ${Math.round((Date.now() - t0) / 1000)} s, ended: ${why}`, `realm ${realm0} -> ${this.gs.selectedWorldIndex() + 1}`,
+    const todo = unmetSubgoals(this.prompt, this.checklist());
+    if (todo.length) why += `. Still to do for the prompt: ${todo.join('; ')}`;
+    const parts = [...(wasPassive ? ['passive mode, pilot not dodging (die on purpose)'] : []),`played ${Math.round((Date.now() - t0) / 1000)} s, ended: ${why}`, `realm ${realm0} -> ${this.gs.selectedWorldIndex() + 1}`,
       `deaths +${(this.attempt?.deaths ?? 0) - deaths0}`, `realms cleared +${this.tm.realmsCleared.length - cleared0}`, `coins ${coins0} -> ${this.gs.coins()}`];
     const g = this.game;
     if (g && this.gs.activeScreen() === 'game') parts.push(`hp ${Math.round(g.currentHealth?.() ?? 0)}/${Math.round(g.maxHealth?.() ?? 0)}, phase ${g.bossPhase?.()}`);
@@ -573,6 +743,8 @@ export class AutoplayService {
   private tick() {
     if (!this.running() || this.finishing) return;
     const now = Date.now();
+    const sn = this.screenName();
+    if (!this.visited.has(sn)) { this.visited.add(sn); this.lastUiScan = now; this.scanUi(); }
     if (now - this.lastUiScan > 6000) { this.lastUiScan = now; this.scanUi(); }
     this.checkStuck(now);
     if (this.gs.activeScreen() === 'game') this.gameStep(now);
@@ -643,6 +815,7 @@ export class AutoplayService {
     const realm = this.gs.selectedWorldIndex() + 1;
     const g = this.game;
     const cause = `realm ${realm} ${g?.bossSpawned?.() ? `boss (${g.bossPhase()})` : 'survive phase'}: ${this.lastHitCause || 'unknown hit'}`;
+    this.ck.deaths++; this.ck.lastDeathAt = Date.now();
     if (this.attempt) { this.attempt.deaths++; this.attempt.causes.push(cause); }
     if (g?.bossSpawned?.()) this.boss(realm).deaths++;
     this.event(`died: ${cause}`);
@@ -743,7 +916,7 @@ export class AutoplayService {
   }
 
   private pilot() {
-    if (!this.running() || this.paused() || this.finishing || !this.playing) return;
+    if (!this.running() || this.paused() || this.finishing || !this.playing || this.passive) return;
     const g = this.game;
     if (!g || this.gs.activeScreen() !== 'game' || g.gameEnded() || g.isDead() || this.gs.isPaused() || this.gs.playerDownPhase() !== 'none' || g.koPanelOpen()) { this.releaseFingers(); return; }
     const now = Date.now();
@@ -827,10 +1000,23 @@ export class AutoplayService {
   }
 
   /** Dispatch one synthesized touch on document.body so the game's window listeners run. */
+  private tgt1: Element | null = null; private tgt2: Element | null = null;
+  /** In the tutorial its listeners sit on its root, so aim at the element under the finger; elsewhere body (window listeners). */
+  private touchTarget(type: 'start' | 'move' | 'end', id: number, x: number, y: number): Element {
+    if (this.gs.activeScreen() !== 'tutorial' || !this.tut) return document.body;
+    if (type === 'start') {
+      const root: HTMLElement = this.tut.rootRef?.nativeElement;
+      const hit = document.elementFromPoint(x, y);
+      const t = hit && root?.contains(hit) ? hit : (root || document.body);
+      if (id === 1) this.tgt1 = t; else this.tgt2 = t;
+    }
+    return (id === 1 ? this.tgt1 : this.tgt2) || document.body;
+  }
+
   private touch(type: 'start' | 'move' | 'end', id: number, x: number, y: number) {
     if (type === 'start') { if (id === 1) this.f1 = { x, y }; else this.f2 = { x, y }; }
     else if (type === 'move') { if (id === 1 && this.f1) this.f1 = { x, y }; else if (id === 2 && this.f2) this.f2 = { x, y }; else return; }
-    const target = document.body;
+    const target = this.touchTarget(type, id, x, y);
     const T: any = (window as any).Touch;
     if (typeof T === 'function' && typeof (window as any).TouchEvent === 'function') {
       const mk = (tid: number, p: Pt) => new T({ identifier: tid, target, clientX: p.x, clientY: p.y, pageX: p.x, pageY: p.y, radiusX: 8, radiusY: 8, force: 0.5 });

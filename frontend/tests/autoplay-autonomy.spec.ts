@@ -34,7 +34,7 @@ describe('forgiving actions', () => {
   it('navigate to the current screen is a no-progress no-op', () => expect(svc).toMatch(/already on \$\{a\.page\}, do something else/));
   it('start_run auto-navigates to the menu and selects the realm', () => {
     const body = svc.slice(svc.indexOf("case 'start_run'"), svc.indexOf("case 'play':"));
-    expect(body).toMatch(/navigate', page: 'menu'/);
+    expect(body).toMatch(/toMenu\(\)/);
     expect(body).toMatch(/select_realm', realm: a\.realm/);
     expect(body).not.toMatch(/start_run needs the menu screen/);
   });
