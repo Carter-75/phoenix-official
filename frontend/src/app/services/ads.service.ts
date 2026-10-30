@@ -62,7 +62,7 @@ export class AdsService {
     if (!Capacitor.isNativePlatform()) return false;
     if (this.initialized) return true;
     try {
-      await AdMob.initialize({});
+      await AdMob.initialize({ initializeForTesting: ADMOB_CONFIG.testMode });
       this.initialized = true;
       return true;
     } catch (e) {
@@ -85,6 +85,7 @@ export class AdsService {
       const loggedIn = user && !user.isTemp && user._id;
       await AdMob.prepareRewardVideoAd({
         adId: ADMOB_CONFIG.adUnits.rewarded,
+        isTesting: ADMOB_CONFIG.testMode,
         ssv: loggedIn
           ? { userId: user._id, customData: SSV_KIND[kind] }
           : { customData: SSV_KIND[kind] }
@@ -120,7 +121,7 @@ export class AdsService {
     if (!(await this.ensureInit())) return false;
 
     try {
-      await AdMob.prepareInterstitial({ adId: ADMOB_CONFIG.adUnits.interstitial });
+      await AdMob.prepareInterstitial({ adId: ADMOB_CONFIG.adUnits.interstitial, isTesting: ADMOB_CONFIG.testMode });
       await AdMob.showInterstitial();
       this.state.lastInterstitialAt = Date.now();
       this.state.interstitialForRun = this.state.runsCompleted;

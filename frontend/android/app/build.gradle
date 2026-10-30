@@ -38,12 +38,16 @@ android {
         }
     }
     buildTypes {
+        // AdMob app ID per build type: Google's test app for debug and
+        // sideloaded builds, Carter's production app for release.
         debug {
+            resValue "string", "admob_app_id", "ca-app-pub-3940256099942544~3347511713"
             if (file('debug.keystore').exists()) {
                 signingConfig signingConfigs.fixedDebug
             }
         }
         release {
+            resValue "string", "admob_app_id", "ca-app-pub-6226259217177847~9377545496"
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
