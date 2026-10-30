@@ -43,26 +43,29 @@ function setup() {
   return { clock, log, p, tap };
 }
 
-describe('tap chain mirrors the game (1 tap TAP, 2 DBL, 3 ULT)', () => {
-  it('one quick tap fires TAP after the resolve window', () => {
-    const { clock, log, tap } = setup(); tap();
+describe('tap chain mirrors the game (2 taps TAP, 3 DBL, 4 ULT)', () => {
+  it('a single tap does nothing', () => {
+    const { clock, log, tap } = setup(); tap(); clock.advance(1000); expect(log.slots).toEqual([]);
+  });
+  it('two quick taps fire TAP after the resolve window', () => {
+    const { clock, log, tap } = setup(); tap(); tap();
     expect(log.slots).toEqual([]);
     clock.advance(TAP_CHAIN_RESOLVE_MS + 20); expect(log.slots).toEqual(['tap']);
   });
-  it('two taps fire DBL only', () => {
-    const { clock, log, tap } = setup(); tap(); tap(); clock.advance(500); expect(log.slots).toEqual(['double']);
+  it('three taps fire DBL only', () => {
+    const { clock, log, tap } = setup(); tap(); tap(); tap(); clock.advance(500); expect(log.slots).toEqual(['double']);
   });
-  it('three taps fire ULT at once', () => {
-    const { log, tap } = setup(); tap(); tap(); tap(); expect(log.slots).toEqual(['triple']);
+  it('four taps fire ULT at once', () => {
+    const { log, tap } = setup(); tap(); tap(); tap(); tap(); expect(log.slots).toEqual(['triple']);
   });
-  it('taps further apart than the resolve window fire separately', () => {
+  it('taps further apart than the resolve window never chain', () => {
     const { clock, log, p } = setup();
-    p.down(1, 1); p.up(1, 1); clock.advance(TAP_CHAIN_RESOLVE_MS + 120); p.down(1, 1); p.up(1, 1); clock.advance(1000);
-    expect(log.slots).toEqual(['tap', 'tap']);
+    for (let i = 0; i < 3; i++) { p.down(1, 1); p.up(1, 1); clock.advance(TAP_CHAIN_RESOLVE_MS + 120); }
+    expect(log.slots).toEqual([]);
   });
   it('a long press or a drag is not a tap', () => {
     const { clock, log, p } = setup();
-    p.down(1, 1); clock.advance(400); p.up(1, 1); clock.advance(1000);
+    p.down(1, 1); clock.advance(400); p.up(1, 1); p.down(1, 1); clock.advance(400); p.up(1, 1); clock.advance(1000);
     p.down(100, 100); p.move(160, 100); p.up(160, 100); clock.advance(1000);
     expect(log.slots).toEqual([]);
   });
@@ -120,12 +123,12 @@ describe('stamina and glide', () => {
     expect(s.spend(TUTORIAL_STAMINA.dashCost, 0)).toBe(true);
     expect(s.stamina).toBe(65);
     s.tick(0.1, 500, 0); expect(s.stamina).toBe(65);
-    s.tick(1, 1000, 0); expect(s.stamina).toBe(90);
+    s.tick(1, 1000, 0); expect(s.stamina).toBe(65 + TUTORIAL_STAMINA.regenPerSecond);
     s.stamina = 20;
     for (let i = 0; i < Math.ceil(GLIDE_BUILD_S / 0.1) + 1; i++) s.tick(0.1, 2000 + i * 100, 0);
     expect(s.gliding).toBe(true);
     expect(s.costOf(TUTORIAL_STAMINA.rollCost)).toBe(25);
-    s.stamina = 20; const before = s.stamina; s.tick(1, 9000, 0); expect(s.stamina - before).toBe(50);
+    s.stamina = 20; const before = s.stamina; s.tick(1, 9000, 0); expect(s.stamina - before).toBe(TUTORIAL_STAMINA.regenPerSecond * 2);
     s.tick(0.1, 9100, 1); expect(s.gliding).toBe(false);
   });
 });

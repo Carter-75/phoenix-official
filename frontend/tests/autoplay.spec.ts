@@ -45,7 +45,7 @@ describe('tap chain synthesis', () => {
         expect(c.quietMs).toBeGreaterThan(CHAIN_GAP_MAX_MS);
       }
     }
-    expect(pressesFor('tap')).toBe(1); expect(pressesFor('double')).toBe(2); expect(pressesFor('triple')).toBe(3);
+    expect(pressesFor('tap')).toBe(2); expect(pressesFor('double')).toBe(3); expect(pressesFor('triple')).toBe(4);
   });
   it('flick is fast and long enough', () => {
     const s = synthFlick(200, 200, 1, 0, 400, 800);

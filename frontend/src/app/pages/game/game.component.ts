@@ -257,7 +257,7 @@ import { AutoplayService } from '../../autoplay/autoplay.service';
               @if (gameState.currentStats().activeDoubleAbility) {
                 <span class="text-3xl z-10" [class.opacity-50]="doubleCooldown() > 0">{{ getDoubleIcon() }}</span>
               } @else {
-                <span class="text-lg font-black text-white/40 z-10">2x</span>
+                <span class="text-lg font-black text-white/40 z-10">3x</span>
               }
               <span class="absolute bottom-1 inset-x-0 z-20 text-center text-[9px] font-bold text-white/50 uppercase tracking-wider">Dbl</span>
               @if (doubleCooldown() > 0) {
@@ -270,7 +270,7 @@ import { AutoplayService } from '../../autoplay/autoplay.service';
               @if (gameState.currentStats().activeTripleAbility) {
                 <span class="text-3xl z-10" [class.opacity-50]="tripleCooldown() > 0">{{ getTripleIcon() }}</span>
               } @else {
-                <span class="text-lg font-black text-white/40 z-10">3x</span>
+                <span class="text-lg font-black text-white/40 z-10">4x</span>
               }
               <span class="absolute bottom-1 inset-x-0 z-20 text-center text-[9px] font-bold text-white/50 uppercase tracking-wider">Ult</span>
               @if (tripleCooldown() > 0) {
@@ -3911,12 +3911,14 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
             if (data.type === 'serpent' && Math.random() < DROP_RULES.gemEliteChance) {
                 this.spawner.dropItem(enemy.position.x, enemy.position.y, 'gem', 1, this.getSpawnerContext());
             }
-            // Spark Cell: 8 percent from Swift and Dart class kills;
-            // the drop's value is the stamina it restores (50).
-            if (SPARK_CELL_TYPES.has(data.type) && Math.random() < DROP_RULES.sparkCellChance) {
+            // Spark Cell: the main stamina refill (regen is slow).
+            // Higher chance from Swift and Dart class kills, a base
+            // chance from every other kill; value = stamina restored.
+            const sparkChance = SPARK_CELL_TYPES.has(data.type) ? DROP_RULES.sparkCellChance : DROP_RULES.sparkCellBaseChance;
+            if (Math.random() < sparkChance) {
                 this.spawner.dropItem(enemy.position.x, enemy.position.y, 'spark_cell', DROP_RULES.sparkCellStamina, this.getSpawnerContext());
             }
-            // Overcharge: 2 percent from Armored class kills and
+            // Overcharge: DROP_RULES.overchargeChance from Armored class kills and
             // up; the next non-ultimate cast ignores its cooldown.
             if (ARMORED_UP_TYPES.has(data.type) && Math.random() < DROP_RULES.overchargeChance) {
                 this.spawner.dropItem(enemy.position.x, enemy.position.y, 'overcharge', 1, this.getSpawnerContext());

@@ -7,6 +7,8 @@ import { AuthService } from '../../services/auth.service';
 import { AutoplayService } from '../../autoplay/autoplay.service';
 import { clientLooksLikeOwner } from '../../autoplay/autoplay-gate';
 import { AUTOPLAY_DURATIONS } from '../../autoplay/autoplay-intent';
+import { OUTPUT_CAP_CHARS } from '../../autoplay/autoplay-output';
+import { copyText } from '../../services/clipboard';
 
 @Component({
   selector: 'app-settings',
@@ -15,13 +17,13 @@ import { AUTOPLAY_DURATIONS } from '../../autoplay/autoplay-intent';
   template: `
     <div class="settings-modal backdrop-in" (click)="onBackdropClick($event)">
         <div class="settings-content window-panel panel-in">
-            <h2 class="title text-4xl mb-6">SETTINGS</h2>
+            <h2 class="title text-3xl sm:text-4xl mb-4 sm:mb-6">SETTINGS</h2>
             
-            <div class="sliders-container flex flex-col gap-4 overflow-y-auto max-h-[60vh] pr-2 pb-2 custom-scrollbar">
+            <div class="sliders-container flex flex-col gap-4 overflow-y-auto min-h-0 flex-1 pr-2 pb-2 custom-scrollbar">
                 <div class="slider-group">
                     <div class="flex justify-between">
                         <div class="flex items-center gap-2">
-                            <button (click)="audio.toggleMute('masterVolume')" class="text-xl w-8 h-8 flex items-center justify-center rounded hover:bg-gray-800 transition-colors">
+                            <button (click)="audio.toggleMute('masterVolume')" [attr.aria-label]="'Mute or unmute'" class="text-xl w-8 h-8 flex items-center justify-center rounded hover:bg-gray-800 transition-colors">
                                 {{ audio.masterVolume() > 0 ? '🔊' : '🔇' }}
                             </button>
                             <label>Master Volume</label>
@@ -37,10 +39,10 @@ import { AUTOPLAY_DURATIONS } from '../../autoplay/autoplay-intent';
                 <div class="slider-group">
                     <div class="flex justify-between">
                         <div class="flex items-center gap-2">
-                            <button (click)="audio.toggleMute('menuVolume')" class="text-xl w-8 h-8 flex items-center justify-center rounded hover:bg-gray-800 transition-colors">
+                            <button (click)="audio.toggleMute('menuVolume')" [attr.aria-label]="'Mute or unmute'" class="text-xl w-8 h-8 flex items-center justify-center rounded hover:bg-gray-800 transition-colors">
                                 {{ audio.menuVolume() > 0 ? '🔊' : '🔇' }}
                             </button>
-                            <label>Menu / BGM Volume</label>
+                            <label>Music Volume</label>
                         </div>
                         <span class="text-white/80" [class.text-red-500]="audio.menuVolume() === 0">{{(audio.menuVolume() * 100).toFixed(0)}}%</span>
                     </div>
@@ -53,10 +55,10 @@ import { AUTOPLAY_DURATIONS } from '../../autoplay/autoplay-intent';
                 <div class="slider-group">
                     <div class="flex justify-between">
                         <div class="flex items-center gap-2">
-                            <button (click)="audio.toggleMute('attackVolume')" class="text-xl w-8 h-8 flex items-center justify-center rounded hover:bg-gray-800 transition-colors">
+                            <button (click)="audio.toggleMute('attackVolume')" [attr.aria-label]="'Mute or unmute'" class="text-xl w-8 h-8 flex items-center justify-center rounded hover:bg-gray-800 transition-colors">
                                 {{ audio.attackVolume() > 0 ? '🔊' : '🔇' }}
                             </button>
-                            <label>Attack / SFX Volume</label>
+                            <label>Combat Sounds</label>
                         </div>
                         <span class="text-white/80" [class.text-red-500]="audio.attackVolume() === 0">{{(audio.attackVolume() * 100).toFixed(0)}}%</span>
                     </div>
@@ -69,10 +71,10 @@ import { AUTOPLAY_DURATIONS } from '../../autoplay/autoplay-intent';
                 <div class="slider-group">
                     <div class="flex justify-between">
                         <div class="flex items-center gap-2">
-                            <button (click)="audio.toggleMute('sfxVolume')" class="text-xl w-8 h-8 flex items-center justify-center rounded hover:bg-gray-800 transition-colors">
+                            <button (click)="audio.toggleMute('sfxVolume')" [attr.aria-label]="'Mute or unmute'" class="text-xl w-8 h-8 flex items-center justify-center rounded hover:bg-gray-800 transition-colors">
                                 {{ audio.sfxVolume() > 0 ? '🔊' : '🔇' }}
                             </button>
-                            <label>SFX / Clicks Volume</label>
+                            <label>Menu / UI Sounds</label>
                         </div>
                         <span class="text-white/80" [class.text-red-500]="audio.sfxVolume() === 0">{{(audio.sfxVolume() * 100).toFixed(0)}}%</span>
                     </div>
@@ -85,10 +87,10 @@ import { AUTOPLAY_DURATIONS } from '../../autoplay/autoplay-intent';
                 <div class="slider-group">
                     <div class="flex justify-between">
                         <div class="flex items-center gap-2">
-                            <button (click)="audio.toggleMute('dropVolume')" class="text-xl w-8 h-8 flex items-center justify-center rounded hover:bg-gray-800 transition-colors">
+                            <button (click)="audio.toggleMute('dropVolume')" [attr.aria-label]="'Mute or unmute'" class="text-xl w-8 h-8 flex items-center justify-center rounded hover:bg-gray-800 transition-colors">
                                 {{ audio.dropVolume() > 0 ? '🔊' : '🔇' }}
                             </button>
-                            <label>Item Drop / Coin Volume</label>
+                            <label>Pickup Sounds</label>
                         </div>
                         <span class="text-white/80" [class.text-red-500]="audio.dropVolume() === 0">{{(audio.dropVolume() * 100).toFixed(0)}}%</span>
                     </div>
@@ -101,10 +103,10 @@ import { AUTOPLAY_DURATIONS } from '../../autoplay/autoplay-intent';
                 <div class="slider-group">
                     <div class="flex justify-between">
                         <div class="flex items-center gap-2">
-                            <button (click)="audio.toggleMute('intenseVolume')" class="text-xl w-8 h-8 flex items-center justify-center rounded hover:bg-gray-800 transition-colors">
+                            <button (click)="audio.toggleMute('intenseVolume')" [attr.aria-label]="'Mute or unmute'" class="text-xl w-8 h-8 flex items-center justify-center rounded hover:bg-gray-800 transition-colors">
                                 {{ audio.intenseVolume() > 0 ? '🔊' : '🔇' }}
                             </button>
-                            <label>Intense (Low HP) Volume</label>
+                            <label>Low HP Music</label>
                         </div>
                         <span class="text-white/80" [class.text-red-500]="audio.intenseVolume() === 0">{{(audio.intenseVolume() * 100).toFixed(0)}}%</span>
                     </div>
@@ -158,10 +160,50 @@ import { AUTOPLAY_DURATIONS } from '../../autoplay/autoplay-intent';
                             (click)="replayTutorial()">🎓 Replay Tutorial</button>
                 }
 
+                @if (ap.allowed()) {
+                <div class="separator"></div>
+                <div data-ui class="ap-panel">
+                    <div class="ap-head">
+                        <h3 class="ap-title">AI Autoplay <span class="ap-sub">(owner tester)</span></h3>
+                        <div class="ap-status" [class.ap-live]="ap.running()">
+                            @if (ap.running()) { <span class="ap-dot" aria-hidden="true"></span> }
+                            <span>{{ ap.running() ? 'Running' : '' }}{{ ap.running() ? ' | step ' + ap.steps() : ap.status() }}</span>
+                            <span class="ap-model">{{ ap.flags()?.ai ? 'AI: ' + ap.flags()?.model : 'AI: not configured' }}</span>
+                        </div>
+                    </div>
+                    <textarea #apBox [value]="apPrompt()" (input)="onPromptInput(apBox)" rows="4" maxlength="2000"
+                              [disabled]="ap.running()" aria-label="Autoplay prompt"
+                              placeholder="What should the AI do? e.g. buy one upgrade with coins, or finish all realms in one run in normal mode and report bugs"
+                              class="ap-input"></textarea>
+                    <div class="ap-time">
+                        <div class="flex justify-between items-baseline">
+                            <label for="apTime">Time limit</label>
+                            <span class="ap-time-val">{{ apDurations[apDurIdx()].label }}</span>
+                        </div>
+                        <input id="apTime" type="range" min="0" [max]="apDurations.length - 1" step="1" [value]="apDurIdx()"
+                               [disabled]="ap.running()" (input)="apDurIdx.set(+$any($event.target).value)" class="w-full">
+                        <div class="flex justify-between text-[10px] text-white/40"><span>{{ apDurations[0].label }}</span><span>{{ apDurations[apDurations.length - 1].label }}</span></div>
+                    </div>
+                    <div class="flex gap-2 mt-3">
+                        <button class="ap-btn ap-send press" [disabled]="ap.running() || !apPrompt().trim()" (click)="sendAutoplay()">Send</button>
+                        <button class="ap-btn ap-stop press" [disabled]="!ap.running()" (click)="ap.stop()">Stop</button>
+                    </div>
+                    <div class="flex justify-between items-center mt-3 mb-1 text-xs text-white/60">
+                        <span>Output ({{ ap.output().length.toLocaleString() }} / {{ outputCap.toLocaleString() }} chars)</span>
+                        <span class="flex gap-3">
+                            <button class="underline disabled:opacity-40" [disabled]="!ap.output()" (click)="copyAutoplay()">{{ apCopied() || 'Copy' }}</button>
+                            <button class="underline disabled:opacity-40" [disabled]="ap.running() || !ap.output()" (click)="ap.clearOutput()">Clear</button>
+                        </span>
+                    </div>
+                    <pre class="ap-out custom-scrollbar">{{ ap.output() || 'No output yet. Write a prompt and press Send.' }}</pre>
+                </div>
+                }
+
                 <!-- Reset AI Brain (hold 3s) -->
                 <div class="separator"></div>
                 <div class="slider-group">
                     <label class="text-xs text-white/40 uppercase tracking-wider mb-1 block">Danger Zone</label>
+                    <p class="text-white/40 text-xs mb-2">Wipes what the learning AI phoenix has learned from your runs and starts it fresh.</p>
                     <button class="reset-ai-btn"
                             [class.holding]="resetHoldProgress() > 0"
                             [class.done]="resetComplete()"
@@ -185,31 +227,8 @@ import { AUTOPLAY_DURATIONS } from '../../autoplay/autoplay-intent';
                 </div>
             </div>
             
-            @if (ap.allowed()) {
-            <div data-ui class="mt-6 p-3 rounded-2xl border border-orange-400/40 bg-black/40 text-left">
-                <div class="flex justify-between items-center mb-2">
-                    <h3 class="font-black text-orange-200">AI Autoplay (owner tester)</h3>
-                    <span class="text-xs text-white/60">{{ ap.status() }}{{ ap.flags()?.ai ? ' | AI: ' + ap.flags()?.model : ' | local parser' }}</span>
-                </div>
-                <textarea [value]="apPrompt()" (input)="apPrompt.set($any($event.target).value)" rows="3" placeholder="e.g. finish all realms in one run, normal mode, report bugs" class="w-full p-2 rounded-lg bg-zinc-900 text-white text-sm border border-white/15"></textarea>
-                <div class="flex items-center gap-2 mt-2 text-sm text-white/80">
-                    <label>Time</label>
-                    <input type="range" min="0" [max]="apDurations.length - 1" step="1" [value]="apDurIdx()" (input)="apDurIdx.set(+$any($event.target).value)" class="flex-1">
-                    <span class="w-16 text-right">{{ apDurations[apDurIdx()].label }}</span>
-                </div>
-                <div class="flex gap-2 mt-2">
-                    <button class="btn btn-primary press flex-1" [disabled]="ap.running() || !apPrompt().trim()" (click)="sendAutoplay()">Send</button>
-                    <button class="btn press flex-1 bg-red-700 text-white" [disabled]="!ap.running()" (click)="ap.stop()">Stop</button>
-                </div>
-                <div class="flex justify-between items-center mt-3 mb-1 text-xs text-white/60">
-                    <span>Output ({{ ap.output().length }} / 50000 chars)</span>
-                    <span class="flex gap-2"><button class="underline" (click)="copyAutoplay()">{{ apCopied() ? 'Copied' : 'Copy' }}</button><button class="underline" (click)="ap.clearOutput()">Clear</button></span>
-                </div>
-                <pre class="w-full h-48 overflow-y-auto whitespace-pre-wrap text-[11px] leading-snug p-2 rounded-lg bg-zinc-950 text-white/85 border border-white/10">{{ ap.output() || 'No output yet.' }}</pre>
-            </div>
-            }
 
-            <button class="btn btn-primary btn-sheen press mt-8 w-full" (click)="close.emit()">DONE</button>
+            <button class="btn btn-primary btn-sheen press mt-4 w-full shrink-0" (click)="close.emit()">DONE</button>
         </div>
     </div>
   `,
@@ -227,9 +246,35 @@ import { AUTOPLAY_DURATIONS } from '../../autoplay/autoplay-intent';
         padding: 2rem;
         border-radius: 1rem;
         border: 2px solid #ffaa00;
-        width: 90%; max-width: 400px;
+        width: 92%; max-width: 420px;
+        max-height: 92dvh;
+        display: flex; flex-direction: column;
         box-shadow: 0 0 30px rgba(255, 170, 0, 0.2);
     }
+    @media (max-width: 380px) { .settings-content { padding: 1.1rem; } }
+    .slider-group > .flex > .flex { min-width: 0; }
+    .slider-group label { overflow-wrap: anywhere; }
+    .ap-panel { padding: 0.75rem; border-radius: 1rem; border: 1px solid rgba(251,146,60,0.4); background: rgba(0,0,0,0.4); text-align: left; }
+    .ap-head { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.6rem; }
+    .ap-title { font-weight: 900; color: #fed7aa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 1rem; }
+    .ap-sub { font-weight: 600; color: rgba(255,255,255,0.45); font-size: 0.75rem; }
+    .ap-status { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.6rem; font-size: 0.75rem; color: rgba(255,255,255,0.65); overflow-wrap: anywhere; }
+    .ap-status.ap-live { color: #86efac; }
+    .ap-model { color: rgba(255,255,255,0.45); }
+    .ap-dot { width: 8px; height: 8px; border-radius: 9999px; background: #22c55e; box-shadow: 0 0 8px #22c55e; animation: apPulse 1s ease-in-out infinite; }
+    @keyframes apPulse { 50% { opacity: 0.3; } }
+    .ap-input { display: block; width: 100%; min-height: 6.5rem; max-height: 14rem; resize: none; overflow-y: auto; padding: 0.6rem; border-radius: 0.6rem; background: #18181b; color: white; font-size: 0.875rem; line-height: 1.35; border: 1px solid rgba(255,255,255,0.15); }
+    .ap-input:focus { outline: none; border-color: #ffaa00; }
+    .ap-input:disabled { opacity: 0.6; }
+    .ap-input::placeholder { color: rgba(255,255,255,0.4); white-space: pre-wrap; }
+    .ap-time { margin-top: 0.6rem; font-size: 0.875rem; color: rgba(255,255,255,0.8); }
+    .ap-time label { font-weight: bold; color: #ccc; }
+    .ap-time-val { font-weight: 900; color: #ffaa00; }
+    .ap-btn { flex: 1; padding: 0.6rem; border-radius: 0.6rem; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; transition: opacity 0.2s; }
+    .ap-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .ap-send { background: linear-gradient(90deg, #ff8800, #ffaa00); color: white; }
+    .ap-stop { background: #b91c1c; color: white; }
+    .ap-out { width: 100%; height: 14rem; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.4; padding: 0.6rem; border-radius: 0.6rem; background: #09090b; color: rgba(255,255,255,0.88); border: 1px solid rgba(255,255,255,0.1); user-select: text; -webkit-user-select: text; }
     .title {
         color: #ffaa00;
         text-align: center;
@@ -340,7 +385,8 @@ export class SettingsComponent {
   public ap = inject(AutoplayService);
   public apPrompt = signal('');
   public apDurIdx = signal(7);
-  public apCopied = signal(false);
+  public apCopied = signal('');
+  public readonly outputCap = OUTPUT_CAP_CHARS;
   public readonly apDurations = AUTOPLAY_DURATIONS;
 
   constructor() { if (clientLooksLikeOwner(inject(AuthService).currentUser() as any)) void this.ap.refreshFlags(); }
@@ -351,8 +397,17 @@ export class SettingsComponent {
     void this.ap.start(this.apPrompt(), d.ms);
   }
 
+  /** Auto-grow the prompt box between its CSS min and max height. */
+  onPromptInput(el: HTMLTextAreaElement) {
+    this.apPrompt.set(el.value);
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight + 2}px`;
+  }
+
   async copyAutoplay() {
-    try { await navigator.clipboard.writeText(this.ap.output()); this.apCopied.set(true); setTimeout(() => this.apCopied.set(false), 1500); } catch { }
+    const ok = await copyText(this.ap.output());
+    this.apCopied.set(ok ? 'Copied' : 'Copy failed');
+    setTimeout(() => this.apCopied.set(''), 1500);
   }
 
   replayTutorial(): void {

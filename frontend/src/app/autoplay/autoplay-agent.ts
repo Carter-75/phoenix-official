@@ -128,22 +128,51 @@ export function describeAction(a: AgentAction): string {
 
 export interface AgentOutcome { report: string | null; endReason: string; steps: number; error?: string; }
 
-export interface AgentOptions { deadline: number | null; reportMaxChars: number; maxSteps?: number; shouldStop?: () => boolean; }
+export interface AgentOptions {
+  deadline: number | null; reportMaxChars: number;
+  /** Step cap; Infinity means no cap (still rate limited and stoppable). Defaults to stepCapFor(null deadline -> MAX_STEPS). */
+  maxSteps?: number; shouldStop?: () => boolean;
+  /** Wait helper used to back off on rate_limited; defaults to setTimeout. */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/** Steps allowed per minute of session; matches the backend's 40/min rate limit. */
+export const STEPS_PER_MINUTE = 40;
+/** Wait before retrying after the backend says rate_limited. */
+export const RATE_LIMIT_BACKOFF_MS = 15_000;
+/** Consecutive rate_limited replies tolerated before giving up. */
+export const RATE_LIMIT_RETRIES = 8;
+
+/** Step cap for a chosen session length: scales with minutes, Infinite (null) has no cap. */
+export function stepCapFor(durationMs: number | null): number {
+  if (durationMs === null) return Infinity;
+  return Math.max(MAX_STEPS, Math.ceil(durationMs / 60_000) * STEPS_PER_MINUTE);
+}
 
 /** The loop: observe, ask the LLM, rail-check, execute and verify, repeat. */
 export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt: AgentOptions): Promise<AgentOutcome> {
   const maxSteps = opt.maxSteps ?? MAX_STEPS;
+  const sleep = opt.sleep ?? ((ms: number) => new Promise<void>(r => setTimeout(r, ms)));
   const history: HistoryItem[] = [];
-  let badReplies = 0;
-  for (let step = 1; step <= maxSteps; step++) {
+  let badReplies = 0, rateHits = 0, finalCall = false, step = 0;
+  while (step < maxSteps) {
+    step++;
     if (opt.shouldStop?.()) return { report: null, endReason: 'Stopped by tester', steps: step - 1 };
     const obs = env.observe();
     if (opt.deadline !== null) obs.secondsLeft = Math.max(0, Math.round((opt.deadline - env.now()) / 1000));
     let raw: unknown;
     try {
-      raw = await llm({ prompt, observation: obs, history: history.slice(-HISTORY_KEEP), step, maxSteps, reportMaxChars: opt.reportMaxChars });
+      raw = await llm({ prompt, observation: obs, history: history.slice(-HISTORY_KEEP), step,
+        maxSteps: Number.isFinite(maxSteps) ? maxSteps : 0, reportMaxChars: opt.reportMaxChars });
+      rateHits = 0;
     } catch (e: any) {
       const code = e instanceof AgentApiError ? e.code : String(e?.message || e || 'request_failed').slice(0, 80);
+      if (code === 'rate_limited' && rateHits < RATE_LIMIT_RETRIES) {
+        rateHits++; step--;
+        env.log('wait', `AI rate limit reached; waiting ${RATE_LIMIT_BACKOFF_MS / 1000} s.`);
+        await sleep(RATE_LIMIT_BACKOFF_MS);
+        continue;
+      }
       env.log('error', `AI planner unavailable (${code}). Autoplay stopped; there is no offline fallback.`);
       return { report: null, endReason: 'AI API error', steps: step - 1, error: code };
     }
@@ -159,6 +188,7 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
       env.log('ai', 'AI finished the session.');
       return { report: a.report.slice(0, opt.reportMaxChars), endReason: 'AI finished', steps: step };
     }
+    if (finalCall) return { report: null, endReason: 'Time limit reached without finish', steps: step };
     const blocked = railCheck(a, obs, prompt);
     const label = describeAction(a);
     if (blocked) {
@@ -172,13 +202,14 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
     env.log(res.ok ? 'done' : 'failed', `${label} -> ${res.note}`);
     history.push({ step, action: label, ok: res.ok, note: res.note.slice(0, 300) });
     if (opt.deadline !== null && env.now() >= opt.deadline) {
-      // One last call so the AI still writes the report.
+      // One last call so the AI still writes the report (allowed even past the step cap).
       opt = { ...opt, deadline: null };
+      finalCall = true;
       history.push({ step, action: 'time limit', ok: false, note: 'Time limit reached: call finish now with your report.' });
-      if (step < maxSteps - 1) step = maxSteps - 1;
+      if (step >= maxSteps) step = maxSteps - 1;
     }
   }
-  return { report: null, endReason: 'Step limit reached without finish', steps: maxSteps };
+  return { report: null, endReason: 'Step limit reached without finish', steps: step };
 }
 
 /** Tells apart coin, gem, real-money, and ad buttons from their text. */

@@ -22,14 +22,14 @@ export const realClock: GestureClock = {
   clearTimeout: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
 };
 
-/** Quick taps needed for each slot: TAP 1, DBL 2, ULT 3. */
+/** Quick taps needed for each slot: TAP 2, DBL 3, ULT 4. A single tap does nothing. */
 export function tapsFor(family: SlotFamily): number {
-  return family === 'tap' ? 1 : family === 'double' ? 2 : 3;
+  return family === 'tap' ? 2 : family === 'double' ? 3 : 4;
 }
 
 export function familyForTaps(n: number): SlotFamily | null {
-  if (n <= 0) return null;
-  return n === 1 ? 'tap' : n === 2 ? 'double' : 'triple';
+  if (n <= 1) return null;
+  return n === 2 ? 'tap' : n === 3 ? 'double' : 'triple';
 }
 
 /**
@@ -37,7 +37,7 @@ export function familyForTaps(n: number): SlotFamily | null {
  * travelled under tapMaxTravelPx (so drags, flicks, and hold charges
  * are never taps). Taps less than TAP_CHAIN_RESOLVE_MS apart chain;
  * the chain resolves to exactly one slot after that quiet window, or
- * at once on the third tap. A press that turns into a drag or a hold
+ * at once on the fourth tap. A lone single tap fires nothing. A press that turns into a drag or a hold
  * resolves any taps before it right away.
  */
 export class TapChainParser {
@@ -74,7 +74,7 @@ export class TapChainParser {
     }
     this.pressValid = false;
     this.count++;
-    if (this.count >= 3) { this.flush(); return; }
+    if (this.count >= 4) { this.flush(); return; }
     this.resolveTimer = this.clock.setTimeout(() => { this.resolveTimer = null; this.flush(); }, TAP_CHAIN_RESOLVE_MS);
   }
 

@@ -12,7 +12,7 @@ export type TutorialGoal =
   | 'steer' | 'slot-tap' | 'slot-double' | 'slot-triple' | 'hold'
   | 'dash' | 'roll' | 'brake' | 'glide' | 'spark' | 'pickups' | 'info';
 
-export type FingerAnim = 'drag' | 'tap1' | 'tap2' | 'tap3' | 'hold' | 'flick' | 'roll' | 'brake' | 'glide' | 'none';
+export type FingerAnim = 'drag' | 'tap2' | 'tap3' | 'tap4' | 'hold' | 'flick' | 'roll' | 'brake' | 'glide' | 'none';
 
 export type HudTarget = 'arena' | 'slot-tap' | 'slot-hold' | 'slot-double' | 'slot-triple' | 'stamina' | 'hp' | 'level' | 'pills' | 'slots' | 'none';
 
@@ -39,21 +39,21 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: 'slot-tap', section: 'Abilities', title: 'Tap ability',
-    body: 'Your phoenix fires on its own. To cast the TAP slot, tap once (a quick tap, not a drag). Each gesture fires only its own slot, then that slot shows a cooldown sweep until it is ready again.',
-    desktop: 'Click once, or press Q.',
-    goal: 'slot-tap', finger: 'tap1', highlight: 'slot-tap', icon: '💥',
+    body: 'Your phoenix fires on its own. To cast the TAP slot, tap twice quickly (quick taps, not drags; a single tap does nothing). Each gesture fires only its own slot, then that slot shows a cooldown sweep until it is ready again.',
+    desktop: 'Two quick clicks, or press Q.',
+    goal: 'slot-tap', finger: 'tap2', highlight: 'slot-tap', icon: '💥',
   },
   {
     id: 'slot-double', section: 'Abilities', title: 'Double ability',
-    body: 'Tap twice quickly to cast the DBL slot. Wait for the sweep to clear before casting a slot again.',
-    desktop: 'Two quick clicks, or press W.',
-    goal: 'slot-double', finger: 'tap2', highlight: 'slot-double', icon: '⚡',
+    body: 'Tap three times quickly to cast the DBL slot. Wait for the sweep to clear before casting a slot again.',
+    desktop: 'Three quick clicks, or press W.',
+    goal: 'slot-double', finger: 'tap3', highlight: 'slot-double', icon: '⚡',
   },
   {
     id: 'slot-triple', section: 'Abilities', title: 'Ultimate',
-    body: 'Tap three times quickly for the ULT slot, your biggest move with the longest cooldown. In a run it unlocks once you beat that realm\'s boss; here you can try it right away.',
-    desktop: 'Three quick clicks, or press R. In a run, Esc pauses (here it skips the tutorial).',
-    goal: 'slot-triple', finger: 'tap3', highlight: 'slot-triple', icon: '✨',
+    body: 'Tap four times quickly for the ULT slot, your biggest move with the longest cooldown. In a run it unlocks once you beat that realm\'s boss; here you can try it right away.',
+    desktop: 'Four quick clicks, or press R. In a run, Esc pauses (here it skips the tutorial).',
+    goal: 'slot-triple', finger: 'tap4', highlight: 'slot-triple', icon: '✨',
   },
   {
     id: 'hold', section: 'Abilities', title: 'Press and hold',
@@ -81,17 +81,17 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: 'glide', section: 'Stamina', title: 'Stamina and Glide',
-    body: `The ring at the bottom left is your stamina: ${S.max} total. It refills ${S.regen} per second, starting ${S.regenDelayS} s after you spend. Fly straight and steady for ${S.glideS} s and the ring glows white: Glide doubles the refill and halves the cost of your next move. Hold a steady line until it glows.`,
+    body: `The ring at the bottom left is your stamina: ${S.max} total. It refills on its own only slowly (${S.regen} per second, starting ${S.regenDelayS} s after you spend, about ${S.regenFull} s from empty), so Spark Cells are your main refill. Fly straight and steady for ${S.glideS} s and the ring glows white: Glide doubles the refill and halves the cost of your next move. Hold a steady line until it glows.`,
     goal: 'glide', finger: 'glide', highlight: 'stamina', icon: '⚪',
   },
   {
     id: 'spark', section: 'Stamina', title: 'Spark Cells',
-    body: `Fast enemies sometimes drop a Spark Cell. Grab it for an instant +${S.sparkCell} stamina. Fly into the cell.`,
+    body: `Enemies drop Spark Cells, fast ones most often. Grab one for an instant +${S.sparkCell} stamina: it is how you keep dashing and rolling. Fly into the cell.`,
     goal: 'spark', finger: 'none', highlight: 'stamina', icon: '🔋',
   },
   {
     id: 'pickups', section: 'Loot', title: 'Pickups',
-    body: 'Enemies drop coins and XP orbs that drift toward you when you get close. Coins buy upgrades; XP raises your level. Collect them all.',
+    body: `Enemies drop coins, XP orbs, and hearts that drift toward you when you get close (Magnetism in the shop widens the pull). Coins buy upgrades, XP raises your level, and a heart heals ${S.heartHeal} HP. Collect them all.`,
     goal: 'pickups', finger: 'none', highlight: 'arena', icon: '🪙',
   },
   {

@@ -167,3 +167,48 @@ describe('no local decision making remains', () => {
     expect(existsSync(app('autoplay/autoplay-agent.ts'))).toBe(true);
   });
 });
+
+import { stepCapFor, MAX_STEPS, RATE_LIMIT_BACKOFF_MS } from '../src/app/autoplay/autoplay-agent';
+import { pickupWeight } from '../src/app/autoplay/autoplay-pilot';
+
+describe('step cap scales with the chosen duration', () => {
+  it('maps duration to a cap; Infinite has none', () => {
+    expect(stepCapFor(null)).toBe(Infinity);
+    expect(stepCapFor(60_000)).toBe(MAX_STEPS);
+    expect(stepCapFor(10 * 60_000)).toBe(400);
+    expect(stepCapFor(60 * 60_000)).toBe(2400);
+  });
+  it('infinite sessions run past the old 80-step cap until stopped', async () => {
+    const g = new FakeGame();
+    let n = 0;
+    const out = await runAgent('wait around', async () => { n++; return { action: 'wait', seconds: 0 }; }, g,
+      { ...opts, maxSteps: stepCapFor(null), shouldStop: () => n >= 200 });
+    expect(out.endReason).toBe('Stopped by tester');
+    expect(out.steps).toBeGreaterThan(MAX_STEPS);
+  });
+  it('a finite cap still stops the run', async () => {
+    const g = new FakeGame();
+    const out = await runAgent('wait', async () => ({ action: 'wait', seconds: 0 }), g, { ...opts, maxSteps: 5 });
+    expect(out.endReason).not.toBe('AI finished');
+    expect(out.steps).toBeLessThanOrEqual(5);
+  });
+  it('rate_limited backs off and retries without using a step', async () => {
+    const g = new FakeGame();
+    const waits: number[] = [];
+    let n = 0;
+    const out = await runAgent('x', async () => { n++; if (n <= 2) throw new AgentApiError('rate_limited'); return { action: 'finish', report: 'ok' }; }, g,
+      { ...opts, sleep: async (ms) => { waits.push(ms); } });
+    expect(waits).toEqual([RATE_LIMIT_BACKOFF_MS, RATE_LIMIT_BACKOFF_MS]);
+    expect(out.endReason).toBe('AI finished');
+    expect(out.steps).toBe(1);
+  });
+});
+
+describe('pilot item priorities', () => {
+  it('wants Spark Cells most when stamina is low and hearts when hurt', () => {
+    expect(pickupWeight('spark_cell', 0.1, 1)).toBeGreaterThan(pickupWeight('spark_cell', 0.9, 1));
+    expect(pickupWeight('spark_cell', 0.1, 1)).toBeGreaterThan(pickupWeight('coin', 0.1, 1));
+    expect(pickupWeight('heart', 1, 0.3)).toBeGreaterThan(pickupWeight('heart', 1, 1));
+    expect(pickupWeight('overcharge', 1, 1)).toBeGreaterThan(pickupWeight('coin', 1, 1));
+  });
+});

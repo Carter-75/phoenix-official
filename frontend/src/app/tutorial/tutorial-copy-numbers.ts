@@ -29,4 +29,6 @@ export const STAMINA_RULES_FOR_COPY = {
   brakePct: Math.round(INPUT_RULES.brakeSpeedFactor * 100),
   focusCharmPct: Math.round((1 - INPUT_RULES.focusCharmHoldFactor) * 100),
   tapChainMs: TAP_CHAIN_RESOLVE_MS,
+  heartHeal: DROP_RULES.heartHealValue,
+  regenFull: Math.round(TUTORIAL_STAMINA.max / TUTORIAL_STAMINA.regenPerSecond),
 };

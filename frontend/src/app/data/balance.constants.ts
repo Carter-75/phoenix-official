@@ -371,9 +371,10 @@ export const DROP_RULES = {
   heartSturdyChance: 0.12, // Sturdy class and up
   heartHealValue: 20,
   gemEliteChance: 0.25, // Elite class kills: 1 gem
-  sparkCellChance: 0.08, // Swift and Dart class kills
+  sparkCellChance: 0.2, // Swift and Dart class kills
+  sparkCellBaseChance: 0.06, // every other non-mine kill (Spark Cells are the main stamina refill)
   sparkCellStamina: 50,
-  overchargeChance: 0.02, // Armored class kills and up
+  overchargeChance: 0.06, // Armored class kills and up
   overchargeWindowMs: 10000, // the charged cast must happen within this window
 };
 
@@ -520,9 +521,9 @@ export const TOUCH_DRAG_SCALE = 2.5;
 // hold (no steering), so taps and hold charges are never eaten.
 export const TOUCH_DRAG_DEADZONE_PX = 6;
 // Quiet window (ms) after the last quick tap before a tap chain is
-// resolved into exactly one slot (1 tap TAP, 2 taps DBL, 3 taps ULT,
-// matching the HUD labels and the 2x / 3x empty-slot marks). A new
-// press inside this window extends the chain; a third tap resolves
+// resolved into exactly one slot (2 taps TAP, 3 taps DBL, 4 taps ULT;
+// a single tap does nothing). A new
+// press inside this window extends the chain; a fourth tap resolves
 // at once. Each gesture fires only its own slot.
 export const TAP_CHAIN_RESOLVE_MS = 230;
 
@@ -560,14 +561,15 @@ export const GLIDE_RULES = {
   costMult: 0.5,
 };
 
-// Stamina tuning (spec Section 2.5): one shared 100 point pool, dash
-// 35, roll 50, regeneration 25 per second after a 0.6 s delay from the
-// last spend.
+// Stamina tuning: one shared 100 point pool, dash 35, roll 50.
+// Passive regeneration is deliberately slow (4 per second after a
+// 0.6 s delay, 8 while gliding) so Spark Cell pickups are the main
+// way to refill (Oct 30, 2026 owner ruling).
 export const STAMINA = {
   max: 100,
   dashCost: 35,
   rollCost: 50,
-  regenPerSecond: 25,
+  regenPerSecond: 4,
   regenDelayMs: 600,
   dashMs: 220,
   dashIframeBonusMs: 50,

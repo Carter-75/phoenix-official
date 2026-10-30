@@ -5,10 +5,29 @@
 export interface Pt { x: number; y: number; }
 export interface Threat extends Pt { vx: number; vy: number; r: number; dmg: number; }
 export interface Foe extends Pt { r: number; boss: boolean; hp: number; }
+export type PickupKind = 'coin' | 'xp_orb' | 'heart' | 'gem' | 'spark_cell' | 'overcharge' | string;
+export interface Pickup extends Pt { kind?: PickupKind; }
+
+/**
+ * How much the pilot wants a pickup. Passive stamina regen is slow, so
+ * Spark Cells are the main refill: they matter most when stamina is
+ * low. Hearts matter most when hurt. Overcharge is always worth a
+ * detour (it refunds the next cooldown).
+ */
+export function pickupWeight(kind: PickupKind | undefined, staminaFrac: number, hpFrac: number): number {
+  switch (kind) {
+    case 'spark_cell': return 1 + 3 * (1 - Math.max(0, Math.min(1, staminaFrac)));
+    case 'heart': return hpFrac >= 0.98 ? 0.2 : 1 + 3 * (1 - Math.max(0, Math.min(1, hpFrac)));
+    case 'overcharge': return 2;
+    case 'gem': return 1.5;
+    default: return 1;
+  }
+}
+
 export interface Snapshot {
   p: Pt; v: Pt; w: number; h: number; birdR: number;
-  threats: Threat[]; foes: Foe[]; pickups: Pt[];
-  stamina: number; dashCost: number; rollCost: number;
+  threats: Threat[]; foes: Foe[]; pickups: Pickup[];
+  stamina: number; staminaMax?: number; dashCost: number; rollCost: number;
   telegraph: boolean; hpFrac: number;
 }
 export interface Decision {
@@ -81,11 +100,12 @@ export function decide(s: Snapshot, rng: () => number = Math.random): Decision {
     const travel = Math.hypot(c.x - s.p.x, c.y - s.p.y) / Math.max(s.w, s.h);
     const toIdeal = Math.hypot(c.x - ideal.x, c.y - ideal.y) / Math.max(s.w, s.h);
     let pick = 0;
+    const stamFrac = s.stamina / Math.max(1, s.staminaMax ?? 100);
     for (const p of s.pickups) {
       const dd = Math.hypot(c.x - p.x, c.y - p.y);
-      if (dd < 220) pick += (220 - dd) / 220;
+      if (dd < 220) pick += ((220 - dd) / 220) * pickupWeight(p.kind, stamFrac, s.hpFrac);
     }
-    const score = danger * (s.telegraph ? 1.6 : 1) + travel * 0.6 + toIdeal * 1.4 - Math.min(2, pick) * 0.5 + rng() * 0.05;
+    const score = danger * (s.telegraph ? 1.6 : 1) + travel * 0.6 + toIdeal * 1.4 - Math.min(4, pick) * 0.5 + rng() * 0.05;
     if (score < bestScore) { bestScore = score; best = c; bestDanger = danger; }
   }
 

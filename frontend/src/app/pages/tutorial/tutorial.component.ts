@@ -30,10 +30,10 @@ import { levelHpBonusFor } from '../../data/balance.constants';
 const PRACTICE_CD: Record<'tap' | 'double' | 'triple' | 'hold', number> = { tap: 1.2, double: 2.5, triple: 4, hold: 3 };
 
 interface Particle { x: number; y: number; vx: number; vy: number; life: number; max: number; size: number; color: string; ring?: boolean; }
-interface Pickup { x: number; y: number; kind: 'spark' | 'coin' | 'xp'; taken: boolean; bob: number; }
+interface Pickup { x: number; y: number; kind: 'spark' | 'coin' | 'xp' | 'heart'; taken: boolean; bob: number; }
 interface Wisp { x: number; y: number; r: number; hit: number; phase: number; }
 
-const FAMILY_LABEL: Record<SlotFamily, string> = { tap: 'TAP (1 tap)', double: 'DBL (2 taps)', triple: 'ULT (3 taps)' };
+const FAMILY_LABEL: Record<SlotFamily, string> = { tap: 'TAP (2 taps)', double: 'DBL (3 taps)', triple: 'ULT (4 taps)' };
 
 @Component({
   selector: 'app-tutorial',
@@ -122,9 +122,10 @@ const FAMILY_LABEL: Record<SlotFamily, string> = { tap: 'TAP (1 tap)', double: '
         @switch (step().finger) {
           @case ('drag') { <div class="tut-finger tut-drag"></div> }
           @case ('glide') { <div class="tut-finger tut-glide"></div><div class="tut-trail-line"></div> }
-                    @case ('tap1') { <div class="tut-finger tut-tap tut-tap1"></div><div class="tut-ripple tut-tap1r"></div><span class="tut-count">x1</span> }
+                    
           @case ('tap2') { <div class="tut-finger tut-tap tut-tap2"></div><div class="tut-ripple tut-tap2r"></div><span class="tut-count">x2</span> }
           @case ('tap3') { <div class="tut-finger tut-tap tut-tap3"></div><div class="tut-ripple tut-tap3r"></div><span class="tut-count">x3</span> }
+          @case ('tap4') { <div class="tut-finger tut-tap tut-tap4"></div><div class="tut-ripple tut-tap4r"></div><span class="tut-count">x4</span> }
           @case ('hold') { <div class="tut-finger tut-press"></div><div class="tut-hold-ring"></div> }
           @case ('flick') { <div class="tut-finger tut-flick"></div><div class="tut-flick-trail"></div> }
           @case ('roll') { <div class="tut-finger tut-anchor"></div><div class="tut-finger tut-second tut-roll2"></div><div class="tut-ripple tut-roll2r"></div> }
@@ -222,15 +223,15 @@ const FAMILY_LABEL: Record<SlotFamily, string> = { tap: 'TAP (1 tap)', double: '
     .tut-glide { animation: tutGlide 2.4s linear infinite; }
     @keyframes tutGlide { 0% { transform: translate(-110px, 0); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translate(110px, 0); opacity: 0; } }
     .tut-trail-line { position: absolute; left: -110px; width: 220px; top: -1px; height: 2px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent); }
-    .tut-tap1 { animation: tutTap1 1.4s ease-in-out infinite; } .tut-tap1r { animation: tutTap1r 1.4s ease-out infinite; }
-    @keyframes tutTap1 { 0%,100% { transform: scale(1); } 8% { transform: scale(0.75); } 16% { transform: scale(1); } }
-    @keyframes tutTap1r { 0%,7% { opacity: 0; transform: scale(0.6); } 9% { opacity: 1; } 30%,100% { opacity: 0; transform: scale(2); } }
     .tut-tap2 { animation: tutTap2 1.6s ease-in-out infinite; } .tut-tap2r { animation: tutTap2r 1.6s ease-out infinite; }
     .tut-tap3 { animation: tutTap3 1.8s ease-in-out infinite; } .tut-tap3r { animation: tutTap3r 1.8s ease-out infinite; }
     @keyframes tutTap2 { 0%,100% { transform: scale(1); } 8% { transform: scale(0.75); } 16% { transform: scale(1); } 24% { transform: scale(0.75); } 32% { transform: scale(1); } }
     @keyframes tutTap2r { 0%,7% { opacity: 0; transform: scale(0.6); } 9% { opacity: 1; } 20% { opacity: 0; transform: scale(1.8); } 23% { opacity: 0; transform: scale(0.6); } 25% { opacity: 1; } 40%,100% { opacity: 0; transform: scale(2); } }
     @keyframes tutTap3 { 0%,100% { transform: scale(1); } 7% { transform: scale(0.75); } 14% { transform: scale(1); } 21% { transform: scale(0.75); } 28% { transform: scale(1); } 35% { transform: scale(0.75); } 42% { transform: scale(1); } }
     @keyframes tutTap3r { 0%,6% { opacity: 0; transform: scale(0.6); } 8% { opacity: 1; } 17% { opacity: 0; transform: scale(1.8); } 20% { opacity: 0; transform: scale(0.6); } 22% { opacity: 1; } 31% { opacity: 0; transform: scale(1.8); } 34% { opacity: 0; transform: scale(0.6); } 36% { opacity: 1; } 50%,100% { opacity: 0; transform: scale(2); } }
+    .tut-tap4 { animation: tutTap4 2s ease-in-out infinite; } .tut-tap4r { animation: tutTap4r 2s ease-out infinite; }
+    @keyframes tutTap4 { 0%,100% { transform: scale(1); } 6% { transform: scale(0.75); } 12% { transform: scale(1); } 18% { transform: scale(0.75); } 24% { transform: scale(1); } 30% { transform: scale(0.75); } 36% { transform: scale(1); } 42% { transform: scale(0.75); } 48% { transform: scale(1); } }
+    @keyframes tutTap4r { 0%,5% { opacity: 0; transform: scale(0.6); } 7% { opacity: 1; } 15% { opacity: 0; transform: scale(1.8); } 17% { opacity: 0; transform: scale(0.6); } 19% { opacity: 1; } 27% { opacity: 0; transform: scale(1.8); } 29% { opacity: 0; transform: scale(0.6); } 31% { opacity: 1; } 39% { opacity: 0; transform: scale(1.8); } 41% { opacity: 0; transform: scale(0.6); } 43% { opacity: 1; } 60%,100% { opacity: 0; transform: scale(2); } }
     .tut-press { animation: tutPress 2.6s ease-in-out infinite; }
     @keyframes tutPress { 0% { transform: scale(1); } 10%,85% { transform: scale(0.8); } 100% { transform: scale(1); } }
     .tut-hold-ring { position: absolute; width: 84px; height: 84px; margin: -42px 0 0 -42px; border-radius: 9999px; border: 4px solid rgba(255,120,40,0.9); animation: tutHoldRing 2.6s linear infinite; }
@@ -401,7 +402,7 @@ export class TutorialComponent implements AfterViewInit, OnDestroy {
     }
     if (goal === 'pickups') {
       const cy = this.arenaMidY();
-      const pts: [number, number, 'coin' | 'xp'][] = [[0.2, -0.12, 'coin'], [0.35, 0.1, 'xp'], [0.5, -0.15, 'coin'], [0.65, 0.12, 'xp'], [0.8, -0.08, 'coin'], [0.5, 0.18, 'xp']];
+      const pts: [number, number, 'coin' | 'xp' | 'heart'][] = [[0.2, -0.12, 'coin'], [0.35, 0.1, 'xp'], [0.5, -0.15, 'coin'], [0.65, 0.12, 'xp'], [0.8, -0.08, 'coin'], [0.5, 0.18, 'xp'], [0.3, 0.2, 'heart']];
       for (const [fx, fy, k] of pts) this.pickups.push({ x: this.W * fx, y: cy + this.H * fy, kind: k, taken: false, bob: Math.random() * 6 });
     }
     this.sparkHold = goal === 'spark';
@@ -683,13 +684,13 @@ export class TutorialComponent implements AfterViewInit, OnDestroy {
       if (p.taken) continue;
       p.bob += dt * 3;
       const d = Math.hypot(p.x - this.px, p.y - this.py);
-      const magnet = p.kind === 'xp' ? 200 : p.kind === 'coin' ? 110 : 0;
+      const magnet = p.kind === 'xp' ? 200 : (p.kind === 'coin' || p.kind === 'heart') ? 110 : 0;
       if (magnet && d < magnet) { p.x += (this.px - p.x) * Math.min(1, dt * 6); p.y += (this.py - p.y) * Math.min(1, dt * 6); }
       if (d < 34) {
         p.taken = true;
         for (let i = 0; i < 10; i++) {
           const a = Math.random() * Math.PI * 2;
-          this.particles.push({ x: p.x, y: p.y, vx: Math.cos(a) * 160, vy: Math.sin(a) * 160, life: 0.5, max: 0.5, size: 4, color: p.kind === 'spark' ? '120,230,255' : p.kind === 'coin' ? '255,215,80' : '150,255,170' });
+          this.particles.push({ x: p.x, y: p.y, vx: Math.cos(a) * 160, vy: Math.sin(a) * 160, life: 0.5, max: 0.5, size: 4, color: p.kind === 'spark' ? '120,230,255' : p.kind === 'heart' ? '255,90,110' : p.kind === 'coin' ? '255,215,80' : '150,255,170' });
         }
         if (p.kind === 'spark') {
           this.sparkHold = false;
@@ -764,13 +765,13 @@ export class TutorialComponent implements AfterViewInit, OnDestroy {
     for (const p of this.pickups) {
       if (p.taken) continue;
       const y = p.y + Math.sin(p.bob) * 5;
-      const col = p.kind === 'spark' ? '120,230,255' : p.kind === 'coin' ? '255,205,60' : '120,255,150';
+      const col = p.kind === 'spark' ? '120,230,255' : p.kind === 'heart' ? '255,90,110' : p.kind === 'coin' ? '255,205,60' : '120,255,150';
       const g = c.createRadialGradient(p.x, y, 1, p.x, y, 26);
       g.addColorStop(0, `rgba(${col},0.95)`); g.addColorStop(1, `rgba(${col},0)`);
       c.fillStyle = g; c.beginPath(); c.arc(p.x, y, 26, 0, Math.PI * 2); c.fill();
       c.font = p.kind === 'spark' ? '22px sans-serif' : '16px sans-serif';
       c.textAlign = 'center'; c.textBaseline = 'middle';
-      c.fillText(p.kind === 'spark' ? '🔋' : p.kind === 'coin' ? '🪙' : '✦', p.x, y);
+      c.fillText(p.kind === 'spark' ? '🔋' : p.kind === 'heart' ? '❤️' : p.kind === 'coin' ? '🪙' : '✦', p.x, y);
     }
     // Steering target ghost while dragging.
     if (this.parser.pointerDown && !this.mouseMode) {

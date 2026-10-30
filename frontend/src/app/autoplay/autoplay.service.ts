@@ -18,7 +18,7 @@ import { GestureStep, SlotFamily, synthTapChain, synthFlick, synthRoll, synthBra
 import { decide, Snapshot, Threat, Foe, Pt } from './autoplay-pilot';
 import { AttemptRecord, BossRecord, Telemetry, addFinding, newTelemetry } from './autoplay-report';
 import { autoplayAllowed, DevFlags } from './autoplay-gate';
-import { AgentAction, AgentApiError, AgentEnv, LlmRequest, ObsButton, Observation, StepResult, classifyCurrency, gemQuoteValid, parseCost, runAgent } from './autoplay-agent';
+import { AgentAction, AgentApiError, AgentEnv, LlmRequest, ObsButton, Observation, StepResult, classifyCurrency, gemQuoteValid, parseCost, runAgent, stepCapFor } from './autoplay-agent';
 
 const AD_REASON = 'autoplay';
 const OUT_KEY = 'phoenix_autoplay_output';
@@ -34,7 +34,9 @@ export class AutoplayService {
   readonly running = signal(false);
   readonly paused = signal(false);
   readonly output = signal<string>(localStorage.getItem(OUT_KEY) || '');
-  readonly status = signal('Idle');
+  readonly status = signal('Ready');
+  /** Steps the AI has taken in the current or last run. */
+  readonly steps = signal(0);
   readonly flags = signal<DevFlags & { ai?: boolean; model?: string } | null>(null);
 
   private out = new CappedOutput(OUTPUT_CAP_CHARS);
@@ -111,6 +113,7 @@ export class AutoplayService {
     this.paused.set(false);
     this.finishing = false;
     this.stopRequested = false;
+    this.stopReason = '';
     this.playing = false;
     this.events = []; this.ledger = []; this.model = '';
     this.tm = newTelemetry(Date.now());
@@ -126,16 +129,27 @@ export class AutoplayService {
     this.tickTimer = setInterval(() => this.safeTick(), 250);
     this.pilotTimer = setInterval(() => this.safePilot(), 60);
     this.status.set('Running (AI deciding)');
-    const outcome = await runAgent(prompt, (req) => this.callLlm(req), this.env(), {
-      deadline: this.deadline, reportMaxChars: REPORT_RESERVE_CHARS - 400, shouldStop: () => this.stopRequested || !this.running(),
-    });
+    this.steps.set(0);
+    let outcome: { report: string | null; endReason: string; steps: number; error?: string };
+    try {
+      outcome = await runAgent(prompt, (req) => { this.steps.update(n => n + 1); return this.callLlm(req); }, this.env(), {
+        deadline: this.deadline, maxSteps: stepCapFor(sliderMs ?? null), reportMaxChars: REPORT_RESERVE_CHARS - 400,
+        shouldStop: () => this.stopRequested || !this.running(),
+      });
+    } catch (e: any) {
+      // Never end silently: any crash in the loop still writes an output entry.
+      outcome = { report: null, endReason: `internal error: ${String(e?.message || e).slice(0, 160)}`, steps: this.steps() };
+    }
     if (outcome.error) {
-      this.out.setReport(`AUTOPLAY STOPPED: the AI planner is unavailable (${outcome.error}).\nNothing was decided locally; fix the backend AI (OPENAI_API_KEY / OPENAI_MODEL, rate limit) and try again.`);
-      await this.finish(`AI API error (${outcome.error})`, null);
-    } else await this.finish(outcome.endReason, outcome.report);
+      this.out.setReport(`AUTOPLAY STOPPED: the AI planner is unavailable (${outcome.error}).\nNothing was decided locally; fix the backend AI (OPENAI_API_KEY / OPENAI_MODEL, rate limit) and try again.\nSteps taken: ${outcome.steps}.`);
+      await this.finish(`AI API error (${outcome.error})`, null, outcome.steps);
+    } else await this.finish(this.stopReason || outcome.endReason, outcome.report, outcome.steps);
   }
 
+  private stopReason = '';
   stop(reason = 'Stopped by tester') {
+    if (!this.running() || this.finishing) return;
+    this.stopReason = reason;
     this.stopRequested = true;
     this.playing = false;
     this.releaseFingers();
@@ -151,7 +165,7 @@ export class AutoplayService {
     return r.action;
   }
 
-  private async finish(reason: string, report: string | null) {
+  private async finish(reason: string, report: string | null, steps = this.steps()) {
     if (this.finishing) return;
     this.finishing = true;
     this.playing = false;
@@ -163,19 +177,24 @@ export class AutoplayService {
     this.tm.coinsEnd = this.gs.coins(); this.tm.gemsEnd = this.gs.gems();
     if (report !== null) {
       const facts = [`Verified by code: coins ${this.tm.coinsStart} -> ${this.tm.coinsEnd}, gems ${this.tm.gemsStart} -> ${this.tm.gemsEnd}.`, ...this.ledger.slice(-20)].join('\n');
-      this.out.setReport(`Report written by: OpenAI (${this.model || 'unknown'})\n\n${report}\n\n## Code-verified ledger\n${facts}`);
+      this.out.setReport(`Report written by: OpenAI (${this.model || 'unknown'})\n\n${report}\n\n## Code-verified ledger\nSteps taken: ${steps}.\n${facts}`);
     } else if (!this.out.text().includes('AUTOPLAY STOPPED')) {
-      this.out.setReport(`Autoplay ended (${reason}) without an AI report.`);
+      const secs = Math.round((this.tm.endedAt - this.tm.startedAt) / 1000);
+      this.out.setReport(`Autoplay ended: ${reason}.\nSteps taken: ${steps}. Ran ${secs} s.\nVerified by code: coins ${this.tm.coinsStart} -> ${this.tm.coinsEnd}, gems ${this.tm.gemsStart} -> ${this.tm.gemsEnd}.${this.ledger.length ? '\n' + this.ledger.slice(-20).join('\n') : ''}\nThe AI did not write a report because the run ended before it called finish.`);
     }
     this.publish();
     this.cleanup.forEach(f => { try { f(); } catch { } }); this.cleanup = [];
     this.running.set(false); this.paused.set(false);
-    this.status.set(`Done: ${reason}`);
+    this.status.set(`Done: ${reason} (${steps} steps)`);
     // Ads stay blocked until the bot has fully left the run.
     setTimeout(() => AdGuard.release(AD_REASON), 1500);
   }
 
-  clearOutput() { this.out.clear(); this.output.set(''); localStorage.removeItem(OUT_KEY); }
+  clearOutput() {
+    if (this.running()) return;
+    this.out.clear(); this.output.set(''); localStorage.removeItem(OUT_KEY);
+    this.status.set('Ready');
+  }
 
   // ---------- logging ----------
   private log(kind: string, text: string) { this.out.add(kind, text); this.publish(); }
@@ -649,11 +668,11 @@ export class AutoplayService {
     if (!g?.playerBody) return null;
     const p = this.gs.phoenixScreenPos();
     const v = g.playerBody.velocity || { x: 0, y: 0 };
-    const threats: Threat[] = [], foes: Foe[] = [], pickups: Pt[] = [];
+    const threats: Threat[] = [], foes: Foe[] = [], pickups: { x: number; y: number; kind?: string }[] = [];
     for (const b of this.bodies()) {
       if (b === g.playerBody) continue;
       const d = b.plugin?.data;
-      if (b.label === 'item') { pickups.push({ x: b.position.x, y: b.position.y }); continue; }
+      if (b.label === 'item') { pickups.push({ x: b.position.x, y: b.position.y, kind: d?.type }); continue; }
       if (!d) continue;
       const vx = (b.velocity?.x || 0) * 60, vy = (b.velocity?.y || 0) * 60;
       const r = b.circleRadius || Math.max(10, ((b.bounds?.max.x - b.bounds?.min.x) || 20) / 2);
@@ -671,7 +690,7 @@ export class AutoplayService {
     const mv: any = this.gs.playerMovement;
     return {
       p, v: { x: v.x * 60, y: v.y * 60 }, w: innerWidth, h: innerHeight, birdR: 18,
-      threats, foes, pickups, stamina: mv?.stamina ?? 100, dashCost: STAMINA.dashCost, rollCost: STAMINA.rollCost,
+      threats, foes, pickups, stamina: mv?.stamina ?? 100, staminaMax: STAMINA.max, dashCost: STAMINA.dashCost, rollCost: STAMINA.rollCost,
       telegraph: !!g.bossTelegraphShowing?.(), hpFrac: g.currentHealth() / Math.max(1, g.maxHealth()),
     };
   }

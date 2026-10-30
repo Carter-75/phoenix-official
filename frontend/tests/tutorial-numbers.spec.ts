@@ -39,16 +39,17 @@ describe('tutorial copy numbers come from constants', () => {
     expect(step('brake').body).toContain(`${S.brakePct}%`);
     expect(TUTORIAL_STEPS.some(s => s.body.includes(`${S.sparkCell}`))).toBe(true);
   });
-  it('tap counts in the copy match the game grammar (1 TAP, 2 DBL, 3 ULT)', () => {
-    expect(tapsFor('tap')).toBe(1); expect(tapsFor('double')).toBe(2); expect(tapsFor('triple')).toBe(3);
-    expect(step('slot-tap').finger).toBe('tap1');
-    expect(step('slot-double').finger).toBe('tap2');
-    expect(step('slot-triple').finger).toBe('tap3');
-    expect(step('slot-tap').body).toMatch(/tap once/i);
-    expect(step('slot-double').body).toMatch(/twice/i);
-    expect(step('slot-triple').body).toMatch(/three times/i);
+  it('tap counts in the copy match the game grammar (2 TAP, 3 DBL, 4 ULT)', () => {
+    expect(tapsFor('tap')).toBe(2); expect(tapsFor('double')).toBe(3); expect(tapsFor('triple')).toBe(4);
+    expect(step('slot-tap').finger).toBe('tap2');
+    expect(step('slot-double').finger).toBe('tap3');
+    expect(step('slot-triple').finger).toBe('tap4');
+    expect(step('slot-tap').body).toMatch(/tap twice/i);
+    expect(step('slot-double').body).toMatch(/three times/i);
+    expect(step('slot-triple').body).toMatch(/four times/i);
     const all = TUTORIAL_STEPS.map(s => `${s.body} ${s.desktop}`).join(' ');
-    expect(all).not.toMatch(/four (quick|times)/i);
+    expect(all).not.toMatch(/tap once|click once/i);
+    expect(all).toMatch(/single tap does nothing/);
     expect(step('slot-tap').desktop).toContain('Q');
     expect(step('slot-double').desktop).toContain('W');
     expect(step('slot-triple').desktop).toContain('R');
@@ -60,8 +61,7 @@ describe('tutorial copy numbers come from constants', () => {
     expect(c).toContain('DROP_RULES.sparkCellStamina');
     expect(c).not.toMatch(/stam\.add\(\d/);
     expect(c).not.toMatch(/'\+\d+'/);
-    expect(c).not.toMatch(/\(\d taps?\)'.*\(3 taps\)'.*\(4 taps\)/);
-    expect(c).toContain("'TAP (1 tap)'");
+    expect(c).toContain("'TAP (2 taps)'");
     expect(c).toContain("ABILITIES['burst']");
   });
   it('the game and tutorial both use the shared gesture parser', () => {
@@ -71,5 +71,20 @@ describe('tutorial copy numbers come from constants', () => {
   it('no em dashes in tutorial copy', () => {
     const all = TUTORIAL_STEPS.map(s => `${s.title} ${s.body} ${s.desktop}`).join(' ');
     expect(all).not.toMatch(/\u2014/);
+  });
+});
+
+import { TUTORIAL_STEPS as __STEPS } from '../src/app/tutorial/tutorial-steps';
+import { DROP_RULES as __DR, STAMINA as __ST } from '../src/app/data/balance.constants';
+describe('tutorial items are real', () => {
+  const all = JSON.stringify(__STEPS);
+  it('regen is slow so Spark Cells are the main refill', () => {
+    expect(__ST.regenPerSecond).toBeGreaterThanOrEqual(3);
+    expect(__ST.regenPerSecond).toBeLessThanOrEqual(5);
+    expect(all).toMatch(/Spark Cells are your main refill/);
+    expect(__DR.sparkCellBaseChance).toBeGreaterThan(0);
+  });
+  it('hearts are taught with the real heal value', () => {
+    expect(all).toContain(`heals ${__DR.heartHealValue} HP`);
   });
 });
