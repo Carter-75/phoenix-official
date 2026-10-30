@@ -4,7 +4,7 @@ import { GameStateService, STAMINA, createMovementState } from '../../services/g
 import { phoenixSkinForWorld } from '../../components/particle-bg/particle-bg.component';
 import { PhysicsEntity, WorldStats } from '../../models/game.models';
 import { ABILITIES, BASE_STATS, REALM_ABILITIES } from '../../constants/game.constants';
-import { TOUCH_DRAG_SCALE, TOUCH_DRAG_DEADZONE_PX, PI_RULES, DROP_RULES, levelHpBonusFor, ENDLESS_ESCALATION, endlessHpScale, endlessStepAt, endlessPhaseAt } from '../../data/balance.constants';
+import { TAP_CHAIN_RESOLVE_MS, TOUCH_DRAG_SCALE, TOUCH_DRAG_DEADZONE_PX, PI_RULES, DROP_RULES, levelHpBonusFor, ENDLESS_ESCALATION, endlessHpScale, endlessStepAt, endlessPhaseAt } from '../../data/balance.constants';
 import {
   bossDefFor, BossFightState, BOSS_ENRAGE_WARNING_SEC, BOSS_PROJECTILE_CAP,
   SHIELD_HEAL_PHASE_CAP_FRAC, SHIELD_HEAL_FIGHT_CAP_FRAC, SHIELD_MIN_HP_FRAC,
@@ -4834,17 +4834,29 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
           this.tapChainCount = 1;
       }
       this.tapChainLastTime = now;
-      if (!this.gameState.isPaused()) {
-          if (this.tapChainCount === 2) {
-              this.fireSlot('tap');
-          } else if (this.tapChainCount === 3) {
-              this.fireSlot('double');
-          } else if (this.tapChainCount >= 4) {
-              this.fireSlot('triple');
-              this.tapChainCount = 0;
-          }
+      // Oct 29, 2026 (Carter): each gesture fires ONLY its own slot.
+      // The chain is resolved after a short quiet window instead of
+      // firing on every press, so a double-tap no longer also fires
+      // the tap slot and a triple no longer fires tap and double.
+      // The longest chain (triple slot) resolves at once, no wait.
+      if (this.tapChainTimer) { clearTimeout(this.tapChainTimer); this.tapChainTimer = null; }
+      if (this.tapChainCount >= 4) {
+          this.resolveTapChain(4);
+      } else if (this.tapChainCount >= 2) {
+          const count = this.tapChainCount;
+          this.tapChainTimer = setTimeout(() => { this.tapChainTimer = null; this.resolveTapChain(count); }, TAP_CHAIN_RESOLVE_MS);
       }
       this.lastClickTime = now;
+  }
+
+  private tapChainTimer: ReturnType<typeof setTimeout> | null = null;
+  private resolveTapChain(count: number) {
+      if (this.tapChainTimer) { clearTimeout(this.tapChainTimer); this.tapChainTimer = null; }
+      this.tapChainCount = 0;
+      if (this.gameState.isPaused() || this.isDead() || this.gameEnded()) return;
+      if (count === 2) this.fireSlot('tap');
+      else if (count === 3) this.fireSlot('double');
+      else if (count >= 4) this.fireSlot('triple');
   }
 
   // S5: the Overcharge charge is live while held and inside its
@@ -5162,6 +5174,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
 
   ngOnDestroy() {
+    if (this.tapChainTimer) { clearTimeout(this.tapChainTimer); this.tapChainTimer = null; }
     if (this.timerInterval) clearInterval(this.timerInterval);
     this.spawner.stopSpawning();
     if (this.attackInterval) clearInterval(this.attackInterval);

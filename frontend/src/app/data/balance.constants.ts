@@ -519,3 +519,7 @@ export const TOUCH_DRAG_SCALE = 2.5;
 // Finger travel in px below which a touch still counts as a tap or
 // hold (no steering), so taps and hold charges are never eaten.
 export const TOUCH_DRAG_DEADZONE_PX = 6;
+// Quiet window (ms) after the last press before a tap chain is
+// resolved into exactly one slot (2 presses tap, 3 double, 4 triple).
+// Must stay under the 300 ms chain window used to count presses.
+export const TAP_CHAIN_RESOLVE_MS = 230;
