@@ -16,6 +16,7 @@ import { GameStateService, STAMINA } from '../services/game-state.service';
 import { AuthService } from '../services/auth.service';
 import { AdGuard } from './ad-guard';
 import { CappedOutput, OUTPUT_CAP_CHARS, REPORT_RESERVE_CHARS } from './autoplay-output';
+import { hazardContains } from '../pages/game/boss-patterns';
 import { GestureStep, SlotFamily, synthTapChain, synthFlick, synthRoll, synthBrake, holdChargeMs, chainIsValid } from './autoplay-gestures';
 import { TOUCH_DRAG_SCALE } from '../data/balance.constants';
 import { decide, Snapshot, Threat, Foe, Pt } from './autoplay-pilot';
@@ -463,6 +464,7 @@ export class AutoplayService {
       events: [...this.events],
       secondsLeft: null,
       progress: this.ledger.slice(-6),
+      shop: this.shopSummary(),
       checklist: this.checklist(),
       guide: buildManifest(this.screenName(), sel + 1, buttons.map(b => b.id)),
     };
@@ -975,6 +977,52 @@ export class AutoplayService {
       p, v: { x: v.x * 60, y: v.y * 60 }, w: innerWidth, h: innerHeight, birdR: 18,
       threats, foes, pickups, stamina: mv?.stamina ?? 100, staminaMax: STAMINA.max, dashCost: STAMINA.dashCost, rollCost: STAMINA.rollCost,
       telegraph: !!g.bossTelegraphShowing?.(), hpFrac: g.currentHealth() / Math.max(1, g.maxHealth()),
+      fireRange: (this.gs.currentStats?.().attackRange ?? 400) * (g.speedScale ?? 1),
+      hazard: this.bossHazards(g),
+    };
+  }
+
+  /** Coin shop for the selected realm, ranked by value (same cost formula as the shop screen). */
+  private shopSummary(): Observation['shop'] {
+    const cur: any = this.gs.currentStats?.() || {};
+    const rows: [string, string, number, number, number, string, number][] = [
+      ['buy-damage', 'damage', 250, 1, 10, '+1 damage (+10% at base)', 3],
+      ['buy-attack-speed', 'attackSpeed', 300, 0.1, 1, '+0.1 attack speed', 2.5],
+      ['buy-health', 'maxHealth', 100, 10, 100, '+10 max health', 2],
+      ['buy-homing', 'homingLevel', 300, 1, 0, '+1 homing', 1],
+      ['buy-speed', 'speed', 150, 0.1, 2, '+0.1 speed', 1],
+    ];
+    const why: Record<string, string> = { damage: 'kills bosses faster', attackSpeed: 'more shots on the boss', maxHealth: 'survives more hits', homingLevel: 'shots curve onto targets', speed: 'dodging' };
+    const list = rows.map(([id, stat, base, step, off, gain, w]) => {
+      const v = Number(cur[stat] ?? off);
+      const cost = Math.floor(base * Math.pow(1.5, Math.max(0, (v - off) / step)));
+      return { id, cost, gain, why: why[stat], v: w / cost };
+    }).sort((x, y) => y.v - x.v);
+    return { coins: this.gs.coins(), cheapest: Math.min(...list.map(x => x.cost)), best: list.map(({ v, ...r }) => r) };
+  }
+
+  /** Danger map of the boss's telegraphed hazards and locked dash lanes (read ahead, before they go live). */
+  private bossHazards(g: any): ((q: { x: number; y: number }) => number) | undefined {
+    const boss = (g.enemies || []).find((e: any) => e.plugin?.data?.type === 'boss');
+    const st = boss?.plugin?.data?.bossState, d = st?.sig?.data;
+    if (!d) return undefined;
+    const t = st.fightSec, m = 30;
+    const hz = (d.hazards || []).filter((h: any) => h.until >= t && h.teleAt <= t + 1.2);
+    const lanes = (d.dashes || []).filter((x: any) => x.until >= t).map((x: any) => ({ x0: boss.position.x, y0: boss.position.y, x1: x.tx, y1: x.ty, w: (boss.circleRadius || 40) + 40 }));
+    if (!hz.length && !lanes.length) return undefined;
+    const offs = [[0, 0], [m, 0], [-m, 0], [0, m], [0, -m]];
+    return (q) => {
+      let n = 0;
+      for (const h of hz) {
+        const at = Math.max(t, h.liveAt);
+        n += offs.filter(([ox, oy]) => hazardContains(h, at, q.x + ox, q.y + oy)).length / offs.length;
+      }
+      for (const L of lanes) {
+        const vx = L.x1 - L.x0, vy = L.y1 - L.y0, len2 = vx * vx + vy * vy || 1;
+        const u = Math.max(0, Math.min(1, ((q.x - L.x0) * vx + (q.y - L.y0) * vy) / len2));
+        if (Math.hypot(q.x - (L.x0 + u * vx), q.y - (L.y0 + u * vy)) < L.w) n += 1;
+      }
+      return n;
     };
   }
 
@@ -1020,7 +1068,7 @@ export class AutoplayService {
         }
       }
     }
-    if (this.useAbilities && d.safeForHold && g.holdCooldown() <= 0 && now >= this.nextAbilityAt && s.foes.length && now - this.lastPressAt > 400 && Math.random() < 0.05) {
+    if (this.useAbilities && d.safeForHold && g.holdCooldown() <= 0 && now >= this.nextAbilityAt && s.foes.length && now - this.lastPressAt > 400 && Math.random() < (s.foes.some(f => f.boss) ? 0.3 : 0.05)) {
       const ms = holdChargeMs(false);
       this.count('hold ability'); this.nextAbilityAt = now + ms + 600;
       this.verifySlot('hold', ms + 500);

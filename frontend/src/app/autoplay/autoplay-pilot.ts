@@ -31,6 +31,10 @@ export interface Snapshot {
   telegraph: boolean; hpFrac: number;
   /** Set by the service: low movement while taking damage over the last 2 s. */
   stuck?: boolean;
+  /** Auto-fire reach in px (attackRange x speedScale); fire needs the target in a 45 degree cone of the heading. */
+  fireRange?: number;
+  /** Boss telegraphed hazards and dash lanes: danger (0 safe) at q, including ones not live yet. */
+  hazard?: (q: Pt) => number;
 }
 export interface Decision {
   target: Pt; danger: number; dash: Pt | null; roll: boolean; brake: boolean;
@@ -68,9 +72,10 @@ export function dangerAt(q: Pt, s: Snapshot): number {
   }
   for (const f of s.foes) {
     const dist = Math.hypot(f.x - q.x, f.y - q.y) - f.r - s.birdR;
-    const keep = f.boss ? 90 : 40;
+    const keep = f.boss ? 150 : 40;
     if (dist < keep) d += (keep - dist) / keep * (f.boss ? 14 : 6);
   }
+  if (s.hazard) d += s.hazard(q) * 6;
   d += wallPenalty(q, s) + densityAt(q, s);
   return d;
 }
@@ -124,8 +129,10 @@ export function decide(s: Snapshot, rng: () => number = Math.random): Decision {
   if (!aim && s.foes.length) {
     aim = s.foes.reduce((a, b) => Math.hypot(a.x - s.p.x, a.y - s.p.y) <= Math.hypot(b.x - s.p.x, b.y - s.p.y) ? a : b);
   }
+  // Boss: sit straight below it inside auto-fire reach (a parked bird faces up, so it fires at the boss).
+  const reach = s.fireRange ?? 400;
   const ideal: Pt = boss
-    ? { x: boss.x, y: Math.min(s.h * 0.82, boss.y + Math.max(220, s.h * 0.38)) }
+    ? { x: boss.x, y: Math.min(s.h * 0.86, boss.y + Math.max(boss.r + 160, reach * 0.7)) }
     : aim ? { x: aim.x, y: Math.min(s.h * 0.85, aim.y + s.h * 0.28) } : { x: s.w / 2, y: s.h * 0.66 };
 
   const cands: Pt[] = [s.p];
@@ -145,7 +152,9 @@ export function decide(s: Snapshot, rng: () => number = Math.random): Decision {
       const dd = Math.hypot(c.x - p.x, c.y - p.y);
       if (dd < 220) pick += ((220 - dd) / 220) * pickupWeight(p.kind, stamFrac, s.hpFrac);
     }
-    const score = danger * (s.telegraph ? 1.6 : 1) + pathDanger(s.p, c, s) + travel * 0.6 + toIdeal * 1.4 - Math.min(4, pick) * 0.5 + rng() * 0.05;
+    // Against a boss, closing on the ideal spot matters more than travel cost.
+    const idealW = 1.4;
+    const score = danger * (s.telegraph ? 1.6 : 1) + pathDanger(s.p, c, s) + travel * 0.6 + toIdeal * idealW - Math.min(4, pick) * 0.5 + rng() * 0.05;
     if (score < bestScore) { bestScore = score; best = c; bestDanger = danger; }
   }
 

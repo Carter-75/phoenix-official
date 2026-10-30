@@ -86,3 +86,24 @@ describe('Carter prompt verification', () => {
     expect(unmetSubgoals(p, ck({ realmsCleared: [1,2,3,4,5,6,7,8,9,10], cleanSweep: true }))).toEqual([]);
   });
 });
+
+import { upgradeNudge } from '../src/app/autoplay/autoplay-agent';
+describe('upgradeNudge', () => {
+  const ck = (deaths: number, buys: number) => ({ visited: [], notVisited: [], deaths, buys, retriedAfterDeath: false, retriedAfterBuy: false, tutorialDone: false, tutorialPassed: 0, tutorialSkipped: 0, uiFindings: 0, bugs: 0, longestLifeSec: 0, realmsCleared: [], cleanSweep: false });
+  const obs = (deaths: number, buys: number, coins: number): any => ({ coins, checklist: ck(deaths, buys), shop: { coins, cheapest: 100, best: [{ id: 'buy-damage', cost: 250, gain: '+1', why: '' }] } });
+  const P = 'Start at realm 1 keep going until in 1 run u do 1-10 all without dying, upgrade as you wish with coins.';
+  const run: any = { action: 'start_run', mode: 'campaign', realm: 1 };
+  it('sends a coin-rich retry back once per death', () => {
+    const st = { deathsSeen: 0, buysAtDeath: 0, nudgedAt: -1 };
+    expect(upgradeNudge(run, obs(0, 0, 5000), P, st)).toBeNull();
+    expect(upgradeNudge(run, obs(1, 0, 5000), P, st)).toContain('REJECTED once');
+    expect(upgradeNudge(run, obs(1, 0, 5000), P, st)).toBeNull();
+  });
+  it('lets the retry through after a buy, when poor, or when upgrades are not allowed', () => {
+    const st = { deathsSeen: 0, buysAtDeath: 0, nudgedAt: -1 };
+    upgradeNudge(run, obs(1, 0, 5000), P, st);
+    expect(upgradeNudge(run, obs(1, 1, 5000), P, { deathsSeen: 1, buysAtDeath: 0, nudgedAt: -1 })).toBeNull();
+    expect(upgradeNudge(run, obs(1, 0, 150), P, { deathsSeen: 0, buysAtDeath: 0, nudgedAt: -1 })).toBeNull();
+    expect(upgradeNudge(run, obs(1, 0, 5000), 'survive 1 minute in realm 3', { deathsSeen: 0, buysAtDeath: 0, nudgedAt: -1 })).toBeNull();
+  });
+});

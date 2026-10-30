@@ -52,6 +52,8 @@ export interface Observation {
   /** Code-verified things done this session (purchases, runs). */
   progress?: string[];
   checklist?: Checklist;
+  /** Coin shop for the selected realm, best value first: cost, gain, and what it helps with. */
+  shop?: { coins: number; cheapest: number; best: { id: string; cost: number; gain: string; why: string }[] };
 }
 
 export type AgentAction =
@@ -190,6 +192,23 @@ export class AgentApiError extends Error {
   constructor(public code: string) { super(`AI planner unavailable (${code})`); }
 }
 
+/**
+ * Safety net for upgrade prompts: a retry after a death with plenty of coins and no buy since
+ * that death is sent back once (per death) with a nudge. Never buys for the AI.
+ */
+export function upgradeNudge(a: AgentAction, obs: Observation, prompt: string, st: { deathsSeen: number; buysAtDeath: number; nudgedAt: number }): string | null {
+  const c = obs.checklist;
+  if (!c) return null;
+  if (c.deaths > st.deathsSeen) { st.deathsSeen = c.deaths; st.buysAtDeath = c.buys; }
+  if (a.action !== 'start_run' || c.deaths < 1 || st.nudgedAt === c.deaths) return null;
+  if (!/upgrad|\bbuy\b|shop|coins?\b/i.test(prompt) || /\b(no|don'?t|without|never)\s+(upgrad|buy|shop|spend)/i.test(prompt)) return null;
+  const cheapest = obs.shop?.cheapest ?? Infinity;
+  if (c.buys > st.buysAtDeath || !(obs.coins >= cheapest * 3)) return null;
+  st.nudgedAt = c.deaths;
+  const best = (obs.shop?.best || []).slice(0, 3).map(b => `${b.id} (${b.cost} coins, ${b.gain})`).join(', ');
+  return `REJECTED once: you died and the prompt allows coin upgrades, but you are retrying with ${obs.coins} coins and no purchase since the death. Spend them first: select_realm the realm you will start in, navigate shop, and tap the best-value buy- buttons (${best || 'see observation.shop'}); damage and attack speed shorten boss fights, health survives them. Then start_run.`;
+}
+
 const ACTIONS = ['tap_button', 'select_realm', 'navigate', 'start_run', 'play', 'use_ability', 'wait', 'finish'];
 
 /** Shape-check one LLM reply into an AgentAction, or null. */
@@ -304,6 +323,7 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
   const maxSteps = opt.maxSteps ?? MAX_STEPS;
   const sleep = opt.sleep ?? ((ms: number) => new Promise<void>(r => setTimeout(r, ms)));
   const history: HistoryItem[] = [];
+  const upg = { deathsSeen: 0, buysAtDeath: 0, nudgedAt: -1 };
   let badReplies = 0, rateHits = 0, finalCall = false, step = 0, played = false, impossibleRejected = 0, apiRetries = 0;
   let lastKey = env.stateKey?.() ?? '', lastLabel = '', repeat = 0, noProgress = 0;
   while (step < maxSteps) {
@@ -395,6 +415,12 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
     }
     const blocked = railCheck(a, obs, prompt);
     const label = describeAction(a);
+    const nudge = blocked ? null : upgradeNudge(a, obs, prompt, upg);
+    if (nudge) {
+      env.log('safety', `Sent back ${label}: retry with unspent coins after a death.`);
+      history.push({ step, action: label, ok: false, note: nudge });
+      continue;
+    }
     if (blocked) {
       env.log('safety', `Blocked ${label}: ${blocked}.`);
       history.push({ step, action: label, ok: false, note: `BLOCKED: ${blocked}` });
