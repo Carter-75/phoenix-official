@@ -1,8 +1,9 @@
 // Owner-only AI Autoplay endpoints. Every route requires a valid JWT
 // session AND the server-side owner check (config/owner.js). The
-// OpenAI key is read from OPENAI_API_KEY on the server only; when it
-// is missing or a call fails the routes answer { source: 'local' }
-// and the client uses its offline parser / report writer instead.
+// OpenAI key is read from OPENAI_API_KEY on the server only. /step is
+// the whole brain of the agent loop: it returns the next action. When
+// the key is missing or a call fails it answers with an errorCode and
+// the client stops; there is no local fallback.
 const express = require('express');
 const passport = require('passport');
 const { isOwnerUser } = require('../config/owner');
@@ -13,7 +14,7 @@ const hasKey = () => !!process.env.OPENAI_API_KEY;
 
 // Simple in-memory per-user rate limit.
 const WINDOW_MS = 60 * 1000;
-const LIMITS = { plan: 6, report: 4, advise: 10 };
+const LIMITS = { step: 40 };
 const hits = new Map();
 function rateOk(userId, kind, now = Date.now()) {
   const key = `${userId}:${kind}`;
@@ -64,68 +65,41 @@ async function chat({ system, user, maxTokens, json }) {
 
 const noDash = s => String(s).replace(/\u2014|\u2013/g, '-');
 
-const PLAN_SYSTEM = `You convert a game tester's prompt for the mobile game Phoenix Fall into a strict JSON plan.
-The game has 10 realms (1-based). Modes: "campaign" (Normal), "endless", "battle".
-Return ONLY a JSON object with keys:
-mode ("campaign"|"endless"|"battle"), goal ("clear_through"|"reach"|"survive"|"battle_wins"|"free_play"),
-startRealm (1-10), targetRealm (1-10), scope ("single_run"|"cumulative"), maxDeaths (integer or null for unlimited),
-retryPolicy ("restart_from_start"|"retry_realm"|"stop"), upgradeOnRetry (bool), allowGemRevives (bool),
-timeLimitMinutes (number or null for infinite), surviveSec (number or null), battleWins (number or null),
-report ({bugs,ui,balance,bosses,perf} booleans), interpretation (array of short plain sentences, no em dashes).
-Rules: "one run", "in one go", "no deaths", "deathless" mean scope single_run with maxDeaths 0 and retryPolicy restart_from_start,
-and any death fails the whole attempt. "all realms" means startRealm 1, targetRealm 10, goal clear_through.
-Default upgradeOnRetry true, allowGemRevives false unless the prompt explicitly allows gem revives. Never plan real-money purchases or ads.`;
+const STEP_SYSTEM = `You are the AI tester driving the mobile game Phoenix Fall on the owner's real save. Each turn you get the tester's prompt, a compact live observation (screen, coins, gems, selected realm, unlocked realms, per-realm loadout, run state, visible buttons with id/label/enabled/cost/currency, recent events) and your recent action history with verified results. Choose exactly ONE next action and return ONLY a JSON object, one of:
+{"action":"tap_button","id":"<button id from observation>","why":"..."}  (add "allowGems":true,"gemQuote":"<exact words from the prompt allowing gems>" only when the prompt explicitly allows spending gems)
+{"action":"select_realm","realm":N}   (menu only; changes which realm's loadout the shop edits)
+{"action":"navigate","page":"menu"|"shop"}
+{"action":"start_run","mode":"campaign"|"endless"|"battle","realm":N}
+{"action":"play","seconds":N,"until":"time"|"death"|"run_end","abilities":true}  (hands flight to the skilled on-device pilot; max 600 s per call; returns when time is up, the phoenix is down, or the run ends)
+{"action":"use_ability","slot":"tap"|"double"|"triple"|"hold"}
+{"action":"wait","seconds":N}
+{"action":"finish","report":"<markdown report>"}
+Rules: do exactly what the prompt asks and nothing more. Never start or play a run unless the prompt asks for gameplay. Menu or shop tasks are done in menus only. Shop: realms have separate loadouts (select_realm first, then navigate shop); "buy-<stat>" buttons cost coins and level a stat. Check each result: a buy is only done if coins dropped and the stat level rose; if a step failed, retry differently or report the failure. Never spend gems unless the prompt explicitly says so; real-money purchases and ads are blocked anyway. On the KO screen choose give-up or quit unless gem revives are allowed. When the goal is met, impossible, or secondsLeft is near 0, call finish. The report must be honest, only use facts from results, list what was done, what failed and why, bugs or UI issues seen, and stay under the given reportMaxChars. Never use em dashes.`;
 
 router.get('/flags', jwt, (req, res) => {
   const owner = isOwnerUser(req.user);
   res.json({ isOwner: owner, autoplay: owner, ai: owner && hasKey(), model: owner ? MODEL() : undefined });
 });
 
-router.post('/plan', jwt, requireOwner, async (req, res) => {
+router.post('/step', jwt, requireOwner, async (req, res) => {
+  if (!hasKey()) return res.status(503).json({ source: 'none', errorCode: 'no_key' });
+  if (!rateOk(String(req.user._id), 'step')) return res.status(429).json({ source: 'none', errorCode: 'rate_limited' });
   const prompt = String(req.body?.prompt || '').slice(0, 2000);
-  if (!hasKey()) return res.json({ source: 'local', reason: 'no_key', llmUsed: false, errorCode: 'no_key' });
-  if (!rateOk(String(req.user._id), 'plan')) return res.status(429).json({ source: 'local', reason: 'rate_limited', llmUsed: false, errorCode: 'rate_limited' });
+  const obs = JSON.stringify(req.body?.observation || {}).slice(0, 7000);
+  const hist = JSON.stringify(req.body?.history || []).slice(0, 5000);
+  const cap = Math.max(1000, Math.min(15000, Number(req.body?.reportMaxChars) || 12000));
   try {
-    const out = await chat({ system: PLAN_SYSTEM, user: `Current realm: ${Number(req.body?.currentRealm) || 1}\nPrompt: ${prompt}`, maxTokens: 500, json: true });
-    const plan = JSON.parse(out);
-    res.json({ source: 'openai', model: MODEL(), plan, llmUsed: true, errorCode: null });
+    const out = await chat({
+      system: STEP_SYSTEM,
+      user: `Prompt: ${prompt}\nStep ${Number(req.body?.step) || 1} of max ${Number(req.body?.maxSteps) || 80}. reportMaxChars ${cap}.\nHistory: ${hist}\nObservation: ${obs}`,
+      maxTokens: 1200, json: true,
+    });
+    const action = JSON.parse(out);
+    if (action && typeof action.report === 'string') action.report = noDash(action.report).slice(0, cap);
+    res.json({ source: 'openai', model: MODEL(), action });
   } catch (e) {
     const errorCode = e && e.code ? String(e.code) : (e && e.name === 'AbortError' ? 'timeout' : (e instanceof SyntaxError ? 'bad_json' : 'request_failed'));
-    res.json({ source: 'local', reason: 'ai_failed', model: MODEL(), llmUsed: false, errorCode });
-  }
-});
-
-router.post('/report', jwt, requireOwner, async (req, res) => {
-  if (!hasKey()) return res.json({ source: 'local', reason: 'no_key' });
-  if (!rateOk(String(req.user._id), 'report')) return res.status(429).json({ source: 'local', reason: 'rate_limited' });
-  const cap = Math.max(2000, Math.min(20000, Number(req.body?.maxChars) || 15000));
-  const telemetry = JSON.stringify(req.body?.telemetry || {}).slice(0, 60000);
-  const plan = JSON.stringify(req.body?.plan || {}).slice(0, 4000);
-  const prompt = String(req.body?.prompt || '').slice(0, 2000);
-  try {
-    const out = await chat({
-      system: `You are a senior QA tester writing the final report of an automated play session of the mobile game Phoenix Fall. Use markdown with exactly these sections: "## Summary", "## Outcome vs goal", "## Attempts", "## Bugs" (each with repro steps), "## UI polish notes", "## Balance and boss notes" (flag bosses that need a remake and why), "## Stats". Be concrete, use only facts from the telemetry, never invent bugs. The whole report MUST be under ${cap} characters; condense lists rather than cut off. Never use em dashes.`,
-      user: `Tester prompt: ${prompt}\nPlan: ${plan}\nTelemetry JSON: ${telemetry}`,
-      maxTokens: Math.min(3500, Math.ceil(cap / 3.5)),
-    });
-    res.json({ source: 'openai', model: MODEL(), report: noDash(out).slice(0, cap) });
-  } catch (e) {
-    res.json({ source: 'local', reason: 'ai_failed' });
-  }
-});
-
-router.post('/advise', jwt, requireOwner, async (req, res) => {
-  if (!hasKey()) return res.json({ source: 'local', reason: 'no_key' });
-  if (!rateOk(String(req.user._id), 'advise')) return res.status(429).json({ source: 'local', reason: 'rate_limited' });
-  const summary = JSON.stringify(req.body?.summary || {}).slice(0, 8000);
-  try {
-    const out = await chat({
-      system: `You advise an autoplay bot for Phoenix Fall between attempts. Return ONLY JSON: {"upgradePriority": array of stat keys from ["damage","attack-speed","homing","health","speed","aegis","magnet","range","aura"] best first, "aggression": number 0..1 (0 = keep distance and dodge, 1 = fight close), "note": short sentence, no em dashes}.`,
-      user: summary, maxTokens: 200, json: true,
-    });
-    res.json({ source: 'openai', model: MODEL(), advice: JSON.parse(out) });
-  } catch (e) {
-    res.json({ source: 'local', reason: 'ai_failed' });
+    res.status(502).json({ source: 'none', model: MODEL(), errorCode });
   }
 });
 

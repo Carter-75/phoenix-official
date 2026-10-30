@@ -8,7 +8,8 @@ import { AuthService, User } from './auth.service';
 import { StorageService } from './storage.service';
 import { WorldStats, PhysicsEntity, World, AbilityData } from '../models/game.models';
 import { WORLDS, ABILITIES, REALM_ABILITIES, BASE_STATS, WORLD_0_STATS, deterministicAbilityModifiers } from '../constants/game.constants';
-import { MULTIPLIER_CAPS, PASSIVE_BY_STAT } from '../data/balance.constants';
+import { MULTIPLIER_CAPS, PASSIVE_BY_STAT, STAMINA } from '../data/balance.constants';
+import { spendStaminaCore, regenStaminaCore } from '../input/gesture-core';
 import { ModeRecords, sanitizeModeRecords, mergeModeRecords } from '../data/mode-records';
 import { sanitizeGuestSave, sanitizeWorldUpgrades } from '../data/guest-save';
 
@@ -56,19 +57,8 @@ export function createMovementState(): MovementState {
   };
 }
 
-// Stamina tuning (spec Section 2.5): one shared 100 point pool, dash
-// 35, roll 50, regeneration 25 per second after a 0.6 s delay from the
-// last spend. Gliding doubles regeneration and halves the next spend.
-export const STAMINA = {
-  max: 100,
-  dashCost: 35,
-  rollCost: 50,
-  regenPerSecond: 25,
-  regenDelayMs: 600,
-  dashMs: 220,
-  dashIframeBonusMs: 50,
-  rollMs: 350
-};
+// STAMINA lives in balance.constants.ts (shared with the tutorial).
+export { STAMINA };
 
 @Injectable({
   providedIn: 'root'
@@ -620,11 +610,7 @@ export class GameStateService {
   // glide discount of Section 2.6) and the glide ends on any verb.
   // Returns false and spends nothing when the pool cannot pay.
   public spendStamina(state: MovementState, baseCost: number): boolean {
-      const cost = state.gliding ? baseCost / 2 : baseCost;
-      if (state.stamina < cost) return false;
-      state.stamina -= cost;
-      state.lastSpendAt = Date.now();
-      return true;
+      return spendStaminaCore(state, baseCost, Date.now());
   }
 
   // Flick Dash request (spec Section 2.2): direction is a screen-space
@@ -657,14 +643,9 @@ export class GameStateService {
   // bird it flies. 25 per second after the 0.6 s post-spend delay,
   // doubled while gliding (spec Sections 2.5 and 2.6).
   public tickMovement(state: MovementState, dtSeconds: number): void {
-      if (state.stamina >= STAMINA.max) return;
-      if (Date.now() - state.lastSpendAt < STAMINA.regenDelayMs) return;
-      const rate = STAMINA.regenPerSecond * (state.gliding ? 2 : 1);
-      state.stamina = Math.min(STAMINA.max, state.stamina + rate * dtSeconds);
+      regenStaminaCore(state, dtSeconds, Date.now());
   }
 
-  // True while a bird cannot be hit: dash i-frames (dash plus 0.05 s),
-  // roll i-frames (the whole roll), or the provisional roll window.
   public movementIframesActive(state: MovementState): boolean {
       const now = Date.now();
       if (now < state.dashUntil + STAMINA.dashIframeBonusMs) return true;

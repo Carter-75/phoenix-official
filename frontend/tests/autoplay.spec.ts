@@ -1,46 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { parseIntent, parseDuration, effectiveLimit, planFromRemote } from '../src/app/autoplay/autoplay-intent';
 import { autoplayAllowed, clientLooksLikeOwner } from '../src/app/autoplay/autoplay-gate';
 import { CappedOutput, fitToBudget, OUTPUT_CAP_CHARS } from '../src/app/autoplay/autoplay-output';
 import { synthTapChain, chainIsValid, pressesFor, synthFlick, FLICK_MAX_MS, CHAIN_GAP_MAX_MS } from '../src/app/autoplay/autoplay-gestures';
 import { TAP_CHAIN_RESOLVE_MS } from '../src/app/data/balance.constants';
 import { AdGuard } from '../src/app/autoplay/ad-guard';
 import { decide, timeToHit } from '../src/app/autoplay/autoplay-pilot';
-
-describe('autoplay intent parser', () => {
-  it('one run, all realms, infinite = deathless single run 1..10 restarting from 1', () => {
-    const p = parseIntent('finish all realms in one run, normal mode, infinite time', null);
-    expect(p.mode).toBe('campaign');
-    expect(p.goal).toBe('clear_through');
-    expect(p.startRealm).toBe(1);
-    expect(p.targetRealm).toBe(10);
-    expect(p.scope).toBe('single_run');
-    expect(p.maxDeaths).toBe(0);
-    expect(p.retryPolicy).toBe('restart_from_start');
-    expect(p.upgradeOnRetry).toBe(true);
-    expect(p.allowGemRevives).toBe(false);
-    expect(p.timeLimitMs).toBeNull();
-  });
-  it('durations and limits', () => {
-    expect(parseDuration('play for 5 minutes')).toBe(300000);
-    expect(parseDuration('forever')).toBeNull();
-    expect(effectiveLimit(600000, 300000)).toBe(300000);
-    expect(effectiveLimit(null, null)).toBeNull();
-  });
-  it('modes', () => {
-    expect(parseIntent('play battle mode').mode).toBe('battle');
-    expect(parseIntent('endless for 10 min').mode).toBe('endless');
-  });
-  it('remote plan cannot loosen local constraints', () => {
-    const local = parseIntent('all realms in one run no deaths');
-    const p = planFromRemote({ scope: 'cumulative', maxDeaths: 5, allowGemRevives: true, mode: 'campaign', goal: 'clear_through', startRealm: 1, targetRealm: 10 }, local, null);
-    expect(p.scope).toBe('single_run');
-    expect(p.maxDeaths).toBe(0);
-    expect(p.allowGemRevives).toBe(false);
-    expect(p.source).toBe('openai');
-    expect(planFromRemote(null, local, null)).toBe(local);
-  });
-});
 
 describe('autoplay gate', () => {
   it('needs owner email, non temp, and server flags', () => {
@@ -81,7 +45,7 @@ describe('tap chain synthesis', () => {
         expect(c.quietMs).toBeGreaterThan(CHAIN_GAP_MAX_MS);
       }
     }
-    expect(pressesFor('tap')).toBe(2); expect(pressesFor('double')).toBe(3); expect(pressesFor('triple')).toBe(4);
+    expect(pressesFor('tap')).toBe(1); expect(pressesFor('double')).toBe(2); expect(pressesFor('triple')).toBe(3);
   });
   it('flick is fast and long enough', () => {
     const s = synthFlick(200, 200, 1, 0, 400, 800);

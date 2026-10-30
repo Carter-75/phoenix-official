@@ -15,6 +15,9 @@ test('autoplay route helpers', () => {
   const { rateOk, isReasoningModel } = require('../routes/autoplay')._test;
   assert.strictEqual(isReasoningModel('gpt-5-nano'), true);
   assert.strictEqual(isReasoningModel('gpt-4o-mini'), false);
-  let ok = 0; for (let i = 0; i < 10; i++) if (rateOk('u', 'plan', 1000)) ok++;
-  assert.strictEqual(ok, 6);
+  let ok = 0; for (let i = 0; i < 10; i++) if (rateOk('u', 'step', 1000)) ok++;
+  assert.strictEqual(ok, 10);
+  let more = 0; for (let i = 0; i < 40; i++) if (rateOk('v', 'step', 1000)) more++;
+  assert.strictEqual(more, 40);
+  assert.strictEqual(rateOk('v', 'step', 1000), false);
 });

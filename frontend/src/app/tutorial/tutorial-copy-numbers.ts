@@ -1,20 +1,12 @@
 // Numbers quoted in the tutorial copy, each derived from the game's
 // own constants so the text cannot drift from the code.
-import { TOUCH_DRAG_SCALE, DROP_RULES, LEVEL_HP_BONUS } from '../data/balance.constants';
+import { TOUCH_DRAG_SCALE, DROP_RULES, LEVEL_HP_BONUS, STAMINA, INPUT_RULES, TAP_CHAIN_RESOLVE_MS } from '../data/balance.constants';
 import { HOLD_ARM_MS } from '../pages/game/hold-still';
 import { FLICK_MAX_MS, FLICK_MIN_FRACTION, ROLL_TAP_MAX_MS, HOLD_CHARGE_MS, GLIDE_BUILD_S } from './tutorial-input';
 import { WORLDS } from '../constants/game.constants';
 
-// Mirrors STAMINA in game-state.service.ts (the spec asserts equality).
-export const TUTORIAL_STAMINA = {
-  max: 100,
-  dashCost: 35,
-  rollCost: 50,
-  regenPerSecond: 25,
-  regenDelayMs: 600,
-  dashMs: 220,
-  rollMs: 350,
-};
+// The game's own STAMINA object (balance.constants.ts), not a copy.
+export const TUTORIAL_STAMINA = STAMINA;
 
 export const STAMINA_RULES_FOR_COPY = {
   dragScale: TOUCH_DRAG_SCALE,
@@ -34,4 +26,7 @@ export const STAMINA_RULES_FOR_COPY = {
   hpPerLevel: LEVEL_HP_BONUS.perLevel,
   hpCap: LEVEL_HP_BONUS.cap,
   realms: WORLDS.length,
+  brakePct: Math.round(INPUT_RULES.brakeSpeedFactor * 100),
+  focusCharmPct: Math.round((1 - INPUT_RULES.focusCharmHoldFactor) * 100),
+  tapChainMs: TAP_CHAIN_RESOLVE_MS,
 };

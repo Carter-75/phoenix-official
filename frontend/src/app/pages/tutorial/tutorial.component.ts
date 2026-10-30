@@ -17,6 +17,8 @@ import { StorageService } from '../../services/storage.service';
 import { TutorialGestureParser, TutorialStamina, SlotFamily } from '../../tutorial/tutorial-input';
 import { TUTORIAL_STEPS, TutorialStep, HudTarget } from '../../tutorial/tutorial-steps';
 import { TUTORIAL_STAMINA } from '../../tutorial/tutorial-copy-numbers';
+import { DROP_RULES, INPUT_RULES } from '../../data/balance.constants';
+import { ABILITIES } from '../../constants/game.constants';
 import { writeTutorialState } from '../../tutorial/tutorial-progress';
 import { getPhoenixFrames, flapFrameIndex } from '../../components/particle-bg/phoenix-sprite';
 import { phoenixSkinById } from '../../components/particle-bg/phoenix-skins';
@@ -31,7 +33,7 @@ interface Particle { x: number; y: number; vx: number; vy: number; life: number;
 interface Pickup { x: number; y: number; kind: 'spark' | 'coin' | 'xp'; taken: boolean; bob: number; }
 interface Wisp { x: number; y: number; r: number; hit: number; phase: number; }
 
-const FAMILY_LABEL: Record<SlotFamily, string> = { tap: 'TAP (2 taps)', double: 'DBL (3 taps)', triple: 'ULT (4 taps)' };
+const FAMILY_LABEL: Record<SlotFamily, string> = { tap: 'TAP (1 tap)', double: 'DBL (2 taps)', triple: 'ULT (3 taps)' };
 
 @Component({
   selector: 'app-tutorial',
@@ -120,9 +122,9 @@ const FAMILY_LABEL: Record<SlotFamily, string> = { tap: 'TAP (2 taps)', double: 
         @switch (step().finger) {
           @case ('drag') { <div class="tut-finger tut-drag"></div> }
           @case ('glide') { <div class="tut-finger tut-glide"></div><div class="tut-trail-line"></div> }
+                    @case ('tap1') { <div class="tut-finger tut-tap tut-tap1"></div><div class="tut-ripple tut-tap1r"></div><span class="tut-count">x1</span> }
           @case ('tap2') { <div class="tut-finger tut-tap tut-tap2"></div><div class="tut-ripple tut-tap2r"></div><span class="tut-count">x2</span> }
           @case ('tap3') { <div class="tut-finger tut-tap tut-tap3"></div><div class="tut-ripple tut-tap3r"></div><span class="tut-count">x3</span> }
-          @case ('tap4') { <div class="tut-finger tut-tap tut-tap4"></div><div class="tut-ripple tut-tap4r"></div><span class="tut-count">x4</span> }
           @case ('hold') { <div class="tut-finger tut-press"></div><div class="tut-hold-ring"></div> }
           @case ('flick') { <div class="tut-finger tut-flick"></div><div class="tut-flick-trail"></div> }
           @case ('roll') { <div class="tut-finger tut-anchor"></div><div class="tut-finger tut-second tut-roll2"></div><div class="tut-ripple tut-roll2r"></div> }
@@ -220,15 +222,15 @@ const FAMILY_LABEL: Record<SlotFamily, string> = { tap: 'TAP (2 taps)', double: 
     .tut-glide { animation: tutGlide 2.4s linear infinite; }
     @keyframes tutGlide { 0% { transform: translate(-110px, 0); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translate(110px, 0); opacity: 0; } }
     .tut-trail-line { position: absolute; left: -110px; width: 220px; top: -1px; height: 2px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent); }
+    .tut-tap1 { animation: tutTap1 1.4s ease-in-out infinite; } .tut-tap1r { animation: tutTap1r 1.4s ease-out infinite; }
+    @keyframes tutTap1 { 0%,100% { transform: scale(1); } 8% { transform: scale(0.75); } 16% { transform: scale(1); } }
+    @keyframes tutTap1r { 0%,7% { opacity: 0; transform: scale(0.6); } 9% { opacity: 1; } 30%,100% { opacity: 0; transform: scale(2); } }
     .tut-tap2 { animation: tutTap2 1.6s ease-in-out infinite; } .tut-tap2r { animation: tutTap2r 1.6s ease-out infinite; }
     .tut-tap3 { animation: tutTap3 1.8s ease-in-out infinite; } .tut-tap3r { animation: tutTap3r 1.8s ease-out infinite; }
-    .tut-tap4 { animation: tutTap4 2.0s ease-in-out infinite; } .tut-tap4r { animation: tutTap4r 2.0s ease-out infinite; }
     @keyframes tutTap2 { 0%,100% { transform: scale(1); } 8% { transform: scale(0.75); } 16% { transform: scale(1); } 24% { transform: scale(0.75); } 32% { transform: scale(1); } }
     @keyframes tutTap2r { 0%,7% { opacity: 0; transform: scale(0.6); } 9% { opacity: 1; } 20% { opacity: 0; transform: scale(1.8); } 23% { opacity: 0; transform: scale(0.6); } 25% { opacity: 1; } 40%,100% { opacity: 0; transform: scale(2); } }
     @keyframes tutTap3 { 0%,100% { transform: scale(1); } 7% { transform: scale(0.75); } 14% { transform: scale(1); } 21% { transform: scale(0.75); } 28% { transform: scale(1); } 35% { transform: scale(0.75); } 42% { transform: scale(1); } }
     @keyframes tutTap3r { 0%,6% { opacity: 0; transform: scale(0.6); } 8% { opacity: 1; } 17% { opacity: 0; transform: scale(1.8); } 20% { opacity: 0; transform: scale(0.6); } 22% { opacity: 1; } 31% { opacity: 0; transform: scale(1.8); } 34% { opacity: 0; transform: scale(0.6); } 36% { opacity: 1; } 50%,100% { opacity: 0; transform: scale(2); } }
-    @keyframes tutTap4 { 0%,100% { transform: scale(1); } 6% { transform: scale(0.75); } 12% { transform: scale(1); } 18% { transform: scale(0.75); } 24% { transform: scale(1); } 30% { transform: scale(0.75); } 36% { transform: scale(1); } 42% { transform: scale(0.75); } 48% { transform: scale(1); } }
-    @keyframes tutTap4r { 0%,5% { opacity: 0; transform: scale(0.6); } 7% { opacity: 1; } 15% { opacity: 0; transform: scale(1.8); } 17% { opacity: 0; transform: scale(0.6); } 19% { opacity: 1; } 27% { opacity: 0; transform: scale(1.8); } 29% { opacity: 0; transform: scale(0.6); } 31% { opacity: 1; } 39% { opacity: 0; transform: scale(1.8); } 41% { opacity: 0; transform: scale(0.6); } 43% { opacity: 1; } 58%,100% { opacity: 0; transform: scale(2.2); } }
     .tut-press { animation: tutPress 2.6s ease-in-out infinite; }
     @keyframes tutPress { 0% { transform: scale(1); } 10%,85% { transform: scale(0.8); } 100% { transform: scale(1); } }
     .tut-hold-ring { position: absolute; width: 84px; height: 84px; margin: -42px 0 0 -42px; border-radius: 9999px; border: 4px solid rgba(255,120,40,0.9); animation: tutHoldRing 2.6s linear infinite; }
@@ -260,10 +262,10 @@ export class TutorialComponent implements AfterViewInit, OnDestroy {
   readonly steps = TUTORIAL_STEPS;
   readonly isTouch = typeof window !== 'undefined' && ('ontouchstart' in window || (navigator.maxTouchPoints || 0) > 0);
   readonly slotDefs: { key: 'tap' | 'hold' | 'double' | 'triple'; icon: string; label: string }[] = [
-    { key: 'tap', icon: '🔥', label: 'Tap' },
-    { key: 'hold', icon: '🌀', label: 'Hold' },
-    { key: 'double', icon: '✨', label: 'Dbl' },
-    { key: 'triple', icon: '☄️', label: 'Ult' },
+    { key: 'tap', icon: ABILITIES['burst']?.icon || '💥', label: 'Tap' },
+    { key: 'hold', icon: ABILITIES['aura']?.icon || '🌀', label: 'Hold' },
+    { key: 'double', icon: '⚡', label: 'Dbl' },
+    { key: 'triple', icon: '✨', label: 'Ult' },
   ];
 
   index = signal(0);
@@ -502,7 +504,7 @@ export class TutorialComponent implements AfterViewInit, OnDestroy {
     this.flashStamina(`-${cost}`);
     this.dashX = dx / len; this.dashY = dy / len;
     this.dashUntil = now + TUTORIAL_STAMINA.dashMs;
-    this.iframeUntil = now + TUTORIAL_STAMINA.dashMs + 50;
+    this.iframeUntil = now + TUTORIAL_STAMINA.dashMs + TUTORIAL_STAMINA.dashIframeBonusMs;
     if (this.step().goal === 'dash') this.succeed('Dash! Invulnerable for a moment.');
   }
 
@@ -638,7 +640,7 @@ export class TutorialComponent implements AfterViewInit, OnDestroy {
     const minDim = Math.min(this.W, this.H);
 
     // Flight.
-    const maxSpeed = minDim * 1.1 * (this.braking ? 0.4 : 1);
+    const maxSpeed = minDim * 1.1 * (this.braking ? INPUT_RULES.brakeSpeedFactor : 1);
     let dvx = (this.tx - this.px) * 4.5, dvy = (this.ty - this.py) * 4.5;
     const dl = Math.hypot(dvx, dvy);
     if (dl > maxSpeed) { dvx *= maxSpeed / dl; dvy *= maxSpeed / dl; }
@@ -691,10 +693,10 @@ export class TutorialComponent implements AfterViewInit, OnDestroy {
         }
         if (p.kind === 'spark') {
           this.sparkHold = false;
-          this.stam.add(50);
+          this.stam.add(DROP_RULES.sparkCellStamina);
           this.stam.lastSpendAt = -Infinity;
-          this.flashStamina('+50');
-          if (goal === 'spark') this.succeed('Spark Cell: +50 stamina.');
+          this.flashStamina(`+${DROP_RULES.sparkCellStamina}`);
+          if (goal === 'spark') this.succeed(`Spark Cell: +${DROP_RULES.sparkCellStamina} stamina.`);
         }
       }
     }

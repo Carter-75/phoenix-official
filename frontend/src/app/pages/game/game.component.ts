@@ -4,7 +4,7 @@ import { GameStateService, STAMINA, createMovementState } from '../../services/g
 import { phoenixSkinForWorld } from '../../components/particle-bg/particle-bg.component';
 import { PhysicsEntity, WorldStats } from '../../models/game.models';
 import { ABILITIES, BASE_STATS, REALM_ABILITIES } from '../../constants/game.constants';
-import { TAP_CHAIN_RESOLVE_MS, TOUCH_DRAG_SCALE, TOUCH_DRAG_DEADZONE_PX, PI_RULES, DROP_RULES, levelHpBonusFor, ENDLESS_ESCALATION, endlessHpScale, endlessStepAt, endlessPhaseAt } from '../../data/balance.constants';
+import { INPUT_RULES, TOUCH_DRAG_SCALE, TOUCH_DRAG_DEADZONE_PX, PI_RULES, DROP_RULES, levelHpBonusFor, ENDLESS_ESCALATION, endlessHpScale, endlessStepAt, endlessPhaseAt } from '../../data/balance.constants';
 import {
   bossDefFor, BossFightState, BOSS_ENRAGE_WARNING_SEC, BOSS_PROJECTILE_CAP,
   SHIELD_HEAL_PHASE_CAP_FRAC, SHIELD_HEAL_FIGHT_CAP_FRAC, SHIELD_MIN_HP_FRAC,
@@ -24,6 +24,7 @@ import { EntitySpawnerService, SPAWN_DEFS } from '../../services/entity-spawner.
 import { AdsService } from '../../services/ads.service';
 import { EnemyData, SPARK_CELL_TYPES, STURDY_UP_TYPES, ARMORED_UP_TYPES } from './game.types';
 import { HoldStillTracker } from './hold-still';
+import { TapChainParser, isFlick, isRollTap, holdChargeMsFor, holdChargeStep } from '../../input/gesture-core';
 import { BossFight } from './boss-fight';
 import { AbilityExecutor } from './ability-executor';
 import { FxController } from './fx-controller';
@@ -902,12 +903,11 @@ export class GameComponent implements OnInit, OnDestroy {
 
   public lastClickTime = 0;
 
-  // Tap-chain parser state (spec Section 3.2): taps landing within
-  // 300 ms of the previous tap extend the chain. Count 2 fires the tap
-  // slot (exactly the pre-S1 behavior), 3 fires the double slot, 4
-  // fires the triple slot and ends the chain.
-  private tapChainCount = 0;
-  private tapChainLastTime = 0;
+  // Tap-chain parser (Oct 30, 2026, shared with the tutorial and the
+  // autoplay tester in input/gesture-core.ts): 1 quick tap fires the
+  // TAP slot, 2 fire DBL, 3 fire ULT, matching the HUD labels. Each
+  // gesture fires only its own slot. Drags and holds are never taps.
+  private tapParser = new TapChainParser((family) => this.resolveTapChain(family));
 
   // Flick Dash gesture tracking (spec Section 2.2): press point and
   // time for the steering finger or mouse; a release within 120 ms
@@ -1218,8 +1218,7 @@ export class GameComponent implements OnInit, OnDestroy {
     this.gameState.aiMovement = createMovementState();
     this.gameState.ai2Movement = createMovementState();
     this.rawBrakeHeld = false;
-    this.tapChainCount = 0;
-    this.tapChainLastTime = 0;
+    this.tapParser.cancel();
 
     // Test hooks for the playtest harness. Attached only when the
     // harness sets the localStorage flag before load; absent in
@@ -2249,7 +2248,7 @@ export class GameComponent implements OnInit, OnDestroy {
       // Accumulation stays wall-clock based (clamped per event, the
       // Fix Round 1 Part 3 fix), so the percent tracks real elapsed
       // time and rises continuously at any refresh rate.
-      const chargeMs = 1500 * (this.gameState.currentStats().activeGadget === 'focus_charm' ? 0.75 : 1);
+      const chargeMs = holdChargeMsFor(this.gameState.currentStats().activeGadget === 'focus_charm');
       if (this.isMouseHeld && !this.isDead() && !this.gameState.isPaused() && !this.gameState.isRebirthing()) {
         const holdAbility = this.gameState.currentStats().activeHoldAbility;
         // Brake and charge are mutually exclusive (spec Section 2.4):
@@ -2266,31 +2265,15 @@ export class GameComponent implements OnInit, OnDestroy {
             // the stillness window stays populated even when no
             // input events fire (a planted finger fires none).
             this.holdStill.sample(now, this.mouseX, this.mouseY);
-            // Wall-clock accumulation: each event adds the real time
-            // since the previous live event (clamped at 100 ms, so a
-            // pause or hitch can never bank more than a fifteenth of
-            // the charge in one step). The stamp advances whether or
-            // not the pointer is still, so time spent moving is
-            // never banked.
-            const stepMs = this.lastChargeStamp ? Math.min(100, Math.max(0, now - this.lastChargeStamp)) : 0;
-            this.lastChargeStamp = now;
-            if (this.holdStill.isStill(now)) {
-                this.holdTimer += stepMs;
-            } else if (this.holdStill.movedBeyondBudget(now)) {
-                // Fix Round 2 (A2, Carter's rule, played live on his
-                // phone): moving past the stillness budget CLEARS
-                // the charge to zero at once, and the indicator
-                // (bound to the progress signal set below) hides.
-                // The Bird Rebuild freeze-and-keep pause is gone.
-                // A later stop during the SAME touch re-arms by
-                // itself: isStill turns true again only after a
-                // fresh 0.5 s stillness window, and accrual then
-                // restarts from zero without lifting the finger.
-                this.holdTimer = 0;
-            }
-            // While the pointer sits inside its 0.5 s arming window
-            // (still, but not yet armed) the timer does not advance
-            // and is not cleared: there is nothing to clear yet.
+            // Wall-clock accumulation, stillness gating, and the
+            // clear-on-move rule live in gesture-core holdChargeStep
+            // (shared with the tutorial arena). Each step is clamped
+            // at 100 ms; moving past the stillness budget clears the
+            // charge at once (Fix Round 2, A2).
+            const charge = { timer: this.holdTimer, stamp: this.lastChargeStamp };
+            const completed = holdChargeStep(charge, now, this.holdStill, chargeMs);
+            this.holdTimer = completed ? chargeMs : charge.timer;
+            this.lastChargeStamp = charge.stamp;
             this.holdChargeProgress.set(Math.min(1, this.holdTimer / chargeMs));
             this.holdChargePos.set({ x: this.mouseX, y: this.mouseY });
             if (this.holdTimer >= chargeMs) {
@@ -4621,6 +4604,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
   private onMouseMove(event: MouseEvent) {
       if (this.isUiTarget(event)) return;
+      this.tapParser.move(event.clientX, event.clientY);
       this.updateMouseInput(event.clientX, event.clientY, false);
   }
 
@@ -4629,6 +4613,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       event.preventDefault();
       if (event.touches.length > 0) {
           const t = event.touches[0];
+          this.tapParser.move(t.clientX, t.clientY);
           this.updateMouseInput(t.clientX, t.clientY, true);
           this.applyDragDelta(t.clientX, t.clientY);
       }
@@ -4708,6 +4693,8 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       // disarms the flick parser so its release cannot dash.
       if (this.isUiTarget(event)) { if (event.touches.length === 1) this.pressT = 0; return; }
       if (event.touches.length >= 2) {
+          // The steering finger is no longer a tap.
+          this.tapParser.invalidate();
           // Second finger: Feather Brake while it is held; a quick
           // release becomes an Air Roll in onTouchEnd (spec Sections
           // 2.3 and 2.4). It never enters the tap chain.
@@ -4734,42 +4721,15 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       this.holdTimer = 0;
 
       const now = Date.now();
-      // Tap-chain parser (spec Section 3.2), additive over the pre-S1
-      // behavior: a press within 300 ms of the previous press extends
-      // the chain. The second press fires the tap slot, exactly the
-      // old single check; the third press fires the double slot
-      // additionally; the fourth fires the triple slot and ends the
-      // chain. First and second presses behave byte-for-byte as
-      // before; only the existence of a third press changes anything.
-      if (now - this.tapChainLastTime < 300) {
-          this.tapChainCount++;
-      } else {
-          this.tapChainCount = 1;
-      }
-      this.tapChainLastTime = now;
-      // Oct 29, 2026 (Carter): each gesture fires ONLY its own slot.
-      // The chain is resolved after a short quiet window instead of
-      // firing on every press, so a double-tap no longer also fires
-      // the tap slot and a triple no longer fires tap and double.
-      // The longest chain (triple slot) resolves at once, no wait.
-      if (this.tapChainTimer) { clearTimeout(this.tapChainTimer); this.tapChainTimer = null; }
-      if (this.tapChainCount >= 4) {
-          this.resolveTapChain(4);
-      } else if (this.tapChainCount >= 2) {
-          const count = this.tapChainCount;
-          this.tapChainTimer = setTimeout(() => { this.tapChainTimer = null; this.resolveTapChain(count); }, TAP_CHAIN_RESOLVE_MS);
-      }
+      // Tap-chain parser (gesture-core): the press only starts a
+      // candidate tap; the release decides (see onTouchEnd/onMouseUp).
+      this.tapParser.press(x, y);
       this.lastClickTime = now;
   }
 
-  private tapChainTimer: ReturnType<typeof setTimeout> | null = null;
-  private resolveTapChain(count: number) {
-      if (this.tapChainTimer) { clearTimeout(this.tapChainTimer); this.tapChainTimer = null; }
-      this.tapChainCount = 0;
+  private resolveTapChain(family: 'tap' | 'double' | 'triple') {
       if (this.gameState.isPaused() || this.isDead() || this.gameEnded()) return;
-      if (count === 2) this.fireSlot('tap');
-      else if (count === 3) this.fireSlot('double');
-      else if (count >= 4) this.fireSlot('triple');
+      this.fireSlot(family);
   }
 
   // S5: the Overcharge charge is live while held and inside its
@@ -4836,9 +4796,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       const dt = Date.now() - this.pressT;
       const dx = x - this.pressX;
       const dy = y - this.pressY;
-      const travel = Math.hypot(dx, dy);
-      const minTravel = 0.12 * Math.min(window.innerWidth, window.innerHeight);
-      if (this.pressT > 0 && dt <= 120 && travel >= minTravel) {
+      if (this.pressT > 0 && isFlick(dt, dx, dy, window.innerWidth, window.innerHeight)) {
           this.gameState.requestDash(this.gameState.playerMovement, dx, dy);
       }
       this.pressT = 0;
@@ -4849,6 +4807,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       if (event.button === 2) { this.rawBrakeHeld = false; return; }
       if (event.button !== 0) return;
       this.evaluateFlick(event.clientX, event.clientY);
+      this.tapParser.release(event.clientX, event.clientY);
       this.isMouseHeld = false;
       this.holdStill.release();
   }
@@ -4858,7 +4817,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
           // The second finger lifted while the steering finger stays
           // down: a quick second-finger tap is an Air Roll (Section
           // 2.3); a held one was the Feather Brake, now released.
-          if (this.secondFingerStartT > 0 && Date.now() - this.secondFingerStartT < 250) {
+          if (this.secondFingerStartT > 0 && isRollTap(Date.now() - this.secondFingerStartT)) {
               this.gameState.requestRoll(this.gameState.playerMovement);
           }
           this.secondFingerStartT = 0;
@@ -4869,7 +4828,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
           this.secondFingerStartT = 0;
           this.rawBrakeHeld = false;
           const t = event.changedTouches[0];
-          if (t) this.evaluateFlick(t.clientX, t.clientY);
+          if (t) { this.evaluateFlick(t.clientX, t.clientY); this.tapParser.release(t.clientX, t.clientY); }
           this.endDrag();
           this.isMouseHeld = false;
           this.holdStill.release();
@@ -5116,7 +5075,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
   ngOnDestroy() {
     this.autoplay.detachGame(this);
-    if (this.tapChainTimer) { clearTimeout(this.tapChainTimer); this.tapChainTimer = null; }
+    this.tapParser.cancel();
     if (this.timerInterval) clearInterval(this.timerInterval);
     this.spawner.stopSpawning();
     if (this.attackInterval) clearInterval(this.attackInterval);

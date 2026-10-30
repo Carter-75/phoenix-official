@@ -7,6 +7,7 @@ import {
   FLICK_MAX_MS, ROLL_TAP_MAX_MS, HOLD_CHARGE_MS, GLIDE_BUILD_S,
 } from '../src/app/tutorial/tutorial-input';
 import { TUTORIAL_STAMINA } from '../src/app/tutorial/tutorial-copy-numbers';
+import { STAMINA } from '../src/app/data/balance.constants';
 import { readTutorialState, writeTutorialState, shouldOfferTutorial, TUTORIAL_STATE_KEY } from '../src/app/tutorial/tutorial-progress';
 import { TUTORIAL_STEPS } from '../src/app/tutorial/tutorial-steps';
 import { TouchCompatGuard, TOUCH_COMPAT_WINDOW_MS } from '../src/app/components/particle-bg/touch-compat';
@@ -42,24 +43,27 @@ function setup() {
   return { clock, log, p, tap };
 }
 
-describe('tap chain mirrors the game', () => {
-  it('one press fires nothing', () => {
-    const { clock, log, tap } = setup(); tap(); clock.advance(1000); expect(log.slots).toEqual([]);
+describe('tap chain mirrors the game (1 tap TAP, 2 DBL, 3 ULT)', () => {
+  it('one quick tap fires TAP after the resolve window', () => {
+    const { clock, log, tap } = setup(); tap();
+    expect(log.slots).toEqual([]);
+    clock.advance(TAP_CHAIN_RESOLVE_MS + 20); expect(log.slots).toEqual(['tap']);
   });
-  it('two presses fire TAP after the resolve window', () => {
-    const { clock, log, tap } = setup(); tap(); tap();
-    clock.advance(TAP_CHAIN_RESOLVE_MS - 120); expect(log.slots).toEqual([]);
-    clock.advance(200); expect(log.slots).toEqual(['tap']);
+  it('two taps fire DBL only', () => {
+    const { clock, log, tap } = setup(); tap(); tap(); clock.advance(500); expect(log.slots).toEqual(['double']);
   });
-  it('three presses fire DBL', () => {
-    const { clock, log, tap } = setup(); tap(); tap(); tap(); clock.advance(500); expect(log.slots).toEqual(['double']);
+  it('three taps fire ULT at once', () => {
+    const { log, tap } = setup(); tap(); tap(); tap(); expect(log.slots).toEqual(['triple']);
   });
-  it('four presses fire ULT immediately', () => {
-    const { log, p, tap } = setup(); tap(); tap(); tap(); p.down(100, 100); expect(log.slots).toEqual(['triple']);
-  });
-  it('presses further apart than 300 ms do not chain', () => {
+  it('taps further apart than the resolve window fire separately', () => {
     const { clock, log, p } = setup();
-    p.down(1, 1); p.up(1, 1); clock.advance(350); p.down(1, 1); p.up(1, 1); clock.advance(1000);
+    p.down(1, 1); p.up(1, 1); clock.advance(TAP_CHAIN_RESOLVE_MS + 120); p.down(1, 1); p.up(1, 1); clock.advance(1000);
+    expect(log.slots).toEqual(['tap', 'tap']);
+  });
+  it('a long press or a drag is not a tap', () => {
+    const { clock, log, p } = setup();
+    p.down(1, 1); clock.advance(400); p.up(1, 1); clock.advance(1000);
+    p.down(100, 100); p.move(160, 100); p.up(160, 100); clock.advance(1000);
     expect(log.slots).toEqual([]);
   });
 });
@@ -106,13 +110,10 @@ describe('drag, flick, roll, brake, hold', () => {
 });
 
 describe('stamina and glide', () => {
-  it('matches STAMINA in game-state.service.ts', () => {
-    const src = readFileSync(resolve(__dirname, '../src/app/services/game-state.service.ts'), 'utf8');
-    const block = src.slice(src.indexOf('export const STAMINA = {'));
-    for (const [k, v] of Object.entries(TUTORIAL_STAMINA)) {
-      const m = block.match(new RegExp(`\\b${k}:\\s*([0-9.]+)`));
-      expect(m && Number(m[1]), k).toBe(v);
-    }
+  it('is the game STAMINA object itself', () => {
+    expect(TUTORIAL_STAMINA).toBe(STAMINA);
+    const src = readFileSync(resolve(__dirname, '../src/app/pages/tutorial/tutorial.component.ts'), 'utf8');
+    expect(src).not.toMatch(/new TutorialStamina\(\{/);
   });
   it('regen waits for the delay, glide halves cost and doubles regen', () => {
     const s = new TutorialStamina(TUTORIAL_STAMINA);

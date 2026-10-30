@@ -17,7 +17,8 @@ import * as THREE from 'three';
 import { GameStateService, STAMINA } from '../../services/game-state.service';
 import { PhoenixState } from './phoenix-state';
 import { HOSTILE_SKIN, phoenixSkinById } from './phoenix-skins';
-import { TURNING } from '../../data/balance.constants';
+import { TURNING, INPUT_RULES } from '../../data/balance.constants';
+import { trackGlide } from '../../input/gesture-core';
 import { PHOENIX_ANCHOR_NZ, ensureAshFrames, flapFrameIndex, getPhoenixFrames } from './phoenix-sprite';
 
 // The shipped speed stat is anchored at 2.0 (BASE_STATS.speed): before
@@ -289,21 +290,7 @@ updateBirdPhysics(bird: PhoenixState, targetWaypoint: THREE.Vector3, baseSpeed: 
               // 10 deg/s for 1.2 s builds Glide; a hard turn (over
               // 25 deg/s), a dash, a roll, or a hit ends it.
               const headingNow = Math.atan2(currentDir.y, currentDir.x);
-              if (move.lastHeading !== null && dt > 0) {
-                  let dA = headingNow - move.lastHeading;
-                  while (dA > Math.PI) dA -= Math.PI * 2;
-                  while (dA < -Math.PI) dA += Math.PI * 2;
-                  const rate = Math.abs(dA) / dt;
-                  if (move.gliding) {
-                      if (rate > 0.436) this.host.gameState.endGlide(move);
-                  } else if (rate < 0.1745) {
-                      move.straightTime += dt;
-                      if (move.straightTime >= 1.2) move.gliding = true;
-                  } else {
-                      move.straightTime = 0;
-                  }
-              }
-              move.lastHeading = headingNow;
+              trackGlide(move, headingNow, dt);
 
               const dashing = onGameScreen && moveNow < move.dashUntil;
               if (dashing && !bird.wasDashing && !isAi) bird.flashUntil = performance.now() + 120;
@@ -346,7 +333,7 @@ updateBirdPhysics(bird: PhoenixState, targetWaypoint: THREE.Vector3, baseSpeed: 
               // reversals carve a small arc instead of pivoting.
               // The spool only bites inside reversals; straight
               // flight and the 1.4 s crossing anchor are untouched.
-              let speedFactor = brakingNow ? 0.35 : 1.0;
+              let speedFactor = brakingNow ? INPUT_RULES.brakeSpeedFactor : 1.0;
               if (currentDir.dot(desiredDir) < 0 && bird.spoolT < 0) bird.spoolT = 0;
               if (bird.spoolT >= 0) {
                   bird.spoolT += dt;

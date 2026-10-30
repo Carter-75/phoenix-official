@@ -1,9 +1,10 @@
-// AI Autoplay tester (owner only). Drives the real game: menu buttons
-// are clicked like a player would, and flight is synthesized touch
-// input on the same window listeners a finger feeds. It enforces the
-// parsed plan's constraints (scope, deaths, retry policy, target),
-// keeps every ad suppressed through AdGuard while it runs, gathers
-// bug, UI, balance, and perf telemetry, and writes a capped report.
+// AI Autoplay tester (owner only). The AI (backend /autoplay/step)
+// decides every action through the agent loop in autoplay-agent.ts:
+// menu taps, shop buys, starting runs, and when to hand flight to the
+// on-device pilot. This service only observes the live screen,
+// executes the chosen action, verifies it, and enforces the hard
+// safety rails (no real money, no ads, gems only with a quoted
+// permission from the prompt). Ads stay suppressed by AdGuard.
 import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
@@ -12,16 +13,16 @@ import { environment } from '../../environments/environment';
 import { GameStateService, STAMINA } from '../services/game-state.service';
 import { AuthService } from '../services/auth.service';
 import { AdGuard } from './ad-guard';
-import { AutoplayPlan, parseIntent, planFromRemote } from './autoplay-intent';
 import { CappedOutput, OUTPUT_CAP_CHARS, REPORT_RESERVE_CHARS } from './autoplay-output';
 import { GestureStep, SlotFamily, synthTapChain, synthFlick, synthRoll, synthBrake, holdChargeMs, chainIsValid } from './autoplay-gestures';
 import { decide, Snapshot, Threat, Foe, Pt } from './autoplay-pilot';
-import { AttemptRecord, BossRecord, Telemetry, addFinding, buildReport, newTelemetry } from './autoplay-report';
+import { AttemptRecord, BossRecord, Telemetry, addFinding, newTelemetry } from './autoplay-report';
 import { autoplayAllowed, DevFlags } from './autoplay-gate';
+import { AgentAction, AgentApiError, AgentEnv, LlmRequest, ObsButton, Observation, StepResult, classifyCurrency, gemQuoteValid, parseCost, runAgent } from './autoplay-agent';
 
 const AD_REASON = 'autoplay';
 const OUT_KEY = 'phoenix_autoplay_output';
-const STAT_KEYS = ['damage', 'health', 'attack-speed', 'aegis', 'speed', 'range', 'homing', 'aura', 'magnet'];
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
 @Injectable({ providedIn: 'root' })
 export class AutoplayService {
@@ -37,7 +38,6 @@ export class AutoplayService {
   readonly flags = signal<DevFlags & { ai?: boolean; model?: string } | null>(null);
 
   private out = new CappedOutput(OUTPUT_CAP_CHARS);
-  private plan: AutoplayPlan | null = null;
   private prompt = '';
   private tm: Telemetry = newTelemetry(Date.now());
   private game: any = null;
@@ -45,18 +45,22 @@ export class AutoplayService {
   private pilotTimer: any = null;
   private rafId = 0;
   private deadline: number | null = null;
-  private lastAction = 0;
   private finishing = false;
+  private stopRequested = false;
   private resumeTimer: any = null;
   private cleanup: (() => void)[] = [];
-  private advice: { upgradePriority?: string[]; aggression?: number } | null = null;
+  private model = '';
+  private events: string[] = [];
+  private ledger: string[] = [];
+  private btnMap = new Map<string, HTMLElement>();
+  private gemPermitted = false;
+  /** True only while the AI has handed flight to the pilot (play action). */
+  private playing = false;
+  private useAbilities = true;
 
-  // Attempt bookkeeping
+  // Attempt bookkeeping (telemetry only; the AI decides what to do)
   private attempt: AttemptRecord | null = null;
   private attemptStartAt = 0;
-  private needShop = false;
-  private shopQueue: { realmIdx: number; budget: number }[] = [];
-  private shopBought: string[] = [];
   private lastRealmIdx = -1;
   private clearedThisAttempt: number[] = [];
   private inGameAt = 0;
@@ -74,12 +78,9 @@ export class AutoplayService {
   private dragTarget: Pt = { x: 0, y: 0 };
   private busyUntil = 0;
   private lastPressAt = 0;
-  private gestureQueue: Promise<void> = Promise.resolve();
   private nextAbilityAt = 0;
   private reactUntil = 0;
   private plannedTarget: Pt | null = null;
-  private lastPos: Pt = { x: 0, y: 0 };
-  private lastMoveAt = 0;
   private oobSince = 0;
   private lastUiScan = 0;
   private lastProgressAt = 0;
@@ -106,60 +107,66 @@ export class AutoplayService {
     AdGuard.suppress(AD_REASON);
     this.out.clear();
     this.prompt = prompt;
-    const local = parseIntent(prompt, sliderMs, this.gs.selectedWorldIndex() + 1);
-    this.plan = local;
     this.running.set(true);
     this.paused.set(false);
     this.finishing = false;
+    this.stopRequested = false;
+    this.playing = false;
+    this.events = []; this.ledger = []; this.model = '';
     this.tm = newTelemetry(Date.now());
     this.out.setStart(this.tm.startedAt);
     const user: any = this.auth.currentUser();
     this.tm.account = user?.email || '';
     this.tm.coinsStart = this.gs.coins(); this.tm.gemsStart = this.gs.gems();
-    this.log('safety', `Playing on ${this.tm.account}'s REAL save: coins spent and progress made are kept. Ads are blocked for the whole run. No real-money or gem purchases.`);
-    this.status.set('Planning');
-    try {
-      const r = await firstValueFrom(this.http.post<any>(`${this.api}/plan`, { prompt, currentRealm: this.gs.selectedWorldIndex() + 1 }));
-      if (r?.source === 'openai' && r.plan) {
-        this.plan = planFromRemote(r.plan, local, sliderMs);
-        this.log('plan', `Planner: OpenAI (${r.model}).`);
-      } else this.log('plan', `Planner: local parser (${r?.errorCode || r?.reason || 'AI unavailable'}).`);
-    } catch { this.log('plan', 'Planner: local parser (AI request failed).'); }
-    if (!this.running()) return;
-    const p = this.plan!;
-    this.log('plan', p.interpretation.join(' '));
-    this.deadline = p.timeLimitMs ? Date.now() + p.timeLimitMs : null;
+    this.log('safety', `Using ${this.tm.account}'s REAL save. The AI decides every step; code blocks real-money purchases and ads always, and gem spending unless your prompt allows it.`);
+    this.deadline = sliderMs ? Date.now() + sliderMs : null;
     this.lastRealmIdx = -1;
     this.attempt = null;
-    this.needShop = false;
     this.installWatchers();
     this.tickTimer = setInterval(() => this.safeTick(), 250);
     this.pilotTimer = setInterval(() => this.safePilot(), 60);
-    this.status.set('Running');
+    this.status.set('Running (AI deciding)');
+    const outcome = await runAgent(prompt, (req) => this.callLlm(req), this.env(), {
+      deadline: this.deadline, reportMaxChars: REPORT_RESERVE_CHARS - 400, shouldStop: () => this.stopRequested || !this.running(),
+    });
+    if (outcome.error) {
+      this.out.setReport(`AUTOPLAY STOPPED: the AI planner is unavailable (${outcome.error}).\nNothing was decided locally; fix the backend AI (OPENAI_API_KEY / OPENAI_MODEL, rate limit) and try again.`);
+      await this.finish(`AI API error (${outcome.error})`, null);
+    } else await this.finish(outcome.endReason, outcome.report);
   }
 
-  stop(reason = 'Stopped by tester') { void this.finish(reason, false); }
+  stop(reason = 'Stopped by tester') {
+    this.stopRequested = true;
+    this.playing = false;
+    this.releaseFingers();
+    this.log('safety', `${reason}.`);
+  }
 
-  private async finish(reason: string, goalMet: boolean) {
-    if (!this.running() || this.finishing) return;
+  private async callLlm(req: LlmRequest): Promise<unknown> {
+    let r: any;
+    try { r = await firstValueFrom(this.http.post<any>(`${this.api}/step`, req)); }
+    catch (e: any) { throw new AgentApiError(e?.error?.errorCode || (e?.status ? `http_${e.status}` : 'network')); }
+    if (r?.source !== 'openai' || !r.action) throw new AgentApiError(r?.errorCode || 'no_action');
+    if (!this.model) { this.model = r.model || 'OpenAI'; this.log('plan', `Planner: OpenAI (${this.model}).`); }
+    return r.action;
+  }
+
+  private async finish(reason: string, report: string | null) {
+    if (this.finishing) return;
     this.finishing = true;
+    this.playing = false;
     this.tm.endReason = reason;
-    if (goalMet) this.tm.goalMet = true;
     clearInterval(this.tickTimer); clearInterval(this.pilotTimer);
     this.releaseFingers();
-    if (this.attempt && this.attempt.result === 'running') this.closeAttempt(goalMet ? 'success' : 'stopped');
-    this.leaveRunToMenu();
+    if (this.attempt && this.attempt.result === 'running') this.closeAttempt('stopped');
     this.tm.endedAt = Date.now();
     this.tm.coinsEnd = this.gs.coins(); this.tm.gemsEnd = this.gs.gems();
-    this.status.set('Writing report');
-    const plan = this.plan!;
-    let report = buildReport(plan, this.tm);
-    let src = 'local report writer';
-    try {
-      const r = await firstValueFrom(this.http.post<any>(`${this.api}/report`, { prompt: this.prompt, plan, telemetry: this.tm, maxChars: REPORT_RESERVE_CHARS - 200 }));
-      if (r?.source === 'openai' && r.report) { report = r.report; src = `OpenAI (${r.model})`; }
-    } catch { /* local fallback */ }
-    this.out.setReport(`Report written by: ${src}\n\n${report}`);
+    if (report !== null) {
+      const facts = [`Verified by code: coins ${this.tm.coinsStart} -> ${this.tm.coinsEnd}, gems ${this.tm.gemsStart} -> ${this.tm.gemsEnd}.`, ...this.ledger.slice(-20)].join('\n');
+      this.out.setReport(`Report written by: OpenAI (${this.model || 'unknown'})\n\n${report}\n\n## Code-verified ledger\n${facts}`);
+    } else if (!this.out.text().includes('AUTOPLAY STOPPED')) {
+      this.out.setReport(`Autoplay ended (${reason}) without an AI report.`);
+    }
     this.publish();
     this.cleanup.forEach(f => { try { f(); } catch { } }); this.cleanup = [];
     this.running.set(false); this.paused.set(false);
@@ -239,14 +246,17 @@ export class AutoplayService {
     const all = Array.from(document.querySelectorAll<HTMLButtonElement>(`[data-ap="${tag}"]`));
     return all.find(b => !b.disabled && b.offsetParent !== null && b.getBoundingClientRect().width > 0) || null;
   }
+  private clickEl(b: HTMLElement) {
+    const r = b.getBoundingClientRect();
+    this.ripple(r.left + r.width / 2, r.top + r.height / 2);
+    b.click();
+  }
   private click(tag: string, note?: string): boolean {
     const b = this.btn(tag);
     if (!b) return false;
     const r = b.getBoundingClientRect();
     if (r.right < 0 || r.bottom < 0 || r.left > innerWidth || r.top > innerHeight) addFinding(this.tm.ui, 'offscreen', `Button "${tag}" is off screen when needed`, this.where());
-    this.ripple(r.left + r.width / 2, r.top + r.height / 2);
-    b.click();
-    this.lastAction = Date.now();
+    this.clickEl(b);
     if (note) this.log('menu', note);
     return true;
   }
@@ -258,7 +268,6 @@ export class AutoplayService {
     requestAnimationFrame(() => { d.style.transform = 'scale(2)'; d.style.opacity = '0'; });
     setTimeout(() => d.remove(), 450);
   }
-
   private scanUi() {
     const btns = Array.from(document.querySelectorAll<HTMLElement>('button')).filter(b => b.offsetParent !== null);
     const rects = btns.map(b => ({ b, r: b.getBoundingClientRect() })).filter(x => x.r.width > 0 && x.r.height > 0);
@@ -280,153 +289,274 @@ export class AutoplayService {
     }
   }
 
-  // ---------- main state machine ----------
+
+  // ---------- observation ----------
+  private event(text: string) { this.events.push(text); if (this.events.length > 10) this.events.shift(); }
+
+  private visibleButtons(): HTMLElement[] {
+    return Array.from(document.querySelectorAll<HTMLElement>('button')).filter(b => {
+      if (b.closest('[data-ap-badge]') || b.offsetParent === null) return false;
+      const r = b.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    });
+  }
+
+  private observe(): Observation {
+    const clean = (t: string | null | undefined) => (t || '').replace(/\s+/g, ' ').trim();
+    this.btnMap.clear();
+    const buttons: ObsButton[] = [];
+    const used = new Set<string>();
+    for (const b of this.visibleButtons().slice(0, 45)) {
+      const tag = b.getAttribute('data-ap');
+      let label = clean(b.getAttribute('aria-label') || b.textContent).slice(0, 60);
+      if (tag?.startsWith('buy-')) {
+        const card = clean(b.parentElement?.parentElement?.textContent).slice(0, 90);
+        if (card) label = `${label} | ${card}`;
+      }
+      const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'button';
+      let id = tag || `b-${slug}`;
+      for (let k = 2; used.has(id); k++) id = `${tag || 'b-' + slug}-${k}`;
+      used.add(id);
+      this.btnMap.set(id, b);
+      const disabled = (b as HTMLButtonElement).disabled === true;
+      const currency = classifyCurrency(clean(b.textContent) + ' ' + clean(b.getAttribute('aria-label')), tag || '');
+      const ob: ObsButton = { id, label, enabled: !disabled };
+      if (currency) ob.currency = currency;
+      const cost = currency === 'coins' || currency === 'gems' ? parseCost(clean(b.textContent)) : undefined;
+      if (cost !== undefined) ob.cost = cost;
+      buttons.push(ob);
+    }
+    const sel = this.gs.selectedWorldIndex();
+    const raw: any = this.gs.worldUpgrades()[sel] || {};
+    const loadout: Record<string, number | string | null> = {};
+    for (const [k, v] of Object.entries(raw).slice(0, 18)) if (v === null || typeof v === 'number' || typeof v === 'string') loadout[k] = v as any;
+    const g = this.game;
+    const inGame = this.gs.activeScreen() === 'game' && g;
+    const mv: any = this.gs.playerMovement;
+    return {
+      screen: String(this.gs.activeScreen()),
+      coins: this.gs.coins(), gems: this.gs.gems(),
+      realm: sel + 1,
+      unlockedRealms: this.gs.unlockedWorlds().map((i: number) => i + 1),
+      bossBeaten: this.gs.unlockedWorlds().filter((i: number) => this.gs.isWorldBossBeaten(i)).map((i: number) => i + 1),
+      loadout,
+      run: inGame ? {
+        mode: String(this.gs.currentGameMode()), hp: Math.round(g.currentHealth?.() ?? 0), maxHp: Math.round(g.maxHealth?.() ?? 0),
+        stamina: Math.round(mv?.stamina ?? 0), timeLeft: Math.round(g.timeRemaining?.() ?? 0), phase: String(g.bossPhase?.() ?? ''),
+        dead: !!(g.isDead?.() || g.koPanelOpen?.()), ended: !!g.gameEnded?.(), won: !!g.gameWon?.(),
+      } : null,
+      buttons,
+      events: [...this.events],
+      secondsLeft: null,
+    };
+  }
+
+  private fingerprint() {
+    const sel = this.gs.selectedWorldIndex();
+    return { coins: this.gs.coins(), gems: this.gs.gems(), screen: String(this.gs.activeScreen()), realm: sel + 1, loadout: JSON.stringify(this.gs.worldUpgrades()[sel] || {}), mode: String(this.gs.currentGameMode()), paused: this.gs.isPaused() };
+  }
+
+  private diff(a: ReturnType<AutoplayService['fingerprint']>, b: ReturnType<AutoplayService['fingerprint']>): string[] {
+    const d: string[] = [];
+    if (a.coins !== b.coins) d.push(`coins ${a.coins} -> ${b.coins}`);
+    if (a.gems !== b.gems) d.push(`gems ${a.gems} -> ${b.gems}`);
+    if (a.screen !== b.screen) d.push(`screen ${a.screen} -> ${b.screen}`);
+    if (a.realm !== b.realm) d.push(`realm ${a.realm} -> ${b.realm}`);
+    if (a.mode !== b.mode) d.push(`mode ${a.mode} -> ${b.mode}`);
+    if (a.paused !== b.paused) d.push(b.paused ? 'game paused' : 'game resumed');
+    if (a.loadout !== b.loadout && a.realm === b.realm) {
+      try {
+        const x = JSON.parse(a.loadout), y = JSON.parse(b.loadout);
+        for (const k of Object.keys(y)) if (JSON.stringify(x[k]) !== JSON.stringify(y[k])) d.push(`realm ${b.realm} ${k} ${JSON.stringify(x[k])} -> ${JSON.stringify(y[k])}`);
+      } catch { d.push('loadout changed'); }
+    }
+    return d;
+  }
+
+  /** Gems dropped without a quoted permission: stop at once. */
+  private gemGuard(before: number): string | null {
+    const now = this.gs.gems();
+    if (now < before && !this.gemPermitted) {
+      this.stop('Gem balance dropped without permission; stopping');
+      return `gems dropped ${before} -> ${now} without permission; session stopped`;
+    }
+    return null;
+  }
+
+  private env(): AgentEnv {
+    return {
+      observe: () => this.observe(),
+      execute: (a) => this.execute(a),
+      now: () => Date.now(),
+      log: (k, t) => this.log(k, t),
+    };
+  }
+
+  private async execute(a: AgentAction): Promise<StepResult> {
+    const before = this.fingerprint();
+    switch (a.action) {
+      case 'tap_button': {
+        const el = this.btnMap.get(a.id);
+        if (!el || !el.isConnected) return { ok: false, note: `button ${a.id} is gone` };
+        if (a.allowGems && a.gemQuote && gemQuoteValid(a.gemQuote, this.prompt)) this.gemPermitted = true;
+        if (el.getAttribute('data-ap') === 'play' || el.getAttribute('data-ap') === 'play-battle') this.beginAttempt();
+        this.clickEl(el);
+        await sleep(700);
+        const after = this.fingerprint();
+        const g = this.gemGuard(before.gems);
+        if (g) return { ok: false, note: g };
+        const d = this.diff(before, after);
+        if (d.length) {
+          if (after.coins < before.coins || after.gems < before.gems) this.ledger.push(`- ${a.id}: ${d.join(', ')}`);
+          return { ok: true, note: d.join(', ') };
+        }
+        return { ok: false, note: 'tapped, but no visible change (balances, loadout, screen all the same)' };
+      }
+      case 'select_realm': {
+        if (this.gs.activeScreen() !== 'menu') return { ok: false, note: 'select_realm only works on the menu' };
+        const want = a.realm - 1;
+        if (!this.gs.unlockedWorlds().includes(want)) return { ok: false, note: `realm ${a.realm} is locked` };
+        if (!this.btn('world-next') && !this.btn('world-prev')) { this.click('mode-normal'); await sleep(500); }
+        for (let i = 0; i < 12 && this.gs.selectedWorldIndex() !== want; i++) {
+          if (!this.click(this.gs.selectedWorldIndex() < want ? 'world-next' : 'world-prev')) break;
+          await sleep(450);
+        }
+        const ok = this.gs.selectedWorldIndex() === want;
+        return { ok, note: ok ? `realm ${a.realm} selected` : `could not select realm ${a.realm} (now ${this.gs.selectedWorldIndex() + 1})` };
+      }
+      case 'navigate': {
+        const scr = this.gs.activeScreen();
+        if (a.page === 'menu') {
+          if (scr === 'shop') this.click('shop-close');
+          else if (scr === 'game' && this.game) { try { this.game.quitGame(); } catch { } }
+          else if (scr !== 'menu') this.gs.activeScreen.set('menu');
+        } else {
+          if (scr === 'game') return { ok: false, note: 'leave the run first (navigate menu)' };
+          if (scr !== 'shop' && !this.click('open-shop')) { if (scr !== 'menu') this.gs.activeScreen.set('menu'); await sleep(500); this.click('open-shop'); }
+        }
+        await sleep(700);
+        const ok = this.gs.activeScreen() === a.page;
+        return { ok, note: ok ? `on ${a.page}` : `still on ${this.gs.activeScreen()}` };
+      }
+      case 'start_run': {
+        if (this.gs.activeScreen() !== 'menu') return { ok: false, note: 'start_run needs the menu screen' };
+        this.click('tutorial-decline'); await sleep(400);
+        if (a.mode === 'battle') {
+          if (!this.btn('play-battle')) { this.click('mode-battle'); await sleep(500); }
+        } else {
+          if (a.realm) { const r = await this.execute({ action: 'select_realm', realm: a.realm }); if (!r.ok) return r; }
+          this.click(a.mode === 'endless' ? 'mode-endless' : 'mode-normal'); await sleep(400);
+        }
+        this.beginAttempt();
+        if (!this.click(a.mode === 'battle' ? 'play-battle' : 'play')) return { ok: false, note: 'Play button not available' };
+        for (let i = 0; i < 20 && this.gs.activeScreen() !== 'game'; i++) await sleep(200);
+        const ok = this.gs.activeScreen() === 'game';
+        return { ok, note: ok ? `run started: ${this.gs.currentGameMode()} realm ${this.gs.selectedWorldIndex() + 1}` : 'the run did not start' };
+      }
+      case 'play': return this.playFor(a.seconds, a.until || 'run_end', a.abilities !== false);
+      case 'use_ability': {
+        const g = this.game;
+        if (!g || this.gs.activeScreen() !== 'game') return { ok: false, note: 'not in a run' };
+        const c = g.enemies?.[0]?.position || { x: innerWidth / 2, y: innerHeight / 3 };
+        this.releaseFingers();
+        await sleep(400);
+        const steps: GestureStep[] = a.slot === 'hold'
+          ? [{ at: 0, type: 'start', id: 1, x: this.gs.phoenixScreenPos().x, y: this.gs.phoenixScreenPos().y }, { at: holdChargeMs(false), type: 'end', id: 1, x: this.gs.phoenixScreenPos().x, y: this.gs.phoenixScreenPos().y }]
+          : synthTapChain(a.slot, c.x, c.y).steps;
+        this.runGesture(steps, true);
+        await sleep(Math.max(...steps.map(s => s.at)) + 600);
+        this.count(`${a.slot} ability`);
+        return { ok: true, note: `${a.slot} gesture sent` };
+      }
+      case 'wait': await sleep(a.seconds * 1000); return { ok: true, note: `waited ${a.seconds} s; ${this.diff(before, this.fingerprint()).join(', ') || 'no change'}` };
+      case 'finish': return { ok: true, note: 'finish' };
+    }
+  }
+
+  /** Hands flight to the on-device pilot until time, death, or the run ends. */
+  private async playFor(seconds: number, until: 'time' | 'death' | 'run_end', abilities: boolean): Promise<StepResult> {
+    if (this.gs.activeScreen() !== 'game' || !this.game) return { ok: false, note: 'not in a run; use start_run first' };
+    const t0 = Date.now(), deaths0 = this.attempt?.deaths ?? 0, cleared0 = this.tm.realmsCleared.length, realm0 = this.gs.selectedWorldIndex() + 1;
+    const coins0 = this.gs.coins(), gems0 = this.gs.gems();
+    this.playing = true; this.useAbilities = abilities;
+    let why = 'time up';
+    while (true) {
+      await sleep(250);
+      const g = this.game;
+      if (this.stopRequested || !this.running()) { why = 'stopped'; break; }
+      if (this.deadline && Date.now() >= this.deadline) { why = 'session time limit'; break; }
+      if (Date.now() - t0 >= seconds * 1000) { why = 'time up'; break; }
+      if (this.gs.activeScreen() !== 'game' || !g) { why = 'left the run'; break; }
+      if (g.isDead?.() || g.koPanelOpen?.() || this.gs.playerDownPhase() !== 'none') { if (until !== 'time' || g.koPanelOpen?.()) { why = 'phoenix is down (KO screen)'; break; } }
+      if (g.gameEnded?.()) { why = g.gameWon?.() ? 'run won' : 'run ended'; break; }
+      const gg = this.gemGuard(gems0); if (gg) return { ok: false, note: gg };
+    }
+    this.playing = false;
+    this.releaseFingers();
+    const parts = [`played ${Math.round((Date.now() - t0) / 1000)} s, ended: ${why}`, `realm ${realm0} -> ${this.gs.selectedWorldIndex() + 1}`,
+      `deaths +${(this.attempt?.deaths ?? 0) - deaths0}`, `realms cleared +${this.tm.realmsCleared.length - cleared0}`, `coins ${coins0} -> ${this.gs.coins()}`];
+    const g = this.game;
+    if (g && this.gs.activeScreen() === 'game') parts.push(`hp ${Math.round(g.currentHealth?.() ?? 0)}/${Math.round(g.maxHealth?.() ?? 0)}, phase ${g.bossPhase?.()}`);
+    if (this.lastHitCause) parts.push(`last hit: ${this.lastHitCause}`);
+    return { ok: true, note: parts.join('; ') };
+  }
+
+  // ---------- telemetry tick ----------
   private safeTick() { try { this.tick(); } catch (e: any) { addFinding(this.tm.bugs, 'autoplay internal', String(e?.message || e), this.where()); } }
 
   private tick() {
     if (!this.running() || this.finishing) return;
     const now = Date.now();
-    if (this.deadline && now >= this.deadline) { this.tm.goalNote ||= 'Time limit reached before the goal.'; void this.finish('Time limit reached', false); return; }
     if (now - this.lastUiScan > 6000) { this.lastUiScan = now; this.scanUi(); }
     this.checkStuck(now);
-    if (this.paused()) return;
-    const screen = this.gs.activeScreen();
-    if (now - this.lastAction < 700) return;
-    if (screen === 'menu') this.menuStep();
-    else if (screen === 'shop') this.shopStep();
-    else if (screen === 'game') this.gameStep(now);
-    else if (screen === 'tutorial') { /* never auto-plays the tutorial */ this.lastAction = now; this.gs.activeScreen.set('menu'); }
-    else { this.gs.activeScreen.set('menu'); this.lastAction = now; }
+    if (this.gs.activeScreen() === 'game') this.gameStep(now);
   }
 
   private checkStuck(now: number) {
     const g = this.game;
     const key = `${this.gs.activeScreen()}|${this.gs.selectedWorldIndex()}|${g?.timeRemaining?.() ?? ''}|${Math.round(g?.bossHealth?.() ?? 0)}|${this.gs.coins()}|${g?.isDead?.()}`;
     if (key !== this.lastProgressKey) { this.lastProgressKey = key; this.lastProgressAt = now; return; }
-    if (now - this.lastProgressAt > 60000 && !this.paused()) {
+    if (this.playing && now - this.lastProgressAt > 60000 && !this.paused()) {
       addFinding(this.tm.bugs, 'softlock', 'No game progress for 60 s (timer, boss HP, coins, realm all frozen)', this.where());
       this.lastProgressAt = now;
-      if (this.gs.activeScreen() === 'game') { this.log('bug', 'Possible softlock; quitting the run to recover.'); this.leaveRunToMenu(); if (this.attempt) this.failAttempt('softlock'); }
+      this.event('possible softlock: nothing changed for 60 s');
     }
-  }
-
-  private desiredRealmIdx(): number {
-    const p = this.plan!;
-    if (this.shopQueue.length) return this.shopQueue[0].realmIdx;
-    if (this.retryRealmIdx !== null) return this.retryRealmIdx;
-    return p.startRealm - 1;
-  }
-  private retryRealmIdx: number | null = null;
-
-  private menuStep() {
-    const p = this.plan!;
-    if (this.click('tutorial-decline', 'Declined the tutorial offer.')) return;
-    // Mode
-    if (p.mode === 'battle') {
-      if (this.click('play-battle', 'Pressed Battle Play.')) { this.beginAttempt(); return; }
-      if (this.click('mode-battle')) return;
-      return;
-    }
-    // Realm selection with the real arrows
-    const want = Math.min(this.desiredRealmIdx(), Math.max(...this.gs.unlockedWorlds()));
-    const cur = this.gs.selectedWorldIndex();
-    if (cur !== want) {
-      if (!this.btn('world-next') && !this.btn('world-prev')) { this.click(p.mode === 'endless' ? 'mode-endless' : 'mode-normal'); return; }
-      this.click(cur < want ? 'world-next' : 'world-prev');
-      return;
-    }
-    if (this.shopQueue.length) {
-      if (this.click('open-shop', `Opened the shop for realm ${want + 1}'s loadout.`)) return;
-    }
-    if (p.mode === 'endless' && !this.endlessPicked) { if (this.click('mode-endless')) { this.endlessPicked = true; return; } }
-    if (p.mode === 'campaign' && !this.normalPicked) { if (this.click('mode-normal')) { this.normalPicked = true; return; } }
-    if (this.click('play', `Pressed Play (${p.mode === 'endless' ? 'Endless' : 'Normal'}, realm ${cur + 1}).`)) {
-      this.endlessPicked = this.normalPicked = false;
-      if (!this.attempt || this.attempt.result !== 'running') this.beginAttempt();
-    }
-  }
-  private endlessPicked = false; private normalPicked = false;
-
-  private shopStep() {
-    const q = this.shopQueue[0];
-    if (!q) { this.click('shop-close'); return; }
-    const order = (this.advice?.upgradePriority?.filter(k => STAT_KEYS.includes(k)) || []).concat(STAT_KEYS.filter(k => !this.advice?.upgradePriority?.includes(k)));
-    const floor = this.gs.coins() - q.budget;
-    if (q.budget > 0) {
-      for (const k of order) {
-        const before = this.gs.coins();
-        if (before <= Math.max(0, floor)) break;
-        if (this.click(`buy-${k}`)) {
-          const spent = before - this.gs.coins();
-          if (spent > 0) { q.budget -= spent; this.shopBought.push(`realm ${q.realmIdx + 1} ${k} (${spent}c)`); this.log('shop', `Bought ${k} for realm ${q.realmIdx + 1} (${spent} coins).`); return; }
-        }
-      }
-    }
-    this.shopQueue.shift();
-    this.click('shop-close', 'Closed the shop.');
   }
 
   private gameStep(now: number) {
     const g = this.game;
     if (!g) return;
-    const p = this.plan!;
     const realmIdx = this.gs.selectedWorldIndex();
-    // Realm transitions inside a run (boss-win carryover) = realm cleared.
     if (this.lastRealmIdx >= 0 && realmIdx === this.lastRealmIdx + 1 && !g.isDead()) this.onRealmCleared(this.lastRealmIdx);
     this.lastRealmIdx = realmIdx;
     if (this.attempt) this.attempt.furthestRealm = Math.max(this.attempt.furthestRealm, realmIdx + 1);
     this.trackBoss(g, now);
     this.trackHp(g);
     this.checkState(g, now);
-
-    // Goal checks
-    if (p.goal === 'reach' && realmIdx + 1 >= p.targetRealm && this.validAttempt()) return this.goalDone(`Reached realm ${p.targetRealm}.`);
-    if (p.goal === 'survive' && p.surviveSec && this.gs.sessionPlayTime() >= p.surviveSec && this.validAttempt()) return this.goalDone(`Survived ${p.surviveSec} s.`);
-
     if (g.gameEnded() && g.gameWon()) {
-      if (p.mode === 'battle') { this.tm.battle.matches++; this.tm.battle.wins++; this.log('battle', 'Battle won.'); }
-      else this.onRealmCleared(realmIdx);
-      if (this.running() && !this.finishing) { this.closeAttempt('success'); if (p.mode === 'battle' && p.goal === 'battle_wins' && this.tm.battle.wins >= (p.battleWins || 1)) return this.goalDone(`${this.tm.battle.wins} battle wins.`); }
-      if (!this.finishing) this.click('quit-game', 'Victory screen: Return to Menu.');
+      if (this.attempt?.result === 'running') {
+        if (this.gs.currentGameMode() === 'battle') { this.tm.battle.matches++; this.tm.battle.wins++; this.event('battle won'); }
+        else this.onRealmCleared(realmIdx);
+        this.closeAttempt('success');
+      }
       return;
     }
     if (g.isDead() || g.koPanelOpen() || this.gs.playerDownPhase() !== 'none') {
       if (!this.sawDead) { this.sawDead = true; this.onDeath(); }
-      if (this.finishing) return;
-      if (p.allowGemRevives && this.attempt && (p.maxDeaths === null || this.attempt.deaths <= p.maxDeaths) && this.click('revive-gems', 'Revived with gems (allowed by prompt).')) { this.sawDead = false; return; }
-      if (this.click('give-up') || this.click('quit-game')) { this.afterRunLost(); }
       return;
     }
     this.sawDead = false;
-    if (this.gs.isPaused() && !this.finishing) this.click('pause-toggle', 'Game was paused; resumed.');
-  }
-
-  private validAttempt(): boolean {
-    const p = this.plan!, a = this.attempt;
-    if (!a) return false;
-    if (p.maxDeaths !== null && a.deaths > p.maxDeaths) return false;
-    if (p.scope === 'single_run' && a.startRealm !== p.startRealm) return false;
-    return true;
+    // Only while the AI handed over flight: a pause would stall the pilot.
+    if (this.playing && this.gs.isPaused()) this.click('pause-toggle', 'Game was paused during play; resumed.');
   }
 
   private onRealmCleared(idx: number) {
-    const p = this.plan!;
     if (this.clearedThisAttempt.includes(idx + 1)) return;
     this.clearedThisAttempt.push(idx + 1);
     this.tm.realmsCleared.push(idx + 1);
-    this.log('progress', `Realm ${idx + 1} cleared (attempt ${this.attempt?.n ?? '?'}).`);
-    if (p.goal === 'clear_through' && idx + 1 >= p.targetRealm) {
-      if (p.scope === 'single_run') {
-        const need = Array.from({ length: p.targetRealm - p.startRealm + 1 }, (_, i) => p.startRealm + i);
-        if (this.validAttempt() && need.every(r => this.clearedThisAttempt.includes(r))) this.goalDone(`Cleared realms ${p.startRealm} to ${p.targetRealm} in one run with ${this.attempt!.deaths} death(s).`);
-      } else {
-        const all = new Set(this.tm.realmsCleared);
-        if (Array.from({ length: p.targetRealm - p.startRealm + 1 }, (_, i) => p.startRealm + i).every(r => all.has(r))) this.goalDone(`Cleared through realm ${p.targetRealm}.`);
-      }
-    }
+    this.event(`realm ${idx + 1} cleared`);
+    this.log('progress', `Realm ${idx + 1} cleared.`);
   }
-
-  private goalDone(note: string) { this.tm.goalNote = note; this.log('goal', `GOAL MET: ${note}`); void this.finish('Goal complete', true); }
 
   private beginAttempt() {
     const n = this.tm.attempts.length + 1;
@@ -435,8 +565,6 @@ export class AutoplayService {
     this.attemptStartAt = Date.now();
     this.clearedThisAttempt = [];
     this.lastRealmIdx = -1;
-    this.retryRealmIdx = null;
-    this.log('attempt', `Attempt #${n} started at realm ${this.attempt.startRealm}.`);
   }
 
   private closeAttempt(result: AttemptRecord['result']) {
@@ -451,63 +579,8 @@ export class AutoplayService {
     const cause = `realm ${realm} ${g?.bossSpawned?.() ? `boss (${g.bossPhase()})` : 'survive phase'}: ${this.lastHitCause || 'unknown hit'}`;
     if (this.attempt) { this.attempt.deaths++; this.attempt.causes.push(cause); }
     if (g?.bossSpawned?.()) this.boss(realm).deaths++;
+    this.event(`died: ${cause}`);
     this.log('death', `Died: ${cause}.`);
-  }
-
-  private failAttempt(why: string) {
-    this.closeAttempt('failed');
-    this.log('attempt', `Attempt #${this.attempt?.n} failed (${why}).`);
-  }
-
-  private afterRunLost() {
-    const p = this.plan!;
-    const a = this.attempt;
-    const deathRealmIdx = this.gs.selectedWorldIndex();
-    if (p.mode === 'battle') { this.tm.battle.matches++; this.tm.battle.losses++; }
-    this.failAttempt(p.maxDeaths !== null && a && a.deaths > p.maxDeaths ? 'death limit exceeded' : 'run ended in death');
-    if (p.retryPolicy === 'stop') { this.tm.goalNote = 'Stopped on first failed attempt as the prompt asked.'; void this.finish('Died; prompt said stop on death', false); return; }
-    // Spend coins on the per-realm loadouts before retrying.
-    this.shopQueue = [];
-    if (p.upgradeOnRetry && p.mode !== 'battle') {
-      const coins = this.gs.coins();
-      const reserve = 0;
-      const spend = Math.max(0, coins - reserve);
-      if (p.retryPolicy === 'restart_from_start') {
-        const startIdx = p.startRealm - 1;
-        const realms: number[] = [];
-        for (let i = startIdx; i <= deathRealmIdx; i++) realms.push(i);
-        const dShare = realms.length > 1 ? 0.6 : 1;
-        this.shopQueue.push({ realmIdx: deathRealmIdx, budget: Math.floor(spend * dShare) });
-        const rest = realms.filter(r => r !== deathRealmIdx);
-        rest.forEach(r => this.shopQueue.push({ realmIdx: r, budget: Math.floor(spend * (1 - dShare) / rest.length) }));
-      } else this.shopQueue.push({ realmIdx: deathRealmIdx, budget: spend });
-    }
-    this.shopBought = [];
-    const lastAttempt = a;
-    // Attach purchases to the attempt that just failed once shopping ends.
-    const watch = setInterval(() => {
-      if (!this.running() || (!this.shopQueue.length && this.gs.activeScreen() !== 'shop')) {
-        clearInterval(watch);
-        if (lastAttempt) lastAttempt.upgradesAfter = [...this.shopBought];
-      }
-    }, 500);
-    this.cleanup.push(() => clearInterval(watch));
-    this.retryRealmIdx = p.retryPolicy === 'retry_realm' ? deathRealmIdx : null;
-    void this.askAdvice();
-  }
-
-  private async askAdvice() {
-    try {
-      const summary = { plan: this.plan, attempts: this.tm.attempts.slice(-5), bosses: this.tm.bosses, coins: this.gs.coins() };
-      const r = await firstValueFrom(this.http.post<any>(`${this.api}/advise`, { summary }));
-      if (r?.source === 'openai' && r.advice) { this.advice = r.advice; this.log('advice', `OpenAI advice: ${String(r.advice.note || '').slice(0, 200)}`); }
-    } catch { }
-  }
-
-  private leaveRunToMenu() {
-    if (this.gs.activeScreen() === 'game' && this.game) {
-      try { this.game.quitGame(); } catch (e: any) { addFinding(this.tm.bugs, 'quit failed', String(e?.message || e), this.where()); }
-    } else if (this.gs.activeScreen() === 'shop') this.click('shop-close');
   }
 
   // ---------- state mismatch checks ----------
@@ -532,7 +605,7 @@ export class AutoplayService {
   private trackBoss(g: any, now: number) {
     const realm = this.gs.selectedWorldIndex() + 1;
     const on = g.bossSpawned();
-    if (on && !this.bossActive) { this.bossActive = true; this.bossFightStart = now; this.rageSeenThisFight = this.finalSeenThisFight = false; const b = this.boss(realm); b.fights++; b.maxHp = g.maxHealth(); this.bossHpSeen = g.bossHealth(); this.log('boss', `Realm ${realm} boss fight started.`); }
+    if (on && !this.bossActive) { this.bossActive = true; this.bossFightStart = now; this.rageSeenThisFight = this.finalSeenThisFight = false; const b = this.boss(realm); b.fights++; b.maxHp = g.maxHealth(); this.bossHpSeen = g.bossHealth(); this.event(`realm ${realm} boss fight started`); }
     if (on) {
       const ph = g.bossPhase();
       if (ph === 'rage' && !this.rageSeenThisFight) { this.rageSeenThisFight = true; this.boss(realm).rageReached++; }
@@ -541,7 +614,7 @@ export class AutoplayService {
     }
     if (!on && this.bossActive) {
       this.bossActive = false;
-      if (!g.isDead() && this.bossHpSeen <= g.bossMaxHealth() * 0.05) { const t = (now - this.bossFightStart) / 1000; const b = this.boss(this.lastRealmIdx + 1 || realm); b.kills++; b.ttkSec.push(t); this.log('boss', `Boss down in ${Math.round(t)} s.`); }
+      if (!g.isDead() && this.bossHpSeen <= g.bossMaxHealth() * 0.05) { const t = (now - this.bossFightStart) / 1000; const b = this.boss(this.lastRealmIdx + 1 || realm); b.kills++; b.ttkSec.push(t); this.event(`boss down in ${Math.round(t)} s`); }
     }
   }
   private trackHp(g: any) {
@@ -604,7 +677,7 @@ export class AutoplayService {
   }
 
   private pilot() {
-    if (!this.running() || this.paused() || this.finishing) return;
+    if (!this.running() || this.paused() || this.finishing || !this.playing) return;
     const g = this.game;
     if (!g || this.gs.activeScreen() !== 'game' || g.gameEnded() || g.isDead() || this.gs.isPaused() || this.gs.playerDownPhase() !== 'none' || g.koPanelOpen()) { this.releaseFingers(); return; }
     const now = Date.now();
@@ -620,14 +693,14 @@ export class AutoplayService {
     if (d.roll && this.f1) { this.count('air roll'); return this.runGesture(synthRoll(Math.min(innerWidth - 20, s.p.x + 120), s.p.y), false); }
     if (d.brake && this.f1) { this.count('brake'); return this.runGesture(synthBrake(Math.min(innerWidth - 20, s.p.x + 120), s.p.y, 320), false); }
     // Abilities, off cooldown, only when no hit is imminent.
-    if (d.aim && d.timeToHit > 0.6 && now >= this.nextAbilityAt && now - this.lastPressAt > 350) {
+    if (this.useAbilities && d.aim && d.timeToHit > 0.6 && now >= this.nextAbilityAt && now - this.lastPressAt > 350) {
       const fam = this.pickAbility(g);
       if (fam) {
         const chain = synthTapChain(fam, d.aim.x, d.aim.y);
         if (chainIsValid(chain.steps, fam)) { this.count(`${fam} ability`); this.nextAbilityAt = now + chain.durationMs + chain.quietMs + 250; return this.runGesture(chain.steps, true, chain.quietMs); }
       }
     }
-    if (d.safeForHold && g.holdCooldown() <= 0 && now >= this.nextAbilityAt && s.foes.length && now - this.lastPressAt > 400 && Math.random() < 0.02) {
+    if (this.useAbilities && d.safeForHold && g.holdCooldown() <= 0 && now >= this.nextAbilityAt && s.foes.length && now - this.lastPressAt > 400 && Math.random() < 0.02) {
       const ms = holdChargeMs(false);
       this.count('hold ability'); this.nextAbilityAt = now + ms + 600;
       return this.runGesture([{ at: 0, type: 'start', id: 1, x: s.p.x, y: s.p.y }, { at: ms, type: 'end', id: 1, x: s.p.x, y: s.p.y }], true, 120);

@@ -12,7 +12,7 @@ export type TutorialGoal =
   | 'steer' | 'slot-tap' | 'slot-double' | 'slot-triple' | 'hold'
   | 'dash' | 'roll' | 'brake' | 'glide' | 'spark' | 'pickups' | 'info';
 
-export type FingerAnim = 'drag' | 'tap2' | 'tap3' | 'tap4' | 'hold' | 'flick' | 'roll' | 'brake' | 'glide' | 'none';
+export type FingerAnim = 'drag' | 'tap1' | 'tap2' | 'tap3' | 'hold' | 'flick' | 'roll' | 'brake' | 'glide' | 'none';
 
 export type HudTarget = 'arena' | 'slot-tap' | 'slot-hold' | 'slot-double' | 'slot-triple' | 'stamina' | 'hp' | 'level' | 'pills' | 'slots' | 'none';
 
@@ -39,21 +39,21 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: 'slot-tap', section: 'Abilities', title: 'Tap ability',
-    body: 'Your phoenix fires on its own. To cast the TAP slot, tap twice quickly. Each gesture fires only its own slot, then that slot shows a cooldown sweep until it is ready again.',
-    desktop: 'Tap twice quickly with the mouse, or press Q.',
-    goal: 'slot-tap', finger: 'tap2', highlight: 'slot-tap', icon: '🔥',
+    body: 'Your phoenix fires on its own. To cast the TAP slot, tap once (a quick tap, not a drag). Each gesture fires only its own slot, then that slot shows a cooldown sweep until it is ready again.',
+    desktop: 'Click once, or press Q.',
+    goal: 'slot-tap', finger: 'tap1', highlight: 'slot-tap', icon: '💥',
   },
   {
     id: 'slot-double', section: 'Abilities', title: 'Double ability',
-    body: 'Tap three times quickly to cast the DBL slot. Wait for the sweep to clear before casting a slot again.',
-    desktop: 'Three quick clicks, or press W.',
-    goal: 'slot-double', finger: 'tap3', highlight: 'slot-double', icon: '✨',
+    body: 'Tap twice quickly to cast the DBL slot. Wait for the sweep to clear before casting a slot again.',
+    desktop: 'Two quick clicks, or press W.',
+    goal: 'slot-double', finger: 'tap2', highlight: 'slot-double', icon: '⚡',
   },
   {
     id: 'slot-triple', section: 'Abilities', title: 'Ultimate',
-    body: 'Tap four times quickly for the ULT slot, your biggest move with the longest cooldown. In a run it unlocks once you beat that realm\'s boss; here you can try it right away.',
-    desktop: 'Four quick clicks, or press R.',
-    goal: 'slot-triple', finger: 'tap4', highlight: 'slot-triple', icon: '☄️',
+    body: 'Tap three times quickly for the ULT slot, your biggest move with the longest cooldown. In a run it unlocks once you beat that realm\'s boss; here you can try it right away.',
+    desktop: 'Three quick clicks, or press R. In a run, Esc pauses (here it skips the tutorial).',
+    goal: 'slot-triple', finger: 'tap3', highlight: 'slot-triple', icon: '✨',
   },
   {
     id: 'hold', section: 'Abilities', title: 'Press and hold',
@@ -75,7 +75,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     id: 'brake', section: 'Moves', title: 'Feather Brake',
-    body: 'While steering, hold a second finger down to slow to a careful glide for tight dodging. Lift it to speed back up. Braking costs no stamina.',
+    body: `While steering, hold a second finger down to fly at ${S.brakePct}% speed for tight dodging. Lift it to speed back up. Braking costs no stamina.`,
     desktop: 'Hold Space or the right mouse button.',
     goal: 'brake', finger: 'brake', highlight: 'arena', icon: '🪽',
   },

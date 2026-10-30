@@ -519,7 +519,57 @@ export const TOUCH_DRAG_SCALE = 2.5;
 // Finger travel in px below which a touch still counts as a tap or
 // hold (no steering), so taps and hold charges are never eaten.
 export const TOUCH_DRAG_DEADZONE_PX = 6;
-// Quiet window (ms) after the last press before a tap chain is
-// resolved into exactly one slot (2 presses tap, 3 double, 4 triple).
-// Must stay under the 300 ms chain window used to count presses.
+// Quiet window (ms) after the last quick tap before a tap chain is
+// resolved into exactly one slot (1 tap TAP, 2 taps DBL, 3 taps ULT,
+// matching the HUD labels and the 2x / 3x empty-slot marks). A new
+// press inside this window extends the chain; a third tap resolves
+// at once. Each gesture fires only its own slot.
 export const TAP_CHAIN_RESOLVE_MS = 230;
+
+// Touch grammar shared by the live game, the How to Play arena, and
+// the autoplay tester (input/gesture-core.ts). Tune here only.
+export const INPUT_RULES = {
+  // A press counts as a tap only if it is released within this time...
+  tapMaxMs: 250,
+  // ...and the finger travelled less than this from where it landed.
+  tapMaxTravelPx: 14,
+  // Flick Dash: released within flickMaxMs after travelling at least
+  // flickMinFraction of the smaller screen dimension.
+  flickMaxMs: 120,
+  flickMinFraction: 0.12,
+  // A second finger lifted under this is an Air Roll; held longer it
+  // was the Feather Brake.
+  rollTapMaxMs: 250,
+  // Planted hold charge after the arming window (hold-still.ts).
+  holdChargeMs: 1500,
+  // Focus Charm gadget multiplier on the hold charge time.
+  focusCharmHoldFactor: 0.75,
+  // Feather Brake: cruise speed multiplier while braking.
+  brakeSpeedFactor: 0.35,
+};
+
+// Glide (spec Section 2.6): heading change under straightRate rad/s
+// for buildS seconds builds Glide; a turn over breakRate rad/s, a
+// dash, a roll, or a hit ends it. While gliding stamina refills
+// regenMult times faster and the next move costs costMult of base.
+export const GLIDE_RULES = {
+  buildS: 1.2,
+  straightRate: 0.1745,
+  breakRate: 0.436,
+  regenMult: 2,
+  costMult: 0.5,
+};
+
+// Stamina tuning (spec Section 2.5): one shared 100 point pool, dash
+// 35, roll 50, regeneration 25 per second after a 0.6 s delay from the
+// last spend.
+export const STAMINA = {
+  max: 100,
+  dashCost: 35,
+  rollCost: 50,
+  regenPerSecond: 25,
+  regenDelayMs: 600,
+  dashMs: 220,
+  dashIframeBonusMs: 50,
+  rollMs: 350
+};

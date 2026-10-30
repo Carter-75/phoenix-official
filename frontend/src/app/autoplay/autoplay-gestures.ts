@@ -3,28 +3,28 @@
 // same window listeners the player's finger feeds, timed to the
 // game's own parser constants, so the game cannot tell a bot press
 // from a human press except that the events are untrusted.
-import { TAP_CHAIN_RESOLVE_MS, TOUCH_DRAG_DEADZONE_PX } from '../data/balance.constants';
+import { TAP_CHAIN_RESOLVE_MS, TOUCH_DRAG_DEADZONE_PX, INPUT_RULES } from '../data/balance.constants';
+import { HOLD_ARM_MS } from '../pages/game/hold-still';
+import { SlotFamily, tapsFor, holdChargeMsFor } from '../input/gesture-core';
 
-/** The game's tap-chain window (handleInputStart: presses under 300 ms apart extend the chain). */
-export const CHAIN_GAP_MAX_MS = 300;
-export const FLICK_MAX_MS = 120;
-export const FLICK_MIN_TRAVEL_FRAC = 0.12;
-export const ROLL_TAP_MAX_MS = 250;
-export const HOLD_ARM_MS = 500;
-export const HOLD_CHARGE_MS = 1500;
+// All timing comes from the shared constants the game parses with.
+export const CHAIN_GAP_MAX_MS = TAP_CHAIN_RESOLVE_MS;
+export const TAP_MAX_MS = INPUT_RULES.tapMaxMs;
+export const FLICK_MAX_MS = INPUT_RULES.flickMaxMs;
+export const FLICK_MIN_TRAVEL_FRAC = INPUT_RULES.flickMinFraction;
+export const ROLL_TAP_MAX_MS = INPUT_RULES.rollTapMaxMs;
+export { HOLD_ARM_MS };
+export const HOLD_CHARGE_MS = INPUT_RULES.holdChargeMs;
 
-export type SlotFamily = 'tap' | 'double' | 'triple';
+export type { SlotFamily };
 export interface GestureStep { at: number; type: 'start' | 'move' | 'end'; id: number; x: number; y: number; }
 
 export type Rng = () => number;
 const jitter = (rng: Rng, lo: number, hi: number) => lo + (hi - lo) * rng();
 
-/**
- * Presses needed for a slot: the game fires the tap slot on a chain
- * of 2 presses, double on 3, triple on 4 (resolveTapChain).
- */
+/** Quick taps needed for a slot: TAP 1, DBL 2, ULT 3 (gesture-core). */
 export function pressesFor(family: SlotFamily): number {
-  return family === 'tap' ? 2 : family === 'double' ? 3 : 4;
+  return tapsFor(family);
 }
 
 /**
@@ -46,11 +46,11 @@ export function synthTapChain(family: SlotFamily, x: number, y: number, rng: Rng
     const mdx = Math.min(TOUCH_DRAG_DEADZONE_PX * 0.3, 1.5);
     steps.push({ at: t + Math.round(down / 2), type: 'move', id: 1, x: px + mdx, y: py });
     steps.push({ at: t + down, type: 'end', id: 1, x: px + mdx, y: py });
-    if (i < n - 1) t += down + Math.round(jitter(rng, 60, 110));
+    if (i < n - 1) t += down + Math.round(jitter(rng, 60, 110)); // release-to-press gap under TAP_CHAIN_RESOLVE_MS
     else t += down;
   }
   const quietMs = TAP_CHAIN_RESOLVE_MS + 60;
-  return { steps, durationMs: t - t0, quietMs: Math.max(quietMs, CHAIN_GAP_MAX_MS + 30) };
+  return { steps, durationMs: t - t0, quietMs };
 }
 
 /** Flick dash: release inside 120 ms with at least 12 percent of min(viewport) travel. */
@@ -82,13 +82,18 @@ export function synthBrake(x2: number, y2: number, ms: number, t0 = 0): GestureS
 
 /** Hold charge: a planted, still finger for arm + charge time plus a margin. */
 export function holdChargeMs(focusCharm: boolean): number {
-  return HOLD_ARM_MS + HOLD_CHARGE_MS * (focusCharm ? 0.75 : 1) + 250;
+  return HOLD_ARM_MS + holdChargeMsFor(focusCharm) + 250;
 }
 
 /** Validates a chain timeline against the game's parser rules (used by tests and a runtime self-check). */
 export function chainIsValid(steps: GestureStep[], family: SlotFamily): boolean {
-  const starts = steps.filter(s => s.type === 'start').map(s => s.at);
-  if (starts.length !== pressesFor(family)) return false;
-  for (let i = 1; i < starts.length; i++) if (starts[i] - starts[i - 1] >= CHAIN_GAP_MAX_MS) return false;
+  const starts = steps.filter(s => s.type === 'start');
+  const ends = steps.filter(s => s.type === 'end');
+  if (starts.length !== pressesFor(family) || ends.length !== starts.length) return false;
+  for (let i = 0; i < starts.length; i++) {
+    if (ends[i].at - starts[i].at > TAP_MAX_MS) return false;
+    if (Math.hypot(ends[i].x - starts[i].x, ends[i].y - starts[i].y) >= INPUT_RULES.tapMaxTravelPx) return false;
+    if (i > 0 && starts[i].at - ends[i - 1].at >= CHAIN_GAP_MAX_MS) return false;
+  }
   return true;
 }
