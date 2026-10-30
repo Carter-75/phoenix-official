@@ -153,7 +153,7 @@ export function unmetSubgoals(prompt: string, c: Checklist | undefined): string[
     if ((c.longestLifeSec ?? 0) < need) out.push(`survive: longest continuous life is ${c.longestLifeSec ?? 0} s, need ${need} s in one life (a death resets it; start_run and play until time)`);
   }
   const noDeath = /no deaths?|without dying|don.t die|zero deaths/.test(p);
-  const allRealms = /all (?:10|ten) realms|realms? 1\s*(?:-|to|through)\s*10|every realm/.test(p);
+  const allRealms = /all (?:(?:10|ten) )?realms|realms? 1\s*(?:-|to|through)\s*10|every realm/.test(p);
   if (allRealms) {
     const cl = c.realmsCleared ?? [];
     const miss = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].filter(r => !cl.includes(r));
@@ -228,6 +228,12 @@ export function railCheck(a: AgentAction, obs: Observation, prompt: string): str
   const gr = goalRealm(prompt);
   if (gr && (a.action === 'select_realm' || a.action === 'start_run') && a.realm && a.realm !== gr)
     return `the goal starts in realm ${gr}, not realm ${a.realm}`;
+  // A pure gameplay goal plays first: no menu wandering before the first run.
+  const pureGame = GAMEPLAY_RE.test(prompt) && !/shop|upgrade|\bbuy\b|purchase|menu|screen|settings|codex|leaderboard|tutorial|bug|\bui\b/i.test(prompt);
+  if (pureGame && a.action === 'navigate' && a.page !== 'menu' && !(obs.checklist?.visited || []).includes('game'))
+    return `the goal is gameplay; use start_run${gr ? ` (realm ${gr})` : ''} and play before visiting ${a.page}`;
+  if (pureGame && a.action === 'tap_button' && /premium|b-buy|shop/i.test(a.id) && !(obs.checklist?.visited || []).includes('game'))
+    return 'the goal is gameplay; use start_run and play first';
   if (a.action !== 'tap_button') return null;
   if (gr && /unlock|realm-buy|buy-realm/i.test(a.id)) return 'never unlock or buy a realm; play the realm the goal names';
   const tb = obs.buttons.find(x => x.id === a.id);

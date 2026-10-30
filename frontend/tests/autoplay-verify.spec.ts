@@ -73,3 +73,11 @@ describe('code-verified outcome', () => {
     expect(codeVerifiedMet('buy one upgrade with coins', ck({ buys: 1 }))).toBe(false); // not code-checkable, the AI must finish
   });
 });
+
+describe('gameplay goals play first', () => {
+  it('blocks menu wandering before the first run', () => {
+    const obs: any = { buttons: [], checklist: ck({ visited: ['menu'] }) };
+    expect(railCheck({ action: 'navigate', page: 'shop' } as any, obs, 'clear all realms in one run with no deaths')).toMatch(/start_run \(realm 1\)/);
+    expect(railCheck({ action: 'navigate', page: 'shop' } as any, obs, 'die on purpose, then buy an upgrade')).toBeNull();
+  });
+});
