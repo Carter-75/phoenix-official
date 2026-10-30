@@ -320,6 +320,13 @@ export class GameStateService {
       effect(() => {
           this.storage.setItem('phoenix_selected_world', String(this.selectedWorldIndex()));
       });
+      // Entering a realm (menu pick, Play, or the same-session boss
+      // chain into the next realm) always leaves a real, equipped
+      // loadout in that realm's record, so the HUD, the shop LOADOUT
+      // panel, and gameplay read the same stored abilities.
+      effect(() => {
+          this.ensureRealmLoadout(this.selectedWorldIndex(), this.worldUpgrades());
+      });
 
       this.router.events.subscribe(event => {
           if (event instanceof NavigationEnd) {
@@ -524,6 +531,37 @@ export class GameStateService {
 
   // Computed helper for current world's stats, falling back to defaults for any newly added stats missing in local storage
 
+
+  // Fills any empty equip slot in a realm's record. A slot left empty
+  // inherits the previous realm's equipped ability (the loadout the
+  // player carried in), granted at level 1 here if this realm has not
+  // unlocked it yet; tap and hold finally fall back to the starter
+  // kit (Burst and Aura). Writes only when something was missing, so
+  // it is idempotent and never overrides a choice the player made.
+  public ensureRealmLoadout(worldIndex: number, all: Record<number, WorldStats> = this.worldUpgrades()) {
+      const w = Math.max(0, Math.min(9, worldIndex | 0));
+      const cur = all[w];
+      const prev = w > 0 ? all[w - 1] : undefined;
+      const slots = ['activeTapAbility', 'activeHoldAbility', 'activeDoubleAbility', 'activeTripleAbility'] as const;
+      const starter: Record<string, string | null> = { activeTapAbility: 'burst', activeHoldAbility: 'aura', activeDoubleAbility: null, activeTripleAbility: null };
+      const next: WorldStats = { ...BASE_STATS, ...(cur || {}), unlockedAbilities: { ...((cur && cur.unlockedAbilities) || {}) } } as WorldStats;
+      let changed = !cur;
+      for (const slot of slots) {
+          if (next[slot]) {
+              if (!next.unlockedAbilities[next[slot] as string]) {
+                  next.unlockedAbilities[next[slot] as string] = { level: 1, modifiers: deterministicAbilityModifiers(next[slot] as string, 1) };
+                  changed = true;
+              }
+              continue;
+          }
+          const pick = (prev && prev[slot]) || starter[slot];
+          if (!pick || !ABILITIES[pick]) continue;
+          (next as any)[slot] = pick;
+          if (!next.unlockedAbilities[pick]) next.unlockedAbilities[pick] = { level: 1, modifiers: deterministicAbilityModifiers(pick, 1) };
+          changed = true;
+      }
+      if (changed) this.worldUpgrades.set({ ...all, [w]: next });
+  }
 
   public currentStats = computed(() => {
       const stats = this.worldUpgrades()[this.selectedWorldIndex()];
