@@ -305,3 +305,49 @@ export function hazardContains(h: Hazard, t: number, px: number, py: number): bo
 export function hazardAngle(h: Hazard, t: number): number {
   return h.ang + h.spin * Math.max(0, t - h.liveAt);
 }
+
+// Battle mode mini bosses (the per-realm rivals): one compact,
+// telegraphed signature each, echoing the realm boss at duel scale.
+// The rival rig casts these on its own clock; ctx.bx/by is the rival.
+export const RIVAL_PATTERNS: Record<number, (c: PatternCtx) => PatternData> = {
+  // Slag Brute: Slag Slam, two magma pools under the player.
+  0: c => { const b = new Builder(c); const r = 0.1 * c.LU;
+    b.circle(c.px, c.py, r, 0, 1.0, 0.5);
+    b.circle(clampX(c, c.px + 0.2 * c.LU), clampY(c, c.py), r, 0.3, 1.3, 0.5); return b.d; },
+  // Umbral Stalker: Shadow Pounce, a telegraphed lance through the player then a 3 bolt fan.
+  1: c => { const b = new Builder(c); const a = Math.atan2(c.py - c.by, c.px - c.bx);
+    b.line(c.bx, c.by, a, Math.hypot(c.W, c.H), 0.035 * c.LU, 0, 0.9, 0.3); b.aimed(1.3, 3, 3.6, 0.28); return b.d; },
+  // Prism Warden: Split Beam, two beams from the rival in a V that sweeps.
+  2: c => { const b = new Builder(c); const a = Math.atan2(c.py - c.by, c.px - c.bx); const L = Math.hypot(c.W, c.H);
+    b.line(c.bx, c.by, a - 0.5, L, 0.03 * c.LU, 0, 1.0, 1.0, 0.35, true);
+    b.line(c.bx, c.by, a + 0.5, L, 0.03 * c.LU, 0, 1.0, 1.0, -0.35, true); return b.d; },
+  // Gale Harrier: Crosswind, two columns flanking the player's lane.
+  3: c => { const b = new Builder(c); const w = 0.06 * c.LU;
+    b.column(clampX(c, c.px - 0.18 * c.LU), w, 0, 0.9); b.column(clampX(c, c.px + 0.18 * c.LU), w, 0, 0.9);
+    b.column(clampX(c, c.px), w, 0.9, 1.6); return b.d; },
+  // Grave Lantern: Soul Reap, a scythe arc toward the player, then a gapped soul ring.
+  4: c => { const b = new Builder(c); const a = Math.atan2(c.py - c.by, c.px - c.bx);
+    b.arc(a, 0.35 * c.LU, 0, 0.9, 0.4, true); b.ring(1.4, 10, 3.2, 0, 0.5, true); return b.d; },
+  // Sun Herald: Herald's Flare, a ring of pillars with one gate toward the rival.
+  5: c => { const b = new Builder(c); const n = 6; const R = 0.22 * c.LU; const gate = Math.atan2(c.by - c.py, c.bx - c.px);
+    for (let i = 0; i < n; i++) { const a = gate + (i + 1) * (Math.PI * 2 / (n + 1));
+      b.circle(clampX(c, c.px + Math.cos(a) * R), clampY(c, c.py + Math.sin(a) * R), 0.07 * c.LU, 0, 1.0, 0.5); }
+    b.aimed(1.4, 2, 4, 0.2); return b.d; },
+  // Rime Seer: Frost Ring, one expanding band around the rival.
+  6: c => { const b = new Builder(c); const d = Math.hypot(c.px - c.bx, c.py - c.by);
+    b.band(c.bx, c.by, Math.max(0.15 * c.LU, d), 0.045 * c.LU, 0, 1.0, 0.5);
+    b.band(c.bx, c.by, Math.max(0.15 * c.LU, d) + 0.16 * c.LU, 0.045 * c.LU, 0.7, 1.7, 0.5); return b.d; },
+  // Wyrm Knight: Lance Breath, a cone at the player that sweeps once.
+  7: c => { const b = new Builder(c); const a = Math.atan2(c.py - c.by, c.px - c.bx);
+    b.cone(a - 0.4, 0.4 * c.LU, 0, 1.0, 1.0, 0.8); b.hold(2.0); return b.d; },
+  // Flux Golem: Flux Grid, a 2x2 checker of circles around the player, then the inverse.
+  8: c => { const b = new Builder(c); const s = 0.11 * c.LU;
+    const cells: Array<[number, number]> = [[-1, -1], [1, 1], [1, -1], [-1, 1]];
+    cells.forEach(([dx, dy], i) => b.circle(clampX(c, c.px + dx * s), clampY(c, c.py + dy * s), s, i < 2 ? 0 : 0.9, i < 2 ? 0.9 : 1.8, 0.45));
+    return b.d; },
+  // Ashborn Rival: Ashen Rebirth, crossing lances then a gapped nova.
+  9: c => { const b = new Builder(c); const L = Math.hypot(c.W, c.H); const w = 0.03 * c.LU;
+    b.line(clampX(c, c.px - 0.4 * c.W), c.py, 0, L, w, 0, 0.9, 0.3);
+    b.line(c.px, clampY(c, c.py - 0.4 * c.H), Math.PI / 2, L, w, 0.3, 1.2, 0.3);
+    b.ring(1.6, 14, 3.6, 0, 0.45, true); return b.d; },
+};

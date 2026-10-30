@@ -15,6 +15,7 @@ import {
 import { AudioService } from '../../services/audio.service';
 import { SettingsComponent } from '../settings/settings.component';
 import * as Matter from 'matter-js';
+import { RivalSignature } from './rival-signature';
 import anime from 'animejs';
 import { MlAiService } from '../../services/ml-ai.service';
 import { BattleAiService, BattleContext } from '../../services/battle-ai.service';
@@ -567,6 +568,9 @@ export class GameComponent implements OnInit, OnDestroy {
   public resolveBattleDrop(playerWon: boolean, px: number, py: number) { return this.battleSetup.resolveBattleDrop(playerWon, px, py); }
 
   readonly bossFight = new BossFight(this);
+  // Battle mode mini boss signature rig (one rival at a time).
+  readonly rivalSig = new RivalSignature(this);
+  private rivalSigId: string | null = null;
 
   @ViewChild('physicsContainer', { static: true }) physicsContainer!: ElementRef<HTMLDivElement>;
 
@@ -2388,6 +2392,10 @@ export class GameComponent implements OnInit, OnDestroy {
             // During the entrance the AI is flown in by the entrance RAF override; skip its
             // combat brain (no targeting, no firing, no movement forces) until intro ends.
             if (this.entranceActive()) return;
+            if (this.gameState.currentGameMode() === 'battle' && !this.gameEnded()) {
+                if (this.rivalSigId !== data.id) { this.rivalSigId = data.id ?? null; this.rivalSig.reset(); }
+                this.rivalSig.tick(enemy, this.gameState.selectedWorldIndex(), delta);
+            }
             const aiSpeedMult = this.battleAi.ai1.stats?.speed || 1;
             const mouseSpeed = 1.5 * aiSpeedMult * this.speedScale;
             const currentMouse = this.gameState.aiMousePos();
@@ -3457,6 +3465,9 @@ export class GameComponent implements OnInit, OnDestroy {
                   });
               }
               this.bossFight.publishSignatureEntities(data.id, st, entities);
+          }
+          if (data.type === 'enemy_phoenix' && data.id === this.rivalSigId) {
+              this.rivalSig.publish(data.id, entities);
           }
       }
       // Deduplicate by ID
