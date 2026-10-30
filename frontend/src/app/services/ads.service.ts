@@ -107,7 +107,16 @@ export class AdsService {
     this.saveState();
   }
 
+  // Bumped every time a run starts. An interstitial requested at a run
+  // end takes seconds to load; if the player hits Play meanwhile, the
+  // load is stale and the ad must never cover the realm entry.
+  private runGeneration = 0;
+  public onRunStarted() {
+    this.runGeneration++;
+  }
+
   public async maybeShowInterstitial(): Promise<boolean> {
+    const generation = this.runGeneration;
     // Exemptions: Remove Ads owners and subscribers never see interstitials.
     if (this.gameState.hasRemoveAds()) return false;
     if (this.iap.isSubscribed() || this.auth.currentUser()?.hasActiveSub) return false;
@@ -122,6 +131,9 @@ export class AdsService {
 
     try {
       await AdMob.prepareInterstitial({ adId: ADMOB_CONFIG.adUnits.interstitial, isTesting: ADMOB_CONFIG.testMode });
+      // Never on the Play path: a new run started while the ad
+      // loaded, so drop it.
+      if (generation !== this.runGeneration) return false;
       await AdMob.showInterstitial();
       this.state.lastInterstitialAt = Date.now();
       this.state.interstitialForRun = this.state.runsCompleted;
