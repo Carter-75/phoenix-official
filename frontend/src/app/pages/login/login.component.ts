@@ -256,8 +256,11 @@ export class LoginComponent implements OnInit {
             this.gameState.syncWithUser(user);
             this.goBack();
         }
-    } catch(err) {
-        this.error.set('Native Google Authentication Failed.');
+    } catch(err: any) {
+        // Surface the Google status code so a failure is diagnosable
+        // (10 = app signing SHA-1 or client id not registered, 12501 = cancelled).
+        const code = err?.code ?? err?.error?.message ?? err?.message ?? '';
+        this.error.set(`Google sign-in failed${code ? ' (' + code + ')' : ''}.`);
     }
   }
 }

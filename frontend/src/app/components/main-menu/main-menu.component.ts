@@ -229,7 +229,7 @@ import { AdsService } from '../../services/ads.service';
                 {{ currentWorld().name }}
               </span>
               @if (!isWorldUnlocked()) {
-                <span class="absolute -top-3 -right-6 text-xs text-orange-400 font-bold uppercase tracking-widest animate-pulse border border-orange-500/30 bg-black/50 px-2 py-1 rounded-md">Soon</span>
+                <span class="absolute -top-3 -right-6 text-xs text-orange-400 font-bold uppercase tracking-widest animate-pulse border border-orange-500/30 bg-black/50 px-2 py-1 rounded-md">Locked</span>
               }
             </div>
             <button (click)="nextWorld()" class="press w-9 h-9 shrink-0 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/60 hover:text-white transition text-xl hover:translate-x-0.5">&rarr;</button>
@@ -296,7 +296,7 @@ import { AdsService } from '../../services/ads.service';
                [ngClass]="campaignPlayMode() === 'endless'
                  ? '-translate-x-[92%] text-violet-300'
                  : '-translate-x-1/2 text-orange-300'">
-              {{ !isWorldUnlocked() ? 'Coming Soon' : (campaignPlayMode() === 'endless' ? 'Click to Survive' : 'Click to Ascend') }}
+              {{ !isWorldUnlocked() ? unlockHint(campaignWorldIndex()) : (campaignPlayMode() === 'endless' ? 'Click to Survive' : 'Click to Ascend') }}
             </p>
           </button>
         </div>
@@ -330,7 +330,7 @@ import { AdsService } from '../../services/ads.service';
                 {{ currentBattleWorld().name }}
               </span>
               @if (!isBattleWorldUnlocked()) {
-                <span class="absolute -top-3 -right-6 text-xs text-orange-400 font-bold uppercase tracking-widest animate-pulse border border-orange-500/30 bg-black/50 px-2 py-1 rounded-md">Soon</span>
+                <span class="absolute -top-3 -right-6 text-xs text-orange-400 font-bold uppercase tracking-widest animate-pulse border border-orange-500/30 bg-black/50 px-2 py-1 rounded-md">Locked</span>
               }
             </div>
             <button (click)="nextBattleWorld()" class="press w-9 h-9 shrink-0 rounded-full bg-white/5 border border-red-500/20 flex items-center justify-center text-red-400/60 hover:text-red-300 transition text-xl hover:translate-x-0.5">&rarr;</button>
@@ -369,7 +369,7 @@ import { AdsService } from '../../services/ads.service';
             <div class="absolute inset-0 bg-red-600/20 rounded-full blur-2xl opacity-50 group-hover:opacity-80 transition-opacity"></div>
             <img src="assets/play_button.png" alt="Play" class="relative w-32 h-32 md:w-40 md:h-40 drop-shadow-[0_0_30px_rgba(255,0,0,0.8)]" style="filter: hue-rotate(320deg) saturate(2)" />
             <p class="absolute -top-8 left-1/2 -translate-x-[8%] text-red-400 font-bold tracking-widest uppercase text-sm w-max">
-              {{ isBattleWorldUnlocked() ? 'Click to Duel' : 'Coming Soon' }}
+              {{ isBattleWorldUnlocked() ? 'Click to Duel' : unlockHint(selectedBattleWorldIndex()) }}
             </p>
           </button>
         </div>
@@ -412,6 +412,11 @@ export class MainMenuComponent {
   
   selectedBattleWorldIndex = signal(0);
   currentBattleWorld = computed(() => WORLDS[this.selectedBattleWorldIndex()]);
+  // Locked realms are progression gated, not unreleased: say how to unlock.
+  unlockHint(index: number): string {
+    const prev = this.gameState.worlds[index - 1];
+    return prev ? `Locked: beat the ${prev.name} boss` : 'Locked';
+  }
   isBattleWorldUnlocked = computed(() => this.gameState.unlockedWorlds().includes(this.selectedBattleWorldIndex()));
   
   showSettings = false;

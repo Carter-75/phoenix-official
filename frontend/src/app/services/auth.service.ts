@@ -49,7 +49,12 @@ export class AuthService {
 
   constructor() {
     if (Capacitor.isNativePlatform()) {
-      GoogleAuth.initialize();
+      // Web client id: Android requestIdToken needs the server (web) client.
+      GoogleAuth.initialize({
+        clientId: '108585498879-v35d0d196d4djglodbbjok452pr1e04r.apps.googleusercontent.com',
+        scopes: ['profile', 'email'],
+        grantOfflineAccess: true
+      });
     }
   }
 
