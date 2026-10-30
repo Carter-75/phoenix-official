@@ -3,7 +3,7 @@
 // Build split (debug vs release): one web bundle ships in both the debug
 // APK and the release AAB, so the web code cannot tell them apart by
 // itself. MainActivity.java appends "PhoenixBuild/release" or
-// "PhoenixBuild/debug" to the WebView user agent from BuildConfig.DEBUG.
+// "PhoenixBuild/debug" to the WebView user agent from the APK debuggable flag.
 // Only a native release build gets the production units with testMode
 // off. Everything else (debug or sideloaded APKs, Test Lab, web) uses
 // Google's official TEST units with testMode on, so the developer never
