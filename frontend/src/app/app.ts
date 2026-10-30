@@ -2,6 +2,7 @@ import { Component, HostListener } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { ParticleBgComponent } from './components/particle-bg/particle-bg.component';
 import { AdBubbleComponent } from './components/ad-bubble/ad-bubble.component';
+import { AutoplayBadgeComponent } from './autoplay/autoplay-badge.component';
 import { GameStateService } from './services/game-state.service';
 import { AuthService } from './services/auth.service';
 import { environment } from '../environments/environment';
@@ -10,10 +11,11 @@ import { startCloudTestScenario } from './cloudtest/cloudtest-scenario';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, ParticleBgComponent, AdBubbleComponent],
+  imports: [RouterOutlet, ParticleBgComponent, AdBubbleComponent, AutoplayBadgeComponent],
   template: `
     <app-particle-bg></app-particle-bg>
     <app-ad-bubble></app-ad-bubble>
+    <app-autoplay-badge></app-autoplay-badge>
     
     <div class="absolute inset-0 z-10 w-full h-full min-h-screen">
       <router-outlet></router-outlet>

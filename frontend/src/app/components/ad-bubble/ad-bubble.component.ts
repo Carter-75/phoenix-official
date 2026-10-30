@@ -4,13 +4,14 @@ import { GameStateService } from '../../services/game-state.service';
 import { AudioService } from '../../services/audio.service';
 import { AdsService } from '../../services/ads.service';
 import anime from 'animejs';
+import { AdGuard } from '../../autoplay/ad-guard';
 
 @Component({
   selector: 'app-ad-bubble',
   standalone: true,
   imports: [CommonModule],
   template: `
-    @if (isVisible() && !isPopped()) {
+    @if (isVisible() && !isPopped() && !adsBlocked()) {
        <div #bubble class="fixed z-[999] cursor-pointer hover:scale-110 transition-transform pointer-events-auto"
             (click)="onBubbleClick()"
             [style.left.px]="x()"
@@ -23,7 +24,7 @@ import anime from 'animejs';
        </div>
     }
     
-    @if (showOfferPrompt()) {
+    @if (showOfferPrompt() && !adsBlocked()) {
        <div class="fixed inset-0 bg-black/80 backdrop-blur-md z-[1000] flex items-center justify-center pointer-events-auto">
           <div class="bg-zinc-900 border border-white/20 p-8 rounded-3xl max-w-sm w-full flex flex-col items-center shadow-[0_0_50px_rgba(0,0,0,0.8)] text-center">
              <h2 class="text-3xl font-black text-white mb-2">Special Offer!</h2>
@@ -48,6 +49,7 @@ import anime from 'animejs';
   `
 })
 export class AdBubbleComponent implements OnInit, OnDestroy {
+  public adsBlocked() { return AdGuard.isSuppressed(); }
   @ViewChild('bubble') bubbleRef!: ElementRef;
 
   private gameState = inject(GameStateService);
@@ -90,6 +92,7 @@ export class AdBubbleComponent implements OnInit, OnDestroy {
   }
   
   private spawnBubble() {
+      if (AdGuard.isSuppressed()) { this.isVisible.set(false); return; }
       this.isPopped.set(false);
       this.isVisible.set(true);
       

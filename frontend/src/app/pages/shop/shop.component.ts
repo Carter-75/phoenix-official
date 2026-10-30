@@ -18,7 +18,7 @@ import { CommonModule } from '@angular/common';
     <div class="screen-in fixed inset-0 flex flex-col items-center justify-start w-full min-h-screen text-white bg-black/80 backdrop-blur-md p-3 overflow-y-auto">
       <!-- Header -->
       <div class="w-full max-w-5xl flex flex-col md:flex-row justify-between items-center gap-3 md:gap-0 mb-3 mt-1">
-        <button (click)="closeShop()" class="press text-white/70 hover:text-white flex items-center gap-2 transition px-4 py-2 bg-white/5 rounded-full border border-white/10 hover:bg-white/10 self-start md:self-auto">
+        <button data-ap="shop-close" (click)="closeShop()" class="press text-white/70 hover:text-white flex items-center gap-2 transition px-4 py-2 bg-white/5 rounded-full border border-white/10 hover:bg-white/10 self-start md:self-auto">
           <span class="text-xl">&larr;</span> Back
         </button>
         
@@ -126,13 +126,13 @@ import { CommonModule } from '@angular/common';
                      <span class="text-xl">📺</span>
                    </button>
                  } @else {
-                   <button (click)="buyDamage()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
+                   <button data-ap="buy-damage" (click)="buyDamage()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
                      <img src="assets/coin_icon.png" class="w-5 h-5"/> {{ getCost('damage', 250, 1, 10) }}
                    </button>
                    <p class="text-white/40 text-[11px] font-bold text-center mt-2">No ad option above 1,000 coins</p>
                  }
               } @else {
-                 <button (click)="buyDamage()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition" [disabled]="gameState.coins() < getCost('damage', 250, 1, 10)">
+                 <button data-ap="buy-damage" (click)="buyDamage()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition" [disabled]="gameState.coins() < getCost('damage', 250, 1, 10)">
                    <img src="assets/coin_icon.png" class="w-5 h-5"/> {{ getCost('damage', 250, 1, 10) }}
                  </button>
               }
@@ -171,13 +171,13 @@ import { CommonModule } from '@angular/common';
                      <span class="text-xl">📺</span>
                    </button>
                  } @else {
-                   <button (click)="buyAttackSpeed()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
+                   <button data-ap="buy-attack-speed" (click)="buyAttackSpeed()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
                      <img src="assets/coin_icon.png" class="w-5 h-5"/> {{ getCost('attackSpeed', 300, 0.1, 1) }}
                    </button>
                    <p class="text-white/40 text-[11px] font-bold text-center mt-2">No ad option above 1,000 coins</p>
                  }
               } @else {
-                 <button (click)="buyAttackSpeed()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition" [disabled]="gameState.coins() < getCost('attackSpeed', 300, 0.1, 1)">
+                 <button data-ap="buy-attack-speed" (click)="buyAttackSpeed()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition" [disabled]="gameState.coins() < getCost('attackSpeed', 300, 0.1, 1)">
                    <img src="assets/coin_icon.png" class="w-5 h-5"/> {{ getCost('attackSpeed', 300, 0.1, 1) }}
                  </button>
               }
@@ -216,13 +216,13 @@ import { CommonModule } from '@angular/common';
                      <span class="text-xl">📺</span>
                    </button>
                  } @else {
-                   <button (click)="buyHoming()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
+                   <button data-ap="buy-homing" (click)="buyHoming()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
                      <img src="assets/coin_icon.png" class="w-5 h-5"/> {{ getCost('homingLevel', 300, 1, 0) }}
                    </button>
                    <p class="text-white/40 text-[11px] font-bold text-center mt-2">No ad option above 1,000 coins</p>
                  }
               } @else {
-                 <button (click)="buyHoming()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition" [disabled]="gameState.coins() < getCost('homingLevel', 300, 1, 0)">
+                 <button data-ap="buy-homing" (click)="buyHoming()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition" [disabled]="gameState.coins() < getCost('homingLevel', 300, 1, 0)">
                    <img src="assets/coin_icon.png" class="w-5 h-5"/> {{ getCost('homingLevel', 300, 1, 0) }}
                  </button>
               }
@@ -265,13 +265,13 @@ import { CommonModule } from '@angular/common';
                      <span class="text-xl">📺</span>
                    </button>
                  } @else {
-                   <button (click)="buyHealth()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
+                   <button data-ap="buy-health" (click)="buyHealth()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
                      <img src="assets/coin_icon.png" class="w-5 h-5"/> {{ getCost('maxHealth', 100, 10, 100) }}
                    </button>
                    <p class="text-white/40 text-[11px] font-bold text-center mt-2">No ad option above 1,000 coins</p>
                  }
               } @else {
-                 <button (click)="buyHealth()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition" [disabled]="gameState.coins() < getCost('maxHealth', 100, 10, 100)">
+                 <button data-ap="buy-health" (click)="buyHealth()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition" [disabled]="gameState.coins() < getCost('maxHealth', 100, 10, 100)">
                    <img src="assets/coin_icon.png" class="w-5 h-5"/> {{ getCost('maxHealth', 100, 10, 100) }}
                  </button>
               }
@@ -310,13 +310,13 @@ import { CommonModule } from '@angular/common';
                      <span class="text-xl">📺</span>
                    </button>
                  } @else {
-                   <button (click)="buySpeed()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
+                   <button data-ap="buy-speed" (click)="buySpeed()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
                      <img src="assets/coin_icon.png" class="w-5 h-5"/> {{ getCost('speed', 150, 0.1, 2) }}
                    </button>
                    <p class="text-white/40 text-[11px] font-bold text-center mt-2">No ad option above 1,000 coins</p>
                  }
               } @else {
-                 <button (click)="buySpeed()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition" [disabled]="gameState.coins() < getCost('speed', 150, 0.1, 2)">
+                 <button data-ap="buy-speed" (click)="buySpeed()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition" [disabled]="gameState.coins() < getCost('speed', 150, 0.1, 2)">
                    <img src="assets/coin_icon.png" class="w-5 h-5"/> {{ getCost('speed', 150, 0.1, 2) }}
                  </button>
               }
@@ -355,13 +355,13 @@ import { CommonModule } from '@angular/common';
                      <span class="text-xl">📺</span>
                    </button>
                  } @else {
-                   <button (click)="buyAegisPlating()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
+                   <button data-ap="buy-aegis" (click)="buyAegisPlating()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
                      <img src="assets/coin_icon.png" class="w-5 h-5"/> {{ getCost('aegisPlating', 400, 1, 0) }}
                    </button>
                    <p class="text-white/40 text-[11px] font-bold text-center mt-2">No ad option above 1,000 coins</p>
                  }
               } @else {
-                 <button (click)="buyAegisPlating()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition" [disabled]="gameState.coins() < getCost('aegisPlating', 400, 1, 0)">
+                 <button data-ap="buy-aegis" (click)="buyAegisPlating()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition" [disabled]="gameState.coins() < getCost('aegisPlating', 400, 1, 0)">
                    <img src="assets/coin_icon.png" class="w-5 h-5"/> {{ getCost('aegisPlating', 400, 1, 0) }}
                  </button>
               }
@@ -404,13 +404,13 @@ import { CommonModule } from '@angular/common';
                      <span class="text-xl">📺</span>
                    </button>
                  } @else {
-                   <button (click)="buyMagnet()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
+                   <button data-ap="buy-magnet" (click)="buyMagnet()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
                      <img src="assets/coin_icon.png" class="w-5 h-5"/> {{ getCost('magnetism', 200, 0.1, 1) }}
                    </button>
                    <p class="text-white/40 text-[11px] font-bold text-center mt-2">No ad option above 1,000 coins</p>
                  }
               } @else {
-                 <button (click)="buyMagnet()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition" [disabled]="gameState.coins() < getCost('magnetism', 200, 0.1, 1)">
+                 <button data-ap="buy-magnet" (click)="buyMagnet()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition" [disabled]="gameState.coins() < getCost('magnetism', 200, 0.1, 1)">
                    <img src="assets/coin_icon.png" class="w-5 h-5"/> {{ getCost('magnetism', 200, 0.1, 1) }}
                  </button>
               }
@@ -449,13 +449,13 @@ import { CommonModule } from '@angular/common';
                      <span class="text-xl">📺</span>
                    </button>
                  } @else {
-                   <button (click)="buyAttackRange()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
+                   <button data-ap="buy-range" (click)="buyAttackRange()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
                      <img src="assets/coin_icon.png" class="w-5 h-5"/> {{ getCost('attackRange', 250, 50, 400) }}
                    </button>
                    <p class="text-white/40 text-[11px] font-bold text-center mt-2">No ad option above 1,000 coins</p>
                  }
               } @else {
-                 <button (click)="buyAttackRange()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition" [disabled]="gameState.coins() < getCost('attackRange', 250, 50, 400)">
+                 <button data-ap="buy-range" (click)="buyAttackRange()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition" [disabled]="gameState.coins() < getCost('attackRange', 250, 50, 400)">
                    <img src="assets/coin_icon.png" class="w-5 h-5"/> {{ getCost('attackRange', 250, 50, 400) }}
                  </button>
               }
@@ -494,13 +494,13 @@ import { CommonModule } from '@angular/common';
                      <span class="text-xl">📺</span>
                    </button>
                  } @else {
-                   <button (click)="buyAuraRadius()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
+                   <button data-ap="buy-aura" (click)="buyAuraRadius()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
                      <img src="assets/coin_icon.png" class="w-5 h-5"/> {{ getCost('auraRadius', 400, 10, 250) }}
                    </button>
                    <p class="text-white/40 text-[11px] font-bold text-center mt-2">No ad option above 1,000 coins</p>
                  }
               } @else {
-                 <button (click)="buyAuraRadius()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition" [disabled]="gameState.coins() < getCost('auraRadius', 400, 10, 250)">
+                 <button data-ap="buy-aura" (click)="buyAuraRadius()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition" [disabled]="gameState.coins() < getCost('auraRadius', 400, 10, 250)">
                    <img src="assets/coin_icon.png" class="w-5 h-5"/> {{ getCost('auraRadius', 400, 10, 250) }}
                  </button>
               }

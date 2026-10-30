@@ -141,7 +141,7 @@ import { shouldOfferTutorial, writeTutorialState } from '../../tutorial/tutorial
         <div class="glass flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-full">
           <img src="assets/coin_icon.png" alt="Coins" class="w-6 h-6 object-contain" />
           <span class="text-lg font-black text-orange-400 tabular-nums">{{ gameState.coins() }}</span>
-          <button (click)="openShopCoins()" aria-label="Open the upgrade shop" class="press w-6 h-6 rounded-full bg-orange-500 text-black text-lg font-black leading-none flex items-center justify-center hover:brightness-110 active:scale-90 transition shadow-[0_0_10px_rgba(255,77,0,0.55)]">+</button>
+          <button data-ap="open-shop" (click)="openShopCoins()" aria-label="Open the upgrade shop" class="press w-6 h-6 rounded-full bg-orange-500 text-black text-lg font-black leading-none flex items-center justify-center hover:brightness-110 active:scale-90 transition shadow-[0_0_10px_rgba(255,77,0,0.55)]">+</button>
         </div>
         <!-- Gems -->
         <div class="glass flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-full">
@@ -233,7 +233,7 @@ import { shouldOfferTutorial, writeTutorialState } from '../../tutorial/tutorial
 
           <!-- World Selector -->
           <div class="menu-selector stagger-in glass flex items-center gap-5 mt-2 px-4 py-2.5 rounded-2xl" style="--d: 1">
-            <button (click)="prevWorld()" class="press w-9 h-9 shrink-0 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/60 hover:text-white transition text-xl hover:-translate-x-0.5">&larr;</button>
+            <button data-ap="world-prev" (click)="prevWorld()" class="press w-9 h-9 shrink-0 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/60 hover:text-white transition text-xl hover:-translate-x-0.5">&larr;</button>
             <div class="w-48 relative text-center flex flex-col items-center justify-center">
               <span class="text-[11px] text-white/50 uppercase tracking-[0.3em] font-bold">Realm {{ currentWorld().id + 1 }}</span>
               <span class="text-xl font-black tracking-wider transition-colors duration-300 text-transparent bg-clip-text bg-gradient-to-r"
@@ -244,7 +244,7 @@ import { shouldOfferTutorial, writeTutorialState } from '../../tutorial/tutorial
                 <span class="absolute -top-3 -right-6 text-xs text-orange-400 font-bold uppercase tracking-widest animate-pulse border border-orange-500/30 bg-black/50 px-2 py-1 rounded-md">Locked</span>
               }
             </div>
-            <button (click)="nextWorld()" class="press w-9 h-9 shrink-0 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/60 hover:text-white transition text-xl hover:translate-x-0.5">&rarr;</button>
+            <button data-ap="world-next" (click)="nextWorld()" class="press w-9 h-9 shrink-0 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/60 hover:text-white transition text-xl hover:translate-x-0.5">&rarr;</button>
           </div>
 
           <!-- Mode Toggle (mode trio): ONE segmented control for
@@ -260,17 +260,17 @@ import { shouldOfferTutorial, writeTutorialState } from '../../tutorial/tutorial
                  style="width: calc((100% - 2rem) / 3)"
                  [style.transform]="'translateX(calc(' + (campaignPlayMode() === 'endless' ? 1 : 0) + ' * (100% + 0.5rem)))'"
                  [ngClass]="campaignPlayMode() === 'endless' ? 'bg-violet-500/80' : 'bg-orange-500/80'"></div>
-            <button (click)="campaignPlayMode.set('campaign')"
+            <button data-ap="mode-normal" (click)="campaignPlayMode.set('campaign')"
                     class="relative z-10 px-4 py-1 rounded-full text-xs font-black tracking-widest uppercase transition-colors"
                     [ngClass]="campaignPlayMode() === 'campaign' ? 'text-white' : 'text-white/50 hover:text-white'">
               Normal
             </button>
-            <button (click)="campaignPlayMode.set('endless')"
+            <button data-ap="mode-endless" (click)="campaignPlayMode.set('endless')"
                     class="relative z-10 px-4 py-1 rounded-full text-xs font-black tracking-widest uppercase transition-colors"
                     [ngClass]="campaignPlayMode() === 'endless' ? 'text-white' : 'text-white/50 hover:text-white'">
               Endless
             </button>
-            <button (click)="activeMenuMode = 'battle'"
+            <button data-ap="mode-battle" (click)="activeMenuMode = 'battle'"
                     class="relative z-10 px-4 py-1 rounded-full text-xs font-black tracking-widest uppercase transition-colors text-white/50 hover:text-white">
               Battle
             </button>
@@ -281,7 +281,7 @@ import { shouldOfferTutorial, writeTutorialState } from '../../tutorial/tutorial
                fire orange, Endless is violet, Battle (below) is red.
                Before this, Normal and Endless shared the same gold
                family button and near-white label.) -->
-          <button (click)="startGame(campaignPlayMode())"
+          <button data-ap="play" (click)="startGame(campaignPlayMode())"
                   class="menu-play stagger-in relative group mt-8 transition-transform hover:scale-105 active:scale-95" style="--d: 3"
                   [class.opacity-50]="!isWorldUnlocked()"
                   [class.grayscale]="!isWorldUnlocked()">
@@ -356,11 +356,11 @@ import { shouldOfferTutorial, writeTutorialState } from '../../tutorial/tutorial
           <div class="stagger-in glass relative grid grid-cols-3 gap-2 mt-1 px-2 py-1.5 rounded-full" style="--d: 2">
             <div class="absolute top-1.5 bottom-1.5 left-2 rounded-full bg-red-500/80 transition-all duration-300 ease-out"
                  style="width: calc((100% - 2rem) / 3); transform: translateX(calc(2 * (100% + 0.5rem)))"></div>
-            <button (click)="campaignPlayMode.set('campaign'); activeMenuMode = 'campaign'"
+            <button data-ap="mode-normal" (click)="campaignPlayMode.set('campaign'); activeMenuMode = 'campaign'"
                     class="relative z-10 px-4 py-1 rounded-full text-xs font-black tracking-widest uppercase transition-colors text-white/50 hover:text-white">
               Normal
             </button>
-            <button (click)="campaignPlayMode.set('endless'); activeMenuMode = 'campaign'"
+            <button data-ap="mode-endless" (click)="campaignPlayMode.set('endless'); activeMenuMode = 'campaign'"
                     class="relative z-10 px-4 py-1 rounded-full text-xs font-black tracking-widest uppercase transition-colors text-white/50 hover:text-white">
               Endless
             </button>
@@ -373,7 +373,7 @@ import { shouldOfferTutorial, writeTutorialState } from '../../tutorial/tutorial
                Normal orange and Endless violet above.) -->
           <button (mousedown)="startBattleHold()" (mouseup)="endBattleHold()" (mouseleave)="endBattleHold()"
                   (touchstart)="startBattleHold()" (touchend)="endBattleHold()" (touchcancel)="endBattleHold()"
-                  (click)="startGame('battle')"
+                  data-ap="play-battle" (click)="startGame('battle')"
                   class="menu-play stagger-in relative group mt-8 transition-transform hover:scale-105 active:scale-95" style="--d: 3"
                   [class.opacity-50]="!isBattleWorldUnlocked()"
                   [class.grayscale]="!isBattleWorldUnlocked()">
@@ -404,7 +404,7 @@ import { shouldOfferTutorial, writeTutorialState } from '../../tutorial/tutorial
           <p class="mt-2 text-sm text-white/75">Take a quick hands-on tutorial in a safe practice arena. No damage, no ads, and it never touches your progress. You can replay it anytime from the ? button or Settings.</p>
           <div class="mt-5 flex flex-col gap-2">
             <button (click)="acceptTutorialOffer()" class="press w-full py-3 rounded-full font-black text-white bg-gradient-to-r from-orange-500 to-red-600 shadow-[0_0_20px_rgba(255,90,20,0.45)]">Start tutorial</button>
-            <button (click)="declineTutorialOffer()" class="press w-full py-2 rounded-full font-bold text-white/55 hover:text-white">Not now</button>
+            <button data-ap="tutorial-decline" (click)="declineTutorialOffer()" class="press w-full py-2 rounded-full font-bold text-white/55 hover:text-white">Not now</button>
           </div>
         </div>
       </div>

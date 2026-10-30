@@ -45,6 +45,7 @@ const leaderboardRouter = require('./routes/leaderboard');
 const notificationsRouter = require('./routes/notifications');
 const billingRouter = require('./routes/billing');
 const adsRouter = require('./routes/ads');
+const autoplayRouter = require('./routes/autoplay');
 
 // --- Diagnostic Routes ---
 app.get('/api/health', async (req, res) => {
@@ -157,6 +158,8 @@ app.use('/api/billing', billingRouter);
 app.use('/billing', billingRouter);
 
 app.use('/api/ads', adsRouter);
+app.use('/api/autoplay', autoplayRouter);
+app.use('/autoplay', autoplayRouter);
 app.use('/ads', adsRouter);
 
 // Error handler

@@ -30,6 +30,8 @@ import { FxController } from './fx-controller';
 import { BossPhase, tickBossPhase, phaseDuration, phaseLabel, initialBossPhase, RAGE_DAMAGE_MULT, FINAL_ATTACK_DEATH_REASON } from '../../data/boss-phase';
 import { BattleSetup } from './battle-setup';
 import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mothFuseCharge, phantomReappearCharge, wraithLockCharge, serpentCoilCharge, darterLineupCharge } from './enemy-charges';
+import { AdGuard } from '../../autoplay/ad-guard';
+import { AutoplayService } from '../../autoplay/autoplay.service';
 
 
 @Component({
@@ -321,7 +323,7 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
       }
 
       <!-- Pause Button -->
-      <button (click)="togglePause()" class="press absolute top-4 right-4 md:right-8 w-11 h-11 md:w-12 md:h-12 bg-zinc-950/70 backdrop-blur-md border border-white/15 rounded-full flex items-center justify-center pointer-events-auto hover:bg-white/10 transition z-20">
+      <button data-ap="pause-toggle" (click)="togglePause()" class="press absolute top-4 right-4 md:right-8 w-11 h-11 md:w-12 md:h-12 bg-zinc-950/70 backdrop-blur-md border border-white/15 rounded-full flex items-center justify-center pointer-events-auto hover:bg-white/10 transition z-20">
         <span class="text-white font-bold text-xl">||</span>
       </button>
 
@@ -338,7 +340,7 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
                 [class.drop-shadow-lg]="!cheatPrepared()">PAUSED</h2>
 
             <div class="flex flex-col gap-3 w-full">
-              <button (click)="togglePause()" class="btn-sheen w-full py-3.5 bg-gradient-to-r from-orange-500 to-red-600 hover:brightness-110 active:scale-95 rounded-2xl text-white font-bold text-lg transition shadow-lg shadow-orange-900/40">
+              <button data-ap="pause-toggle" (click)="togglePause()" class="btn-sheen w-full py-3.5 bg-gradient-to-r from-orange-500 to-red-600 hover:brightness-110 active:scale-95 rounded-2xl text-white font-bold text-lg transition shadow-lg shadow-orange-900/40">
                 Resume
               </button>
               <button (click)="showSettings = true" class="press w-full py-3.5 bg-white/5 hover:bg-white/10 border border-white/15 rounded-2xl text-white font-bold text-lg transition">
@@ -349,7 +351,7 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
                     Download AI Weights
                   </button>
               }
-              <button (click)="quitFromPause()" class="press w-full py-3.5 bg-transparent hover:bg-white/5 border border-transparent rounded-2xl text-red-300/70 hover:text-red-300 font-semibold transition">
+              <button data-ap="quit-pause" (click)="quitFromPause()" class="press w-full py-3.5 bg-transparent hover:bg-white/5 border border-transparent rounded-2xl text-red-300/70 hover:text-red-300 font-semibold transition">
                 Quit to Menu
               </button>
             </div>
@@ -388,7 +390,7 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
 
               <div class="flex flex-col gap-4 w-full max-w-sm">
                 @if (!deathUnsurvivable()) {
-                <button (click)="reviveWithGems()"
+                <button data-ap="revive-gems" (click)="reviveWithGems()"
                         [disabled]="adReviveInFlight || gameState.gems() < getReviveCost()"
                         [class.opacity-50]="adReviveInFlight || gameState.gems() < getReviveCost()"
                         [class.cursor-not-allowed]="adReviveInFlight || gameState.gems() < getReviveCost()"
@@ -426,7 +428,7 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
                   <span class="text-white font-semibold text-base">Phoenix Feather Charm spent</span>
                 </div>
                 }
-                <button (click)="giveUpFromKo()" [disabled]="adReviveInFlight" [class.opacity-50]="adReviveInFlight" class="press w-full mt-4 py-4 bg-transparent hover:bg-white/5 border border-transparent rounded-2xl text-red-300/70 hover:text-red-300 font-semibold transition">
+                <button data-ap="give-up" (click)="giveUpFromKo()" [disabled]="adReviveInFlight" [class.opacity-50]="adReviveInFlight" class="press w-full mt-4 py-4 bg-transparent hover:bg-white/5 border border-transparent rounded-2xl text-red-300/70 hover:text-red-300 font-semibold transition">
                   Give Up
                 </button>
               </div>
@@ -440,7 +442,7 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
           <h2 class="text-5xl font-black text-red-500 mb-2 drop-shadow-lg tracking-wide">YOU DIED</h2>
               <p class="text-red-500 text-xl font-bold mb-8 uppercase text-center max-w-md">The {{ rivalName() }} emerges victorious.</p>
               <div class="flex flex-col gap-4 w-full max-w-sm">
-                <button (click)="quitGame()" class="press w-full mt-4 py-4 bg-red-950/60 hover:bg-red-900/50 border border-red-500/40 rounded-2xl text-white font-bold transition">
+                <button data-ap="quit-game" (click)="quitGame()" class="press w-full mt-4 py-4 bg-red-950/60 hover:bg-red-900/50 border border-red-500/40 rounded-2xl text-white font-bold transition">
                   Accept Fate
                 </button>
               </div>
@@ -454,7 +456,7 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
           <h2 class="text-5xl font-black text-red-500 mb-2 drop-shadow-lg tracking-wide">YOU DIED</h2>
               <p class="text-red-500 text-xl font-bold mb-8 uppercase text-center max-w-md">Your flames have been permanently extinguished.</p>
               <div class="flex flex-col gap-4 w-full max-w-sm">
-                <button (click)="quitGame()" class="press w-full mt-4 py-4 bg-red-950/60 hover:bg-red-900/50 border border-red-500/40 rounded-2xl text-white font-bold transition">
+                <button data-ap="quit-game" (click)="quitGame()" class="press w-full mt-4 py-4 bg-red-950/60 hover:bg-red-900/50 border border-red-500/40 rounded-2xl text-white font-bold transition">
                   Accept Fate
                 </button>
               </div>
@@ -491,7 +493,7 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
               <img src="assets/gem_icon.png" class="w-8 h-8"/>
             </div>
           }
-          <button (click)="quitGame()" class="btn-sheen px-8 py-3.5 bg-gradient-to-r from-orange-500 to-red-600 hover:brightness-110 active:scale-95 border border-orange-400/40 rounded-full text-white font-bold transition shadow-lg shadow-orange-900/40">
+          <button data-ap="quit-game" (click)="quitGame()" class="btn-sheen px-8 py-3.5 bg-gradient-to-r from-orange-500 to-red-600 hover:brightness-110 active:scale-95 border border-orange-400/40 rounded-full text-white font-bold transition shadow-lg shadow-orange-900/40">
             Return to Menu
           </button>
           </div>
@@ -1123,7 +1125,10 @@ export class GameComponent implements OnInit, OnDestroy {
   }
 
 
+  private autoplay = inject(AutoplayService);
+
   ngOnInit() {
+    this.autoplay.attachGame(this);
     this.isDead.set(false);
     this.gameEnded.set(false);
     this.reviveCount = 0;
@@ -4419,6 +4424,9 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   // interstitial. The AdsService enforces every cap and exemption. This is
   // never called from the death/revive flow.
   private finishRunForAds() {
+    // AI Autoplay: no ad flow of any kind while the tester drives the
+    // game (win, quit, death, realm transitions all land here).
+    if (AdGuard.isSuppressed()) return;
     if (this.runCountedForAds) return;
     this.runCountedForAds = true;
     this.adsService.onRunFinished();
@@ -5107,6 +5115,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
 
   ngOnDestroy() {
+    this.autoplay.detachGame(this);
     if (this.tapChainTimer) { clearTimeout(this.tapChainTimer); this.tapChainTimer = null; }
     if (this.timerInterval) clearInterval(this.timerInterval);
     this.spawner.stopSpawning();

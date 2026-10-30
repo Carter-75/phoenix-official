@@ -5,6 +5,7 @@ import { ADMOB_CONFIG, INTERSTITIAL_RULES, RewardedKind } from '../config/moneti
 import { GameStateService } from './game-state.service';
 import { AuthService } from './auth.service';
 import { IapService } from './iap.service';
+import { AdGuard } from '../autoplay/ad-guard';
 
 // Real AdMob ads via @capacitor-community/admob (audit 6.3/7.4). Before this
 // service existed, every "ad" in the game was a 2-second timer that granted
@@ -58,7 +59,11 @@ export class AdsService {
     try { localStorage.setItem(STATE_KEY, JSON.stringify(this.state)); } catch (e) { /* ignore */ }
   }
 
+  /** Central ad gate: true while the AI Autoplay tester (or any other guard reason) blocks every ad. */
+  public adsBlocked(): boolean { return AdGuard.isSuppressed(); }
+
   private async ensureInit(): Promise<boolean> {
+    if (AdGuard.isSuppressed()) return false;
     if (!Capacitor.isNativePlatform()) return false;
     if (this.initialized) return true;
     try {
@@ -72,6 +77,7 @@ export class AdsService {
   }
 
   public async showRewarded(kind: RewardedKind): Promise<boolean> {
+    if (AdGuard.isSuppressed()) return false;
     this.gameState.audio.pauseAudioForAd();
     try {
       if (!Capacitor.isNativePlatform()) {
@@ -90,6 +96,7 @@ export class AdsService {
           ? { userId: user._id, customData: SSV_KIND[kind] }
           : { customData: SSV_KIND[kind] }
       } as any);
+      if (AdGuard.isSuppressed()) return false;
       await AdMob.showRewardVideoAd();
       return true; // the promise resolves with the reward item when earned
     } catch (e) {
@@ -103,6 +110,7 @@ export class AdsService {
   // Call exactly once when a run ends (win or quit), before considering an
   // interstitial.
   public onRunFinished() {
+    if (AdGuard.isSuppressed()) return;
     this.state.runsCompleted++;
     this.saveState();
   }
@@ -116,6 +124,7 @@ export class AdsService {
   }
 
   public async maybeShowInterstitial(): Promise<boolean> {
+    if (AdGuard.isSuppressed()) return false;
     const generation = this.runGeneration;
     // Exemptions: Remove Ads owners and subscribers never see interstitials.
     if (this.gameState.hasRemoveAds()) return false;
@@ -134,6 +143,8 @@ export class AdsService {
       // Never on the Play path: a new run started while the ad
       // loaded, so drop it.
       if (generation !== this.runGeneration) return false;
+      // Autoplay may have started while the ad loaded: never show it.
+      if (AdGuard.isSuppressed()) return false;
       await AdMob.showInterstitial();
       this.state.lastInterstitialAt = Date.now();
       this.state.interstitialForRun = this.state.runsCompleted;

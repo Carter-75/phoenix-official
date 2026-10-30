@@ -3,6 +3,10 @@ import { CommonModule } from '@angular/common';
 import { AudioService } from '../../services/audio.service';
 import { MlAiService } from '../../services/ml-ai.service';
 import { GameStateService } from '../../services/game-state.service';
+import { AuthService } from '../../services/auth.service';
+import { AutoplayService } from '../../autoplay/autoplay.service';
+import { clientLooksLikeOwner } from '../../autoplay/autoplay-gate';
+import { AUTOPLAY_DURATIONS } from '../../autoplay/autoplay-intent';
 
 @Component({
   selector: 'app-settings',
@@ -181,6 +185,30 @@ import { GameStateService } from '../../services/game-state.service';
                 </div>
             </div>
             
+            @if (ap.allowed()) {
+            <div data-ui class="mt-6 p-3 rounded-2xl border border-orange-400/40 bg-black/40 text-left">
+                <div class="flex justify-between items-center mb-2">
+                    <h3 class="font-black text-orange-200">AI Autoplay (owner tester)</h3>
+                    <span class="text-xs text-white/60">{{ ap.status() }}{{ ap.flags()?.ai ? ' | AI: ' + ap.flags()?.model : ' | local parser' }}</span>
+                </div>
+                <textarea [value]="apPrompt()" (input)="apPrompt.set($any($event.target).value)" rows="3" placeholder="e.g. finish all realms in one run, normal mode, report bugs" class="w-full p-2 rounded-lg bg-zinc-900 text-white text-sm border border-white/15"></textarea>
+                <div class="flex items-center gap-2 mt-2 text-sm text-white/80">
+                    <label>Time</label>
+                    <input type="range" min="0" [max]="apDurations.length - 1" step="1" [value]="apDurIdx()" (input)="apDurIdx.set(+$any($event.target).value)" class="flex-1">
+                    <span class="w-16 text-right">{{ apDurations[apDurIdx()].label }}</span>
+                </div>
+                <div class="flex gap-2 mt-2">
+                    <button class="btn btn-primary press flex-1" [disabled]="ap.running() || !apPrompt().trim()" (click)="sendAutoplay()">Send</button>
+                    <button class="btn press flex-1 bg-red-700 text-white" [disabled]="!ap.running()" (click)="ap.stop()">Stop</button>
+                </div>
+                <div class="flex justify-between items-center mt-3 mb-1 text-xs text-white/60">
+                    <span>Output ({{ ap.output().length }} / 50000 chars)</span>
+                    <span class="flex gap-2"><button class="underline" (click)="copyAutoplay()">{{ apCopied() ? 'Copied' : 'Copy' }}</button><button class="underline" (click)="ap.clearOutput()">Clear</button></span>
+                </div>
+                <pre class="w-full h-48 overflow-y-auto whitespace-pre-wrap text-[11px] leading-snug p-2 rounded-lg bg-zinc-950 text-white/85 border border-white/10">{{ ap.output() || 'No output yet.' }}</pre>
+            </div>
+            }
+
             <button class="btn btn-primary btn-sheen press mt-8 w-full" (click)="close.emit()">DONE</button>
         </div>
     </div>
@@ -309,6 +337,23 @@ export class SettingsComponent {
   public gameState = inject(GameStateService);
   private mlAi = inject(MlAiService);
   @Output() close = new EventEmitter<void>();
+  public ap = inject(AutoplayService);
+  public apPrompt = signal('');
+  public apDurIdx = signal(7);
+  public apCopied = signal(false);
+  public readonly apDurations = AUTOPLAY_DURATIONS;
+
+  constructor() { if (clientLooksLikeOwner(inject(AuthService).currentUser() as any)) void this.ap.refreshFlags(); }
+
+  sendAutoplay() {
+    const d = this.apDurations[this.apDurIdx()];
+    this.close.emit();
+    void this.ap.start(this.apPrompt(), d.ms);
+  }
+
+  async copyAutoplay() {
+    try { await navigator.clipboard.writeText(this.ap.output()); this.apCopied.set(true); setTimeout(() => this.apCopied.set(false), 1500); } catch { }
+  }
 
   replayTutorial(): void {
     this.close.emit();
