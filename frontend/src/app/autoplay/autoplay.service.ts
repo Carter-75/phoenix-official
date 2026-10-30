@@ -21,7 +21,7 @@ import { TOUCH_DRAG_SCALE } from '../data/balance.constants';
 import { decide, Snapshot, Threat, Foe, Pt } from './autoplay-pilot';
 import { AttemptRecord, BossRecord, Telemetry, addFinding, newTelemetry } from './autoplay-report';
 import { autoplayAllowed, DevFlags } from './autoplay-gate';
-import { CHECK_SCREENS, Checklist, promptRealm, requiredScreens, unmetSubgoals } from './autoplay-agent';
+import { CHECK_SCREENS, Checklist, goalRealm, requiredScreens, unmetSubgoals } from './autoplay-agent';
 import { AgentAction, AgentApiError, AgentEnv, LlmRequest, ObsButton, Observation, StepResult, classifyCurrency, gemQuoteValid, gemsAllowedByPrompt, parseCost, runAgent, stepCapFor } from './autoplay-agent';
 
 const AD_REASON = 'autoplay';
@@ -163,7 +163,7 @@ export class AutoplayService {
     this.pilotTimer = setInterval(() => this.safePilot(), 60);
     this.status.set('Running (AI deciding)');
     this.steps.set(0);
-    let outcome: { report: string | null; endReason: string; steps: number; error?: string };
+    let outcome: { report: string | null; endReason: string; steps: number; error?: string; success?: boolean };
     try {
       outcome = await runAgent(prompt, (req) => { this.steps.update(n => n + 1); return this.callLlm(req); }, this.env(), {
         deadline: this.deadline, maxSteps: stepCapFor(sliderMs ?? null), reportMaxChars: REPORT_RESERVE_CHARS - 400,
@@ -176,7 +176,7 @@ export class AutoplayService {
     if (outcome.error) {
       this.out.setReport(`AUTOPLAY STOPPED: the AI planner is unavailable (${outcome.error}).\nNothing was decided locally; fix the backend AI (OPENAI_API_KEY / OPENAI_MODEL, rate limit) and try again.\nSteps taken: ${outcome.steps}.`);
       await this.finish(`AI API error (${outcome.error})`, null, outcome.steps);
-    } else await this.finish(this.stopReason || outcome.endReason, outcome.report, outcome.steps);
+    } else { this.tm.goalMet = !!outcome.success && !this.stopReason; this.tm.goalNote = outcome.endReason; await this.finish(this.stopReason || outcome.endReason, outcome.report, outcome.steps); }
   }
 
   private stopReason = '';
@@ -515,7 +515,7 @@ export class AutoplayService {
         if (gemsAllowedByPrompt(this.prompt) || (a.allowGems && a.gemQuote && gemQuoteValid(a.gemQuote, this.prompt))) this.gemPermitted = true;
         const apTag = el.getAttribute('data-ap');
         // Play taps go through start_run so the requested realm is enforced.
-        if (apTag === 'play' || apTag === 'play-battle') return this.execute({ action: 'start_run', mode: apTag === 'play-battle' ? 'battle' : (this.btn('mode-endless')?.getAttribute('aria-pressed') === 'true' ? 'endless' : 'campaign'), realm: promptRealm(this.prompt) ?? undefined });
+        if (apTag === 'play' || apTag === 'play-battle') return this.execute({ action: 'start_run', mode: apTag === 'play-battle' ? 'battle' : (this.btn('mode-endless')?.getAttribute('aria-pressed') === 'true' ? 'endless' : 'campaign'), realm: goalRealm(this.prompt) ?? undefined });
         this.clickEl(el);
         await sleep(700);
         const after = this.fingerprint();
@@ -591,7 +591,7 @@ export class AutoplayService {
           if (this.gs.activeScreen() !== 'menu') return { ok: false, note: `start_run could not reach the menu (on ${this.gs.activeScreen()}); try navigate menu` };
         }
         this.click('tutorial-decline'); await sleep(400);
-        const wantRealm = a.realm ?? promptRealm(this.prompt) ?? undefined;
+        const wantRealm = goalRealm(this.prompt) ?? a.realm ?? undefined;
         a = { ...a, realm: wantRealm };
         if (a.mode === 'battle') {
           if (!this.btn('play-battle')) { this.click('mode-battle'); await sleep(500); }
@@ -745,6 +745,9 @@ export class AutoplayService {
   private async playFor(seconds: number, until: 'time' | 'death' | 'run_end', abilities: boolean, aggression = 0.5): Promise<StepResult> {
     if (this.gs.activeScreen() !== 'game' || !this.game) return { ok: false, note: 'not in a run; use start_run first' };
     // until death means until death: a 1 s call can never get there.
+    // A die-on-purpose goal with no death yet always plays passive until death, whatever the AI asked.
+    const needDeath = unmetSubgoals(this.prompt, this.checklist()).some(x => x.startsWith('die:'));
+    if (needDeath) { until = 'death'; aggression = 0; }
     if (until === 'death') seconds = Math.max(seconds, 150);
     const t0 = Date.now(), deaths0 = this.attempt?.deaths ?? 0, cleared0 = this.tm.realmsCleared.length, realm0 = this.gs.selectedWorldIndex() + 1;
     const coins0 = this.gs.coins(), gems0 = this.gs.gems();

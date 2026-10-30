@@ -108,6 +108,36 @@ export function promptRealm(prompt: string): number | null {
   return n >= 1 && n <= 10 ? n : null;
 }
 
+/** Realm the goal requires at run start: the one the prompt names, else 1 for an all-realms / one-run goal, else none. */
+export function goalRealm(prompt: string): number | null {
+  const r = promptRealm(prompt);
+  if (r) return r;
+  return /\ball (?:10 |ten )?realms\b|\bevery realm\b|realms? 1\s*(?:-|to|through)\s*10/i.test(prompt) ? 1 : null;
+}
+
+const ranges = (xs: number[]) => {
+  const v = [...new Set(xs)].sort((a, b) => a - b), out: string[] = [];
+  for (let i = 0; i < v.length; i++) { let j = i; while (j + 1 < v.length && v[j + 1] === v[j] + 1) j++; out.push(i === j ? `${v[i]}` : `${v[i]}-${v[j]}`); i = j; }
+  return out.join(', ') || 'none';
+};
+
+/** Code-verified impossibility: the goal needs a realm that is locked. Null when the goal is possible. */
+export function realmRefusal(prompt: string, unlocked: number[]): string | null {
+  const r = goalRealm(prompt);
+  return r && !unlocked.includes(r) ? `Realm ${r} is locked; unlocked: ${ranges(unlocked)}` : null;
+}
+
+/** True when code can check the whole goal (it names a survival time, a death, all realms, the tutorial, or screens). */
+export function verifiableGoal(prompt: string): boolean {
+  const empty: Checklist = { visited: [], notVisited: [], deaths: 0, buys: 0, retriedAfterDeath: false, retriedAfterBuy: false, tutorialDone: false, tutorialPassed: 0, tutorialSkipped: 0, uiFindings: 0, bugs: 0, longestLifeSec: 0, realmsCleared: [], cleanSweep: false };
+  return unmetSubgoals(prompt, empty).length > 0;
+}
+
+/** Code verified every checkable piece of a checkable goal. */
+export function codeVerifiedMet(prompt: string, c: Checklist | undefined): boolean {
+  return !!c && verifiableGoal(prompt) && unmetSubgoals(prompt, c).length === 0;
+}
+
 export function unmetSubgoals(prompt: string, c: Checklist | undefined): string[] {
   if (!c) return [];
   const p = prompt.toLowerCase(), out: string[] = [];
@@ -195,7 +225,11 @@ export function singlePurchasePrompt(prompt: string): boolean {
 }
 
 export function railCheck(a: AgentAction, obs: Observation, prompt: string): string | null {
+  const gr = goalRealm(prompt);
+  if (gr && (a.action === 'select_realm' || a.action === 'start_run') && a.realm && a.realm !== gr)
+    return `the goal starts in realm ${gr}, not realm ${a.realm}`;
   if (a.action !== 'tap_button') return null;
+  if (gr && /unlock|realm-buy|buy-realm/i.test(a.id)) return 'never unlock or buy a realm; play the realm the goal names';
   const tb = obs.buttons.find(x => x.id === a.id);
   const isBuy = a.id.startsWith('buy-') || tb?.currency === 'coins' || tb?.currency === 'gems';
   if (isBuy && singlePurchasePrompt(prompt) && (obs.progress || []).some(p => /^- (?!PROBLEM)/.test(p)))
@@ -244,7 +278,7 @@ export function describeAction(a: AgentAction): string {
   }
 }
 
-export interface AgentOutcome { report: string | null; endReason: string; steps: number; error?: string; }
+export interface AgentOutcome { report: string | null; endReason: string; steps: number; error?: string; success?: boolean; }
 
 export interface AgentOptions {
   deadline: number | null; reportMaxChars: number;
@@ -274,6 +308,12 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
   const history: HistoryItem[] = [];
   let badReplies = 0, rateHits = 0, finalCall = false, step = 0, played = false, impossibleRejected = 0, apiRetries = 0;
   let lastKey = env.stateKey?.() ?? '', lastLabel = '', repeat = 0, noProgress = 0;
+  // Code-verified impossible goal: stop at once and count it as a correct refusal (never unlock, buy, or swap realms).
+  const refusal = realmRefusal(prompt, env.observe().unlockedRealms || []);
+  if (refusal) {
+    env.log('safety', `Goal is impossible: ${refusal}. Stopping without playing (correct refusal).`);
+    return { report: `Correctly refused: ${refusal}. Nothing was unlocked, bought, or played in another realm.`, endReason: `Success (correctly refused): ${refusal}`, steps: 0, success: true };
+  }
   while (step < maxSteps) {
     step++;
     if (opt.shouldStop?.()) return { report: null, endReason: 'Stopped by tester', steps: step - 1 };
@@ -347,11 +387,20 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
         continue;
       }
     }
+    if (a.action === 'finish' && a.outcome !== 'goal_met' && codeVerifiedMet(prompt, obs.checklist)) {
+      env.log('safety', `AI said ${a.outcome || 'nothing'}, but code verified every part of the goal; recording goal_met.`);
+      a.outcome = 'goal_met';
+    }
     if (a.action === 'finish') {
       env.log('ai', `AI finished the session (${a.outcome || 'time limit'}${a.reason ? `: ${a.reason}` : ''}).`);
-      return { report: a.report.slice(0, opt.reportMaxChars), endReason: 'AI finished', steps: step };
+      const ref = a.outcome === 'impossible' ? realmRefusal(prompt, obs.unlockedRealms || []) : null;
+      if (ref) return { report: `Correctly refused: ${ref}.\n${a.report}`.slice(0, opt.reportMaxChars), endReason: `Success (correctly refused): ${ref}`, steps: step, success: true };
+      return { report: a.report.slice(0, opt.reportMaxChars), endReason: 'AI finished', steps: step, success: a.outcome === 'goal_met' };
     }
-    if (finalCall) return { report: null, endReason: 'Time limit reached without finish', steps: step };
+    if (finalCall) {
+      if (codeVerifiedMet(prompt, env.observe().checklist)) return { report: 'Goal verified by code at the time limit.', endReason: 'Goal met (code-verified)', steps: step, success: true };
+      return { report: null, endReason: 'Time limit reached without finish', steps: step };
+    }
     const blocked = railCheck(a, obs, prompt);
     const label = describeAction(a);
     if (blocked) {
@@ -365,6 +414,10 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
     try { res = await env.execute(a); } catch (e: any) { res = { ok: false, note: `executor error: ${String(e?.message || e).slice(0, 160)}` }; }
     env.log(res.ok ? 'done' : 'failed', `${label} -> ${res.note}`);
     history.push({ step, action: label, ok: res.ok, note: res.note.slice(0, 300) });
+    if (/surviv/i.test(prompt) && codeVerifiedMet(prompt, env.observe().checklist)) {
+      env.log('safety', 'Code verified the survival goal; ending as goal_met.');
+      return { report: 'Survival goal verified by code (one continuous life long enough).', endReason: 'Goal met (code-verified)', steps: step, success: true };
+    }
     const key = env.stateKey?.() ?? '';
     const progressed = key !== lastKey;
     lastKey = key;

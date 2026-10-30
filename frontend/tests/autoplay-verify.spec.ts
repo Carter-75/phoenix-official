@@ -36,3 +36,40 @@ describe('agent loop', () => {
     expect(logs.join(' ')).toMatch(/recording goal_met/);
   });
 });
+
+import { goalRealm, realmRefusal, railCheck } from '../src/app/autoplay/autoplay-agent';
+describe('realm rules', () => {
+  it('starts in the named realm, else realm 1 for an all-realms goal', () => {
+    expect(goalRealm('survive 1 minute in realm 2')).toBe(2);
+    expect(goalRealm('clear all realms in one run with no deaths')).toBe(1);
+    expect(goalRealm('buy one upgrade')).toBeNull();
+  });
+  it('a locked realm is a code-verified refusal with a clear reason', () => {
+    expect(realmRefusal('play realm 5', [1, 2, 3])).toBe('Realm 5 is locked; unlocked: 1-3');
+    expect(realmRefusal('play realm 3', [1, 2, 3])).toBeNull();
+  });
+  it('blocks switching to a different realm or unlocking one', () => {
+    const obs: any = { buttons: [], checklist: undefined };
+    expect(railCheck({ action: 'start_run', mode: 'campaign', realm: 1 }, obs, 'survive in realm 2')).toMatch(/realm 2/);
+    expect(railCheck({ action: 'start_run', mode: 'campaign', realm: 2 }, obs, 'survive in realm 2')).toBeNull();
+  });
+  it('the agent stops at once on a locked realm and counts it as success', async () => {
+    const logs: string[] = [];
+    let called = 0;
+    const out = await runAgent('survive 1 minute in realm 5', async () => { called++; return { action: 'wait', seconds: 1 }; },
+      { observe: () => ({ screen: 'menu', unlockedRealms: [1, 2, 3], buttons: [] }), execute: async () => ({ ok: true, note: '' }), log: (_k: string, m: string) => logs.push(m), now: () => 0 } as any,
+      { deadline: null, reportMaxChars: 500, sleep: async () => {} } as any);
+    expect(called).toBe(0);
+    expect(out.success).toBe(true);
+    expect(out.endReason).toBe('Success (correctly refused): Realm 5 is locked; unlocked: 1-3');
+  });
+});
+
+import { codeVerifiedMet } from '../src/app/autoplay/autoplay-agent';
+describe('code-verified outcome', () => {
+  it('a checkable goal met by code counts even if the AI said impossible', () => {
+    expect(codeVerifiedMet('survive 1 minute in realm 3', ck({ longestLifeSec: 68, deaths: 1 }))).toBe(true);
+    expect(codeVerifiedMet('survive 1 minute in realm 3', ck({ longestLifeSec: 40 }))).toBe(false);
+    expect(codeVerifiedMet('buy one upgrade with coins', ck({ buys: 1 }))).toBe(false); // not code-checkable, the AI must finish
+  });
+});
