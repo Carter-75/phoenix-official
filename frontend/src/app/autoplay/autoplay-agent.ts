@@ -32,6 +32,7 @@ export interface Checklist {
   retriedAfterDeath: boolean; retriedAfterBuy: boolean;
   tutorialDone: boolean; tutorialPassed: number; tutorialSkipped: number;
   uiFindings: number; bugs: number;
+  longestLifeSec?: number; realmsCleared?: number[]; cleanSweep?: boolean;
 }
 
 export interface Observation {
@@ -116,6 +117,19 @@ export function unmetSubgoals(prompt: string, c: Checklist | undefined): string[
   if (die && c.deaths < 1) out.push('die: no death recorded yet (start_run, then play until death with aggression 0 so the pilot stops dodging)');
   if (die && buy && c.buys < 1) out.push('buy: no verified purchase yet (navigate shop, tap a buy- button you can afford)');
   if (retry && !(buy ? c.retriedAfterBuy : c.retriedAfterDeath)) out.push(buy ? 'retry: no run started after the purchase yet (start_run)' : 'retry: no run started after the death yet (start_run)');
+  const sv = p.match(/surviv\w*\s+(?:for\s+)?(\d+(?:\.\d+)?)\s*(m|min|mins|minutes?|s|sec|secs|seconds?)\b/);
+  if (sv) {
+    const need = Math.round(parseFloat(sv[1]) * (sv[2].startsWith('m') ? 60 : 1));
+    if ((c.longestLifeSec ?? 0) < need) out.push(`survive: longest continuous life is ${c.longestLifeSec ?? 0} s, need ${need} s in one life (a death resets it; start_run and play until time)`);
+  }
+  const noDeath = /no deaths?|without dying|don.t die|zero deaths/.test(p);
+  const allRealms = /all (?:10|ten) realms|realms? 1\s*(?:-|to|through)\s*10|every realm/.test(p);
+  if (allRealms) {
+    const cl = c.realmsCleared ?? [];
+    const miss = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].filter(r => !cl.includes(r));
+    if (miss.length) out.push(`realms: not cleared yet: ${miss.join(', ')}`);
+    if (noDeath && !c.cleanSweep) out.push(`no deaths: realms 1-10 have not been cleared in one run with 0 deaths (deaths so far ${c.deaths})`);
+  } else if (noDeath && c.deaths > 0) out.push(`no deaths: ${c.deaths} death(s) recorded`);
   if (/tutorial/.test(p) && !c.tutorialDone) out.push('tutorial: not completed (navigate tutorial, then play until it returns to the menu)');
   const need = requiredScreens(prompt).filter(x => !c.visited.includes(x));
   if (need.length) out.push(`screens not visited yet: ${need.join(', ')} (navigate each once)`);
@@ -137,6 +151,8 @@ export interface LlmRequest { prompt: string; observation: Observation; history:
 export type LlmCall = (req: LlmRequest) => Promise<unknown>;
 
 export const MAX_STEPS = 80;
+/** Transient AI errors (bad JSON, network, 5xx) retried with backoff before stopping. */
+export const API_RETRIES = 4;
 export const HISTORY_KEEP = 14;
 export const MAX_PLAY_SECONDS = 600;
 
@@ -256,7 +272,7 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
   const maxSteps = opt.maxSteps ?? MAX_STEPS;
   const sleep = opt.sleep ?? ((ms: number) => new Promise<void>(r => setTimeout(r, ms)));
   const history: HistoryItem[] = [];
-  let badReplies = 0, rateHits = 0, finalCall = false, step = 0, played = false, impossibleRejected = 0;
+  let badReplies = 0, rateHits = 0, finalCall = false, step = 0, played = false, impossibleRejected = 0, apiRetries = 0;
   let lastKey = env.stateKey?.() ?? '', lastLabel = '', repeat = 0, noProgress = 0;
   while (step < maxSteps) {
     step++;
@@ -272,9 +288,16 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
     try {
       raw = await llm({ prompt, observation: obs, history: history.slice(-HISTORY_KEEP), step,
         maxSteps: Number.isFinite(maxSteps) ? maxSteps : 0, reportMaxChars: opt.reportMaxChars });
-      rateHits = 0;
+      rateHits = 0; apiRetries = 0;
     } catch (e: any) {
       const code = e instanceof AgentApiError ? e.code : String(e?.message || e || 'request_failed').slice(0, 80);
+      if (code !== 'rate_limited' && code !== 'no_key' && apiRetries < API_RETRIES) {
+        apiRetries++; step--;
+        const ms = 1500 * 2 ** (apiRetries - 1);
+        env.log('wait', `AI request failed (${code}); retry ${apiRetries} of ${API_RETRIES} in ${ms / 1000} s.`);
+        await sleep(ms);
+        continue;
+      }
       if (code === 'rate_limited' && rateHits < RATE_LIMIT_RETRIES) {
         rateHits++; step--;
         env.log('wait', `AI rate limit reached; waiting ${RATE_LIMIT_BACKOFF_MS / 1000} s.`);
@@ -297,6 +320,10 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
       history.push({ step, action: 'finish', ok: false, note: 'REJECTED: you are autonomous and must never ask the tester anything. Keep working toward the goal. Only finish with outcome "goal_met", or "impossible" plus a reason.' });
       continue;
     }
+    if (a.action === 'finish' && a.outcome === 'impossible' && !GAMEPLAY_RE.test(prompt) && requiredScreens(prompt).length && !unmetSubgoals(prompt, obs.checklist).length) {
+      env.log('safety', 'AI called the goal impossible, but code verified every required screen was visited; recording goal_met.');
+      a.outcome = 'goal_met'; a.reason = 'code-verified: every required screen visited';
+    }
     if (a.action === 'finish' && !finalCall && impossibleRejected < 3 && a.outcome === 'impossible' && (GAMEPLAY_RE.test(prompt) || requiredScreens(prompt).some(x => !(obs.checklist?.visited || []).includes(x)))) {
       impossibleRejected++;
       env.log('safety', 'AI called a gameplay goal impossible; asking it to retry once (a death or empty wallet is not impossible).');
@@ -308,8 +335,12 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
       history.push({ step, action: 'finish', ok: false, note: 'REJECTED: the prompt is a gameplay goal and it is not done yet (no run played, or the run is still live). Use start_run and play. Use play (until run_end or death). If the phoenix is down, tap give-up, then shop/upgrade and start_run again as the prompt says.' });
       continue;
     }
-    if (a.action === 'finish' && !finalCall && a.outcome === 'goal_met') {
+    if (a.action === 'finish' && a.outcome === 'goal_met') {
       const unmet = unmetSubgoals(prompt, obs.checklist);
+      if (unmet.length && finalCall) {
+        env.log('safety', `AI claimed goal_met at the time limit but code has not verified: ${unmet.join('; ')}. Not counted as met.`);
+        return { report: a.report.slice(0, opt.reportMaxChars), endReason: `Time limit reached; goal NOT verified (${unmet.join('; ')})`, steps: step };
+      }
       if (unmet.length) {
         env.log('safety', `AI claimed goal_met but code has not verified: ${unmet.join('; ')}. Continuing.`);
         history.push({ step, action: 'finish', ok: false, note: `REJECTED: not verified by code yet: ${unmet.join('; ')}` });

@@ -216,7 +216,7 @@ export class MlAiService {
             for (const exp of negativeExps.slice(0, positiveExps.length)) {
                 inputs.push(this.stateToArray(exp.state));
                 outputs.push(meanPositiveAction);
-                sampleWeights.push(0.1); // Weak gradient — don't overpower positive learning
+                sampleWeights.push(0.1); // Weak gradient, don't overpower positive learning
             }
         }
 

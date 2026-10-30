@@ -108,7 +108,7 @@ export class AutoplayService {
   private tut: any = null;
   private visited = new Set<string>();
   private passive = false;
-  private ck = { deaths: 0, buys: 0, lastDeathAt: 0, lastBuyAt: 0, runAfterDeath: false, runAfterBuy: false, tutorialDone: false, tutPassed: [] as string[], tutSkipped: [] as string[], runRealms: [] as number[], abil: {} as Record<string, number>, escapes: {} as Record<string, number> };
+  private ck = { deaths: 0, buys: 0, lastDeathAt: 0, lastBuyAt: 0, runAfterDeath: false, runAfterBuy: false, tutorialDone: false, tutPassed: [] as string[], tutSkipped: [] as string[], runRealms: [] as number[], lifeMs: 0, lastAliveAt: 0, longestLifeMs: 0, cleanSweep: false, abil: {} as Record<string, number>, escapes: {} as Record<string, number> };
 
   /** Screen name for the checklist: overlays (settings, pause, KO) count as their own screens. */
   screenName(): string {
@@ -126,11 +126,12 @@ export class AutoplayService {
       retriedAfterDeath: this.ck.runAfterDeath, retriedAfterBuy: this.ck.runAfterBuy,
       tutorialDone: this.ck.tutorialDone, tutorialPassed: this.ck.tutPassed.length, tutorialSkipped: this.ck.tutSkipped.length,
       uiFindings: this.tm.ui.length, bugs: this.tm.bugs.length,
+      longestLifeSec: Math.floor(this.ck.longestLifeMs / 1000), realmsCleared: [...new Set(this.tm.realmsCleared)].sort((a, b) => a - b), cleanSweep: this.ck.cleanSweep,
     };
   }
 
-  attachGame(g: any) { this.game = g; this.inGameAt = Date.now(); this.lastHp = 0; }
-  detachGame(g: any) { if (this.game === g) { this.releaseFingers(); this.game = null; } }
+  attachGame(g: any) { this.endLife(); this.game = g; this.inGameAt = Date.now(); this.lastHp = 0; }
+  detachGame(g: any) { if (this.game === g) { this.endLife(); this.releaseFingers(); this.game = null; } }
 
   // ---------- lifecycle ----------
   async start(prompt: string, sliderMs: number | null) {
@@ -147,7 +148,7 @@ export class AutoplayService {
     this.playing = false;
     this.events = []; this.ledger = []; this.model = '';
     this.visited = new Set(); this.passive = false;
-    this.ck = { deaths: 0, buys: 0, lastDeathAt: 0, lastBuyAt: 0, runAfterDeath: false, runAfterBuy: false, tutorialDone: false, tutPassed: [], tutSkipped: [], runRealms: [], abil: {}, escapes: {} };
+    this.ck = { deaths: 0, buys: 0, lastDeathAt: 0, lastBuyAt: 0, runAfterDeath: false, runAfterBuy: false, tutorialDone: false, tutPassed: [], tutSkipped: [], runRealms: [], lifeMs: 0, lastAliveAt: 0, longestLifeMs: 0, cleanSweep: false, abil: {}, escapes: {} };
     this.tm = newTelemetry(Date.now());
     this.out.setStart(this.tm.startedAt);
     const user: any = this.auth.currentUser();
@@ -814,6 +815,7 @@ export class AutoplayService {
     this.trackHp(g);
     this.checkState(g, now);
     if (g.gameEnded() && g.gameWon()) {
+      this.endLife();
       if (this.attempt?.result === 'running') {
         if (this.gs.currentGameMode() === 'battle') { this.tm.battle.matches++; this.tm.battle.wins++; this.event('battle won'); }
         else this.onRealmCleared(realmIdx);
@@ -826,13 +828,22 @@ export class AutoplayService {
       return;
     }
     this.sawDead = false;
+    // One continuous life: alive, unpaused game time since the last death or run start.
+    if (!this.gs.isPaused() && !g.gameEnded()) {
+      if (this.ck.lastAliveAt && now - this.ck.lastAliveAt < 1000) this.ck.lifeMs += now - this.ck.lastAliveAt;
+      this.ck.lastAliveAt = now;
+      this.ck.longestLifeMs = Math.max(this.ck.longestLifeMs, this.ck.lifeMs);
+    } else this.ck.lastAliveAt = 0;
     // Only while the AI handed over flight: a pause would stall the pilot.
     if (this.playing && this.gs.isPaused()) this.click('pause-toggle', 'Game was paused during play; resumed.');
   }
 
+  private endLife() { this.ck.lifeMs = 0; this.ck.lastAliveAt = 0; }
+
   private onRealmCleared(idx: number) {
     if (this.clearedThisAttempt.includes(idx + 1)) return;
     this.clearedThisAttempt.push(idx + 1);
+    if (this.attempt && this.attempt.deaths === 0 && [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].every(r => this.clearedThisAttempt.includes(r))) this.ck.cleanSweep = true;
     this.tm.realmsCleared.push(idx + 1);
     this.event(`realm ${idx + 1} cleared`);
     this.log('progress', `Realm ${idx + 1} cleared.`);
@@ -857,7 +868,7 @@ export class AutoplayService {
     const realm = this.gs.selectedWorldIndex() + 1;
     const g = this.game;
     const cause = `realm ${realm} ${g?.bossSpawned?.() ? `boss (${g.bossPhase()})` : 'survive phase'}: ${this.lastHitCause || 'unknown hit'}`;
-    this.ck.deaths++; this.ck.lastDeathAt = Date.now();
+    this.ck.deaths++; this.ck.lastDeathAt = Date.now(); this.endLife();
     if (this.attempt) { this.attempt.deaths++; this.attempt.causes.push(cause); }
     if (g?.bossSpawned?.()) this.boss(realm).deaths++;
     this.event(`died: ${cause}`);

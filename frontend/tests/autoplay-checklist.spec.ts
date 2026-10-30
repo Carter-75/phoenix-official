@@ -17,7 +17,9 @@ describe('sub-goal verifier', () => {
     expect(unmetSubgoals(p, ck({ deaths: 1, buys: 1, retriedAfterBuy: true }))).toEqual([]);
   });
   it('no deaths prompts do not require a death', () => {
-    expect(unmetSubgoals('speed-run all 10 realms with no deaths, upgrade on death', ck())).toEqual([]);
+    const u = unmetSubgoals('speed-run all 10 realms with no deaths, upgrade on death', ck());
+    expect(u.some(x => /^die/.test(x))).toBe(false);
+    expect(u.some(x => /^realms/.test(x))).toBe(true);
   });
   it('tutorial needs completion', () => {
     expect(unmetSubgoals('test the tutorial', ck()).length).toBe(1);

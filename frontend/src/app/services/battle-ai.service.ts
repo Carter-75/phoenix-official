@@ -5,9 +5,9 @@ import { ABILITIES } from '../constants/game.constants';
 import { ABILITY_UPGRADE_GROWTH } from '../data/balance.constants';
 
 export interface AiPersonality {
-    aggression: number;    // [0.7, 1.3] — fire rate and damage weight bias
-    caution: number;       // [0.7, 1.3] — health and speed weight bias
-    creativity: number;    // [0.7, 1.3] — ML noise and ability usage variance
+    aggression: number;    // [0.7, 1.3]: fire rate and damage weight bias
+    caution: number;       // [0.7, 1.3]: health and speed weight bias
+    creativity: number;    // [0.7, 1.3]: ML noise and ability usage variance
 }
 
 export interface AiState {
@@ -329,7 +329,7 @@ export class BattleAiService {
             }
         }
         
-        // Multiplicative weight decay with floor — creates more diverse builds than linear
+        // Multiplicative weight decay with floor, creates more diverse builds than linear
         state.upgradesWeights[selectedOpt] = Math.max(15, (state.upgradesWeights[selectedOpt] || 100) * 0.6);
 
         // Apply personality bias to relevant weights

@@ -1,4 +1,4 @@
-# Phoenix-Fall — Mobile / Best-Practices Audit & Fixes (Phoenix 🐦‍🔥)
+# Phoenix-Fall: Mobile / Best-Practices Audit & Fixes (Phoenix 🐦‍🔥)
 
 ## Findings & fixes
 
@@ -23,13 +23,13 @@
      `touch-action:pan-y; overscroll-behavior:contain; -webkit-overflow-scrolling:touch`.
    - `button/a/input/...`: `touch-action:manipulation` (kills 300ms tap delay, keeps taps).
    - `.safe-area` helper using `env(safe-area-inset-*)` for notch-safe UI chrome.
-   - Deliberately did NOT pad `app-root` — the Three.js canvas must map 1:1 to `window` coords
+   - Deliberately did NOT pad `app-root`, the Three.js canvas must map 1:1 to `window` coords
      the physics engine uses, or touch→physics mapping would drift.
 
 4. **Listener leaks** in `particle-bg`: `removeEventListener(fn.bind(this))` created NEW refs each
    call, so listeners were never removed (duplicate listeners on component recreate). FIX: store
    bound handlers once (`boundResize/boundMouseMove/boundTouchMove`) and use them for add+remove.
-   (game.component already used stored bound refs — OK.)
+   (game.component already used stored bound refs, OK.)
 
 5. **In-game touchmove** now `preventDefault()`s only while `activeScreen==='game'` and when the
    event is cancelable, so menu scrolling/buttons still work.
