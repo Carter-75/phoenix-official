@@ -514,8 +514,8 @@ import { CommonModule } from '@angular/common';
       @if (activeTab() === 'abilities') {
          <!-- Loadout: the four equip slots (spec Section 3.2). One move
               per family; equipping happens on each move's card. The
-              double and triple pools arrive in later stages, so those
-              slots read Empty until their families ship. -->
+              tap and hold slots show the starter kit (Burst and Aura)
+              until something else is equipped. -->
          <div class="w-full max-w-5xl mb-4 bg-white/5 border border-white/10 rounded-2xl p-3 animate-fade-in">
             <div class="text-xs font-bold text-white/50 uppercase tracking-widest mb-3">Loadout</div>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1234,7 +1234,7 @@ export class ShopComponent implements OnInit {
   // loadout strip (spec Section 3.2).
   get loadoutSlots() {
       const stats = this.gameState.currentStats();
-      const nameOf = (id: string | null) => id ? (ABILITIES[id]?.name || id) : 'Empty';
+      const nameOf = (id: string | null) => id ? (ABILITIES[id]?.name || id) : 'None equipped';
       return [
           { family: 'tap', label: 'Tap', name: nameOf(stats.activeTapAbility) },
           { family: 'double', label: 'Double-Tap', name: nameOf(stats.activeDoubleAbility) },

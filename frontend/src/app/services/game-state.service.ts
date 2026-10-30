@@ -312,6 +312,14 @@ export class GameStateService {
       if (prefShake === 'reduced' || prefShake === 'off') this.screenShakeSetting.set(prefShake);
       const prefDmg = this.storage.getItem('phoenix_pref_damage_numbers');
       if (prefDmg !== null) this.damageNumbersEnabled.set(prefDmg !== '0');
+      // Selected realm (device preference): restored before any menu
+      // reads it, and saved whenever it changes, including when a
+      // boss kill chains the run into the next realm.
+      const prefWorld = parseInt(this.storage.getItem('phoenix_selected_world') ?? '', 10);
+      if (Number.isInteger(prefWorld) && prefWorld >= 0 && prefWorld <= 9) this.selectedWorldIndex.set(prefWorld);
+      effect(() => {
+          this.storage.setItem('phoenix_selected_world', String(this.selectedWorldIndex()));
+      });
 
       this.router.events.subscribe(event => {
           if (event instanceof NavigationEnd) {
@@ -439,6 +447,7 @@ export class GameStateService {
               unlockedWorlds: this.unlockedWorlds(),
               beatenWorlds: this.beatenWorlds(),
               modeRecords: this.modeRecords(),
+              selectedWorldIndex: this.selectedWorldIndex(),
               worldUpgrades: this.worldUpgrades(),
               coinMultiplier: this.coinMultiplier(),
               xpMultiplier: this.xpMultiplier(),
@@ -518,10 +527,17 @@ export class GameStateService {
 
   public currentStats = computed(() => {
       const stats = this.worldUpgrades()[this.selectedWorldIndex()];
-      return { 
-          ...BASE_STATS, 
-          ...stats,
-          unlockedAbilities: { ...BASE_STATS.unlockedAbilities, ...(stats?.unlockedAbilities || {}) }
+      // Starter kit: every realm runs Burst on tap and Aura on hold
+      // until the player equips something else (the same defaults
+      // World 1 ships with and the battle rival falls back to), so
+      // the shop loadout, the HUD, and gameplay all read one truth.
+      const starter = WORLD_0_STATS.unlockedAbilities;
+      const merged = { ...BASE_STATS, ...stats } as WorldStats;
+      return {
+          ...merged,
+          activeTapAbility: merged.activeTapAbility || 'burst',
+          activeHoldAbility: merged.activeHoldAbility || 'aura',
+          unlockedAbilities: { ...BASE_STATS.unlockedAbilities, ...starter, ...(stats?.unlockedAbilities || {}) }
       };
   });
 
