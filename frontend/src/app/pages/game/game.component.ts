@@ -512,10 +512,8 @@ export class GameComponent implements OnInit, OnDestroy {
   public bossTelegraphShowing(): boolean { return this.bossFight.bossTelegraphShowing(); }
   public tickBossRig(boss: Matter.Body, data: EnemyData, st: BossFightState, deltaSec: number) { return this.bossFight.tickBossRig(boss, data, st, deltaSec); }
   public bossAshen(st: BossFightState): boolean { return this.bossFight.bossAshen(st); }
-  public startSingularity(boss: Matter.Body, data: EnemyData, st: BossFightState) { return this.bossFight.startSingularity(boss, data, st); }
   public bossShardRingUp(st: BossFightState): boolean { return this.bossFight.bossShardRingUp(st); }
   public startSignature(boss: Matter.Body, data: EnemyData, st: BossFightState) { return this.bossFight.startSignature(boss, data, st); }
-  public fireSignature(boss: Matter.Body, data: EnemyData, st: BossFightState) { return this.bossFight.fireSignature(boss, data, st); }
   public endSignature(st: BossFightState) { return this.bossFight.endSignature(st); }
   public tickSignature(boss: Matter.Body, data: EnemyData, st: BossFightState) { return this.bossFight.tickSignature(boss, data, st); }
   public summonBossMinions(boss: Matter.Body) { return this.bossFight.summonBossMinions(boss); }
@@ -1106,6 +1104,9 @@ export class GameComponent implements OnInit, OnDestroy {
     this.reviveCount = 0;
     this.adRevivesUsed = 0;
     this.runCountedForAds = false;
+    // A run is starting: any interstitial still loading from the last
+    // run end is dropped, so Play never shows a fullscreen ad.
+    this.adsService.onRunStarted();
     this.bossSpawned.set(false);
     this.bossWarningVisible.set(false);
     this.bossEnraged.set(false);
@@ -2693,9 +2694,9 @@ export class GameComponent implements OnInit, OnDestroy {
             desiredX = (dx / dist) * 2.2 * LU;
             desiredY = (dy / dist) * 2.2 * LU;
             blendK = 10;
-          } else if (bst.sig && bst.sig.id === 'emperors_breath' && bst.sig.phase === 'active') {
-            // The Emperor holds and breathes; the cone does the
-            // moving (its sweep is capped in the signature tick).
+          } else if (bst.sig?.data?.hold) {
+            // Channelled signatures (beams, breath, scythe, rings)
+            // hold the boss still so the telegraphs stay anchored.
             desiredX = 0; desiredY = 0; blendK = 4;
           } else if (bossDefFor(bst.worldIndex).movement === 'passes') {
             // Dragon Emperor sheet: slow heavy passes across the
@@ -3455,132 +3456,7 @@ export class GameComponent implements OnInit, OnDestroy {
                       attackCharge: Math.max(0, Math.min(1, frac))
                   });
               }
-              const sig = st.sig;
-              if (sig) {
-                  const charge = sig.phase === 'telegraph'
-                      ? Math.min(1, Math.max(0, (st.fightSec - sig.startSec) / sig.telegraphSec)) : 1;
-                  if (sig.id === 'flame_ring') {
-                      entities.push({
-                          id: data.id + ':ring', x: sig.data.cx, y: sig.data.cy,
-                          type: 'boss_ring', size: sig.data.ringR, attackCharge: charge
-                      });
-                      sig.data.pillars.forEach((p: any, i: number) => {
-                          entities.push({
-                              id: data.id + ':pillar' + i, x: p.x, y: p.y,
-                              type: 'boss_pillar', size: 36, attackCharge: charge
-                          });
-                      });
-                  } else if (sig.id === 'shadow_split' && sig.phase === 'active') {
-                      sig.data.copies.forEach((c: any, i: number) => {
-                          entities.push({
-                              id: data.id + ':copy' + i, x: c.x, y: c.y,
-                              type: 'boss_shadow', size: bossR, attackCharge: 0.5
-                          });
-                      });
-                  } else if (sig.id === 'shard_fan' && sig.phase === 'active' && sig.data.ringUp) {
-                      for (let i = 0; i < 6; i++) {
-                          const a = st.fightSec * 0.9 + (i / 6) * Math.PI * 2;
-                          const rr = bossR + 48 * this.speedScale;
-                          entities.push({
-                              id: data.id + ':shard' + i,
-                              x: body.position.x + Math.cos(a) * rr,
-                              y: body.position.y + Math.sin(a) * rr,
-                              type: 'boss_shard', size: 36, attackCharge: 0.8
-                          });
-                      }
-                  } else if (sig.id === 'storm_call') {
-                      sig.data.columns.forEach((c: any, i: number) => {
-                          entities.push({
-                              id: data.id + ':col' + i, x: c.x, y: window.innerHeight / 2,
-                              type: 'boss_column', size: window.innerHeight / 2, attackCharge: charge
-                          });
-                      });
-                  } else if (sig.id === 'harvest_arc') {
-                      sig.data.arcs.forEach((arc: any, i: number) => {
-                          entities.push({
-                              id: data.id + ':arc' + i, x: sig.data.cx, y: sig.data.cy,
-                              type: 'boss_arc', size: sig.data.radius, attackCharge: charge,
-                              facing: arc.ang
-                          });
-                      });
-                  } else if (sig.id === 'royal_decree') {
-                      // Stage 10: the crown flare ring during the
-                      // telegraph, and the locked dash line for the
-                      // whole wind-up between the fan and the dash.
-                      if (sig.phase === 'telegraph') {
-                          entities.push({
-                              id: data.id + ':crown', x: body.position.x, y: body.position.y,
-                              type: 'boss_ring', size: 0.12 * this.logicalUnit, attackCharge: charge
-                          });
-                      }
-                      if (sig.data.dashState === 'windup') {
-                          const dx = sig.data.dashTx - body.position.x, dy = sig.data.dashTy - body.position.y;
-                          entities.push({
-                              id: data.id + ':dashline', x: body.position.x + dx / 2, y: body.position.y + dy / 2,
-                              type: 'boss_line', size: Math.max(1, Math.hypot(dx, dy) / 2), attackCharge: 0.9,
-                              facing: Math.atan2(dy, dx)
-                          });
-                      }
-                  } else if (sig.id === 'frozen_court') {
-                      // Each ring publishes while it draws (charge =
-                      // draw progress) and while it stands solid
-                      // (charge 1), on the locked court center.
-                      sig.data.rings.forEach((r: any, i: number) => {
-                          let c = -1;
-                          if (sig.phase === 'telegraph') {
-                              if (i === 0) c = charge;
-                          } else if (st.fightSec >= r.drawAtSec && st.fightSec <= r.untilSec) {
-                              c = st.fightSec >= r.solidAtSec ? 1 : Math.min(1, Math.max(0, (st.fightSec - r.drawAtSec) / sig.data.drawSec));
-                          }
-                          if (c >= 0) {
-                              entities.push({
-                                  id: data.id + ':frostring' + i, x: sig.data.cx, y: sig.data.cy,
-                                  type: 'boss_ring', size: r.r, attackCharge: c
-                              });
-                          }
-                      });
-                  } else if (sig.id === 'emperors_breath') {
-                      entities.push({
-                          id: data.id + ':cone', x: body.position.x, y: body.position.y,
-                          type: 'boss_cone', size: sig.data.coneLen, attackCharge: charge,
-                          facing: sig.data.coneAng
-                      });
-                  } else if (sig.id === 'chaos_roulette') {
-                      // The announcement halo; the pattern's color
-                      // itself rides the boss entity's wash field.
-                      if (sig.phase === 'telegraph') {
-                          entities.push({
-                              id: data.id + ':halo', x: body.position.x, y: body.position.y,
-                              type: 'boss_ring', size: bossR * 1.18, attackCharge: charge
-                          });
-                      }
-                  } else if (sig.id === 'singularity') {
-                      const d = sig.data;
-                      if (d.kind === 'burst' && sig.phase === 'telegraph') {
-                          entities.push({
-                              id: data.id + ':bursttele', x: body.position.x, y: body.position.y,
-                              type: 'boss_ring', size: 0.30 * this.logicalUnit, attackCharge: charge
-                          });
-                      } else if (d.kind === 'drill' && sig.phase === 'telegraph') {
-                          const dx = d.dashTx - body.position.x, dy = d.dashTy - body.position.y;
-                          entities.push({
-                              id: data.id + ':drillline', x: body.position.x + dx / 2, y: body.position.y + dy / 2,
-                              type: 'boss_line', size: Math.max(1, Math.hypot(dx, dy) / 2), attackCharge: charge,
-                              facing: Math.atan2(dy, dx)
-                          });
-                      } else if (d.kind === 'aura' && sig.phase === 'active') {
-                          entities.push({
-                              id: data.id + ':aura', x: body.position.x, y: body.position.y,
-                              type: 'boss_ring', size: 0.34 * this.logicalUnit, attackCharge: 0.7
-                          });
-                      } else if (d.kind === 'singularity' && sig.phase === 'telegraph') {
-                          entities.push({
-                              id: data.id + ':sing', x: body.position.x, y: body.position.y,
-                              type: 'boss_ring', size: Math.max(8, 0.40 * this.logicalUnit * (1 - 0.85 * charge)), attackCharge: charge
-                          });
-                      }
-                  }
-              }
+              this.bossFight.publishSignatureEntities(data.id, st, entities);
           }
       }
       // Deduplicate by ID

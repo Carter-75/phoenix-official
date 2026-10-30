@@ -22,17 +22,19 @@
 
 import { BOSS_TTK_BANDS } from './balance.constants';
 
+// Signatures from the Oct 29, 2026 redesign; the pattern timelines
+// live in pages/game/boss-patterns.ts (one builder per world).
 export type BossSignatureId =
-  | 'flame_ring'       // World 1, Inferno Guardian
-  | 'shadow_split'     // World 2, Shadow Lord
-  | 'shard_fan'        // World 3, Crystal Titan
-  | 'storm_call'       // World 4, Storm Wyvern
-  | 'harvest_arc'      // World 5, Void Reaper
-  | 'royal_decree'     // World 6, Phoenix King (Stage 10)
-  | 'frozen_court'     // World 7, Ice Empress (Stage 10)
-  | 'emperors_breath'  // World 8, Dragon Emperor (Stage 10)
-  | 'chaos_roulette'   // World 9, Chaos Demon (Stage 10)
-  | 'singularity';     // World 10, Eternal Phoenix (Stage 10)
+  | 'magma_geysers'     // World 1, Cinder Colossus
+  | 'eclipse_lances'    // World 2, Umbral Matriarch
+  | 'refraction_beams'  // World 3, Prism Sentinel
+  | 'thunder_march'     // World 4, Tempest Roc
+  | 'soul_scythe'       // World 5, Grave Warden
+  | 'coronation'        // World 6, Solar Monarch
+  | 'shatter_rings'     // World 7, Glacial Oracle
+  | 'twin_breath'       // World 8, Wyrm Sovereign
+  | 'fractured_grid'    // World 9, Entropy Engine
+  | 'ascension';        // World 10, Phoenix Ascendant
 
 export interface BossDef {
   worldIndex: number;
@@ -116,21 +118,19 @@ function def(worldIndex: number, signature: BossSignatureId, extra: Partial<Boss
 }
 
 export const BOSS_DEFS: Record<number, BossDef> = {
-  0: def(0, 'flame_ring', { shieldColor: [1.0, 0.62, 0.15], shieldColorHex: '#ff9e26' }),
-  1: def(1, 'shadow_split', { shieldColor: [0.35, 0.75, 1.0], shieldColorHex: '#59bfff' }),
-  2: def(2, 'shard_fan', { minionType: 'sentry_shard', minionCap: 2, minionsPerSummon: 1, shieldColor: [0.72, 0.45, 1.0], shieldColorHex: '#b873ff' }),
-  3: def(3, 'storm_call', { minionType: 'imp', minionsPerSummon: 2, movement: 'patrolTop', shieldColor: [0.45, 1.0, 0.55], shieldColorHex: '#73ff8c' }),
-  4: def(4, 'harvest_arc', { minionType: 'phantom', minionCap: 2, minionsPerSummon: 1, shieldColor: [0.75, 0.72, 0.85], shieldColorHex: '#bfb8d9' }),
-  // Worlds 6 to 10: rig, enrage, and shield systems live from
-  // Stage 9; their signature executors landed in Stage 10 (S6).
-  5: def(5, 'royal_decree', { shieldColor: [1.0, 0.9, 0.45], shieldColorHex: '#ffe673' }),
-  6: def(6, 'frozen_court', { minionType: 'pyre_moth', minionCap: 3, minionsPerSummon: 1, shieldColor: [0.65, 0.95, 1.0], shieldColorHex: '#a6f2ff' }),
-  7: def(7, 'emperors_breath', { minionType: 'imp', minionsPerSummon: 2, movement: 'passes', shieldColor: [1.0, 0.85, 0.3], shieldColorHex: '#ffd94d' }),
-  8: def(8, 'chaos_roulette', { minionType: 'pyre_moth', minionCap: 3, minionsPerSummon: 1, shieldColor: [1.0, 0.45, 0.4], shieldColorHex: '#ff7366' }),
+  0: def(0, 'magma_geysers', { shieldColor: [1.0, 0.62, 0.15], shieldColorHex: '#ff9e26' }),
+  1: def(1, 'eclipse_lances', { minionType: 'phantom', minionCap: 2, minionsPerSummon: 1, shieldColor: [0.35, 0.75, 1.0], shieldColorHex: '#59bfff' }),
+  2: def(2, 'refraction_beams', { minionType: 'sentry_shard', minionCap: 2, minionsPerSummon: 1, shieldColor: [0.72, 0.45, 1.0], shieldColorHex: '#b873ff' }),
+  3: def(3, 'thunder_march', { minionType: 'imp', minionsPerSummon: 2, movement: 'patrolTop', shieldColor: [0.45, 1.0, 0.55], shieldColorHex: '#73ff8c' }),
+  4: def(4, 'soul_scythe', { minionType: 'mite', minionCap: 6, minionsPerSummon: 3, movement: 'patrolTop', shieldColor: [0.75, 0.72, 0.85], shieldColorHex: '#bfb8d9' }),
+  5: def(5, 'coronation', { shieldColor: [1.0, 0.9, 0.45], shieldColorHex: '#ffe673' }),
+  6: def(6, 'shatter_rings', { minionType: 'pyre_moth', minionCap: 3, minionsPerSummon: 1, shieldColor: [0.65, 0.95, 1.0], shieldColorHex: '#a6f2ff' }),
+  7: def(7, 'twin_breath', { minionType: 'imp', minionsPerSummon: 2, movement: 'passes', shieldColor: [1.0, 0.85, 0.3], shieldColorHex: '#ffd94d' }),
+  8: def(8, 'fractured_grid', { minionType: 'pyre_moth', minionCap: 3, minionsPerSummon: 1, shieldColor: [1.0, 0.45, 0.4], shieldColorHex: '#ff7366' }),
   // World 10 summons Gloomwing variants (the bat law) and, on
   // alternating summons, Mites; the alternation lives in the game
   // component's summon path, so the def keeps the bat record.
-  9: def(9, 'singularity', { minionsPerSummon: 2, shieldColor: [0.95, 0.9, 1.0], shieldColorHex: '#f2e6ff' }),
+  9: def(9, 'ascension', { minionsPerSummon: 2, shieldColor: [0.95, 0.9, 1.0], shieldColorHex: '#f2e6ff' }),
 };
 
 export function bossDefFor(worldIndex: number): BossDef {
@@ -194,6 +194,9 @@ export interface BossFightState {
   singIdx?: number;
   kitIdx?: number;
   finaleRage?: boolean;
+  // Redesign: health phase last seen and signature cast count.
+  lastPhase?: 1 | 2 | 3;
+  castCount?: number;
 }
 
 export function createBossFightState(worldIndex: number): BossFightState {

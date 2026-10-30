@@ -17,16 +17,16 @@ export interface TempWorldDef {
 }
 
 export const TEMP_WORLDS: TempWorldDef[] = [
-  { id: 1, name: 'Ember Plains', boss: 'Inferno Guardian', theme: 'Fire', description: 'Where your journey begins. Face the flames of creation.', bossHealth: 600 },
-  { id: 2, name: 'Shadow Realm', boss: 'Shadow Lord', theme: 'Dark', description: 'Darkness whispers secrets. Can you hear them?', bossHealth: 900 },
-  { id: 3, name: 'Crystal Caverns', boss: 'Crystal Titan', theme: 'Crystal', description: 'Shimmering formations hide ancient power.', bossHealth: 1250 },
-  { id: 4, name: 'Storm Peaks', boss: 'Storm Wyvern', theme: 'Lightning', description: 'Thunder echoes through the mountain heights.', bossHealth: 1650 },
-  { id: 5, name: 'Void Nexus', boss: 'Void Reaper', theme: 'Void', description: 'Where reality bends and breaks.', bossHealth: 2100 },
-  { id: 6, name: 'Phoenix Sanctum', boss: 'Phoenix King', theme: 'Holy Fire', description: 'The sacred realm of the phoenix lords.', bossHealth: 2700 },
-  { id: 7, name: 'Frozen Wastes', boss: 'Ice Empress', theme: 'Ice', description: 'Eternal winter grips this desolate land.', bossHealth: 3400 },
-  { id: 8, name: 'Dragon Throne', boss: 'Dragon Emperor', theme: 'Ancient', description: 'Where dragons once ruled supreme.', bossHealth: 4200 },
-  { id: 9, name: 'Chaos Dimension', boss: 'Chaos Demon', theme: 'Chaos', description: 'Madness incarnate awaits the worthy.', bossHealth: 5200 },
-  { id: 10, name: 'Eternal Flame', boss: 'Eternal Phoenix', theme: 'Divine', description: 'The final trial. Will you ascend?', bossHealth: 6500 },
+  { id: 1, name: 'Ember Plains', boss: 'Cinder Colossus', theme: 'Fire', description: 'Where your journey begins. Face the flames of creation.', bossHealth: 600 },
+  { id: 2, name: 'Shadow Realm', boss: 'Umbral Matriarch', theme: 'Dark', description: 'Darkness whispers secrets. Can you hear them?', bossHealth: 900 },
+  { id: 3, name: 'Crystal Caverns', boss: 'Prism Sentinel', theme: 'Crystal', description: 'Shimmering formations hide ancient power.', bossHealth: 1250 },
+  { id: 4, name: 'Storm Peaks', boss: 'Tempest Roc', theme: 'Lightning', description: 'Thunder echoes through the mountain heights.', bossHealth: 1650 },
+  { id: 5, name: 'Void Nexus', boss: 'Grave Warden', theme: 'Void', description: 'Where reality bends and breaks.', bossHealth: 2100 },
+  { id: 6, name: 'Phoenix Sanctum', boss: 'Solar Monarch', theme: 'Holy Fire', description: 'The sacred realm of the phoenix lords.', bossHealth: 2700 },
+  { id: 7, name: 'Frozen Wastes', boss: 'Glacial Oracle', theme: 'Ice', description: 'Eternal winter grips this desolate land.', bossHealth: 3400 },
+  { id: 8, name: 'Dragon Throne', boss: 'Wyrm Sovereign', theme: 'Ancient', description: 'Where dragons once ruled supreme.', bossHealth: 4200 },
+  { id: 9, name: 'Chaos Dimension', boss: 'Entropy Engine', theme: 'Chaos', description: 'Madness incarnate awaits the worthy.', bossHealth: 5200 },
+  { id: 10, name: 'Eternal Flame', boss: 'Phoenix Ascendant', theme: 'Divine', description: 'The final trial. Will you ascend?', bossHealth: 6500 },
 ];
 
 export type TempMoveType = 'hold' | 'double' | 'triple';
