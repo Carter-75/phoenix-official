@@ -380,7 +380,7 @@ import { AutoplayService } from '../../autoplay/autoplay.service';
         <div data-ui class="backdrop-in absolute inset-0 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto z-50 px-6">
           @if (!annihilationModeActive() && gameState.currentGameMode() !== 'battle') {
           <div class="panel-in w-full flex flex-col items-center">
-          <h2 class="text-5xl font-black text-red-500 mb-2 drop-shadow-lg tracking-wide">{{ deathUnsurvivable() ? 'DEFEATED' : 'KNOCKED OUT' }}</h2>
+          <h2 class="text-4xl sm:text-5xl font-black text-red-500 mb-2 drop-shadow-lg tracking-wide text-center leading-tight">{{ deathUnsurvivable() ? 'DEFEATED' : 'KNOCKED OUT' }}</h2>
           @if (deathUnsurvivable()) {
           <p class="text-white/80 text-lg font-semibold mb-2 text-center max-w-md">Killed by: infinite damage</p>
           <p data-unsurvivable class="text-red-300 text-base font-semibold mb-8 text-center max-w-md">{{ finalAttackReason }}. Revives are disabled.</p>
@@ -440,7 +440,7 @@ import { AutoplayService } from '../../autoplay/autoplay.service';
             <span class="text-5xl text-zinc-500">✝</span>
             <span class="text-zinc-500 mt-2 font-mono text-sm">R.I.P</span>
           </div>
-          <h2 class="text-5xl font-black text-red-500 mb-2 drop-shadow-lg tracking-wide">YOU DIED</h2>
+          <h2 class="text-4xl sm:text-5xl font-black text-red-500 mb-2 drop-shadow-lg tracking-wide text-center leading-tight">YOU DIED</h2>
               <p class="text-red-500 text-xl font-bold mb-8 uppercase text-center max-w-md">The {{ rivalName() }} emerges victorious.</p>
               <div class="flex flex-col gap-4 w-full max-w-sm">
                 <button data-ap="quit-game" (click)="quitGame()" class="press w-full mt-4 py-4 bg-red-950/60 hover:bg-red-900/50 border border-red-500/40 rounded-2xl text-white font-bold transition">
@@ -454,7 +454,7 @@ import { AutoplayService } from '../../autoplay/autoplay.service';
             <span class="text-5xl text-zinc-500">✝</span>
             <span class="text-zinc-500 mt-2 font-mono text-sm">R.I.P</span>
           </div>
-          <h2 class="text-5xl font-black text-red-500 mb-2 drop-shadow-lg tracking-wide">YOU DIED</h2>
+          <h2 class="text-4xl sm:text-5xl font-black text-red-500 mb-2 drop-shadow-lg tracking-wide text-center leading-tight">YOU DIED</h2>
               <p class="text-red-500 text-xl font-bold mb-8 uppercase text-center max-w-md">Your flames have been permanently extinguished.</p>
               <div class="flex flex-col gap-4 w-full max-w-sm">
                 <button data-ap="quit-game" (click)="quitGame()" class="press w-full mt-4 py-4 bg-red-950/60 hover:bg-red-900/50 border border-red-500/40 rounded-2xl text-white font-bold transition">
@@ -484,7 +484,7 @@ import { AutoplayService } from '../../autoplay/autoplay.service';
       @if (gameEnded() && !isDead()) {
         <div data-ui class="backdrop-in absolute inset-0 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto z-50 px-6">
           <div class="panel-in flex flex-col items-center">
-          <h2 class="text-6xl font-black text-white mb-4 drop-shadow-lg tracking-wide" [ngClass]="gameWon() ? 'text-orange-400' : 'text-red-500'">
+          <h2 class="text-6xl font-black mb-4 drop-shadow-lg tracking-wide" [ngClass]="gameWon() ? 'text-orange-400' : 'text-red-500'">
             {{ gameWon() ? 'VICTORY' : 'DEFEAT' }}
           </h2>
           @if (gameWon()) {
@@ -2146,7 +2146,7 @@ export class GameComponent implements OnInit, OnDestroy {
           if (this.battleAi.ai2.lastHoldTime && this.holdAbilityEndTime && nowTime < this.holdAbilityEndTime) {
               this.gameState.ai2MousePos.set({ x: targetPosition.x, y: targetPosition.y });
           } else {
-              // EMA smoothing — no snap teleport
+              // EMA smoothing, no snap teleport
               const smoothFactor = 0.08;
               const lerpX = currentMouse.x + (targetPosition.x - currentMouse.x) * smoothFactor * delta * 60;
               const lerpY = currentMouse.y + (targetPosition.y - currentMouse.y) * smoothFactor * delta * 60;
@@ -2590,7 +2590,7 @@ export class GameComponent implements OnInit, OnDestroy {
             if (eAny.holdAbilityEndTime && now < eAny.holdAbilityEndTime) {
                 // Do not move aiMousePos while holding ability
             } else {
-                // EMA smoothing — no snap teleport
+                // EMA smoothing, no snap teleport
                 const smoothFactor = 0.08;
                 const lerpX = currentMouse.x + (targetPosition.x - currentMouse.x) * smoothFactor * delta * 60;
                 const lerpY = currentMouse.y + (targetPosition.y - currentMouse.y) * smoothFactor * delta * 60;
@@ -3497,7 +3497,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
     Matter.Composite.remove(this.engine.world, mine);
     this.spliceRemove(this.enemies, mine);
     this.triggerImpactEffect(mine.position.x, mine.position.y, false);
-    this.audioService.playSFX('explosion');
+    this.audioService.playSFX('explosion'); this.triggerShake('explosion');
     for (let k = 0; k < 4; k++) {
       const angle = k * Math.PI / 2;
       const proj = Matter.Bodies.circle(mine.position.x, mine.position.y, 8, {
@@ -3638,15 +3638,15 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
     }
     
     if (data.health <= 0) {
-      this.audioService.playSFX('explosion');
+      this.audioService.playSFX('explosion'); this.triggerShake('explosion');
       
       if (data.type === 'enemy_phoenix') {
           // AI Phoenix Death Logic
           if (this.gameState.currentGameMode() === 'ai_vs_ai') {
-              this.audioService.playSFX('explosion');
+              this.audioService.playSFX('explosion'); this.triggerShake('explosion');
               this.triggerImpactEffect(enemy.position.x, enemy.position.y, true);
               this.gameState.ai2Wins.update(w => w + 1);
-              this.mlAi.addReward(-5); // the one who died is top ai (enemy) — balanced penalty
+              this.mlAi.addReward(-5); // the one who died is top ai (enemy), balanced penalty
               data.health = data.maxHealth;
               this.bossHealth.set(data.maxHealth);
               data.immortalUntil = Date.now() + 2000;
@@ -3970,7 +3970,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
     // Boss-contact hits are one of the four allowed shake triggers
     // (spec Section 4.3).
-    if (source === 'boss_contact') this.triggerShake('boss_contact');
+    this.triggerShake(source === 'boss_contact' ? 'boss_contact' : 'player_hit');
 
     // Hit sound removed permanently
     if (this.rageModeActive() && this.gameState.currentGameMode() === 'campaign') amount *= RAGE_DAMAGE_MULT;
@@ -4036,7 +4036,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
                  if (dist < radius) this.damageEnemy(e, this.gameState.currentStats().damage * 10, this.playerBody.position);
              });
              
-             this.audioService.playSFX('explosion');
+             this.audioService.playSFX('explosion'); this.triggerShake('explosion');
              
              // Volcanic fire rebirth particles
              for (let i = 0; i < 30; i++) {
@@ -4063,10 +4063,10 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
               this.battleAi.ai2.abilities = this.battleAi.ai2.abilities.filter(a => a !== 'rebirth');
               return;
           }
-          this.audioService.playSFX('explosion');
+          this.audioService.playSFX('explosion'); this.triggerShake('explosion');
           this.triggerImpactEffect(this.playerBody.position.x, this.playerBody.position.y, true);
           this.gameState.ai1Wins.update(w => w + 1);
-          this.mlAi.addReward(10); // the one who died is player (ai 2), top ai wins — balanced reward
+          this.mlAi.addReward(10); // the one who died is player (ai 2), top ai wins, balanced reward
           this.currentHealth.set(this.maxHealth());
           this.gameState.immortalUntil = Date.now() + 2000;
           // Re-roll ai2Abilities on respawn
@@ -4262,7 +4262,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       }
 
       this.triggerImpactEffect(center.x, center.y, true);
-      this.audioService.playSFX('explosion');
+      this.audioService.playSFX('explosion'); this.triggerShake('explosion');
       // The ring visual: progress driven here, bound by the template.
       const fxStart = Date.now();
       this.reviveBlastFx.set({ x: center.x, y: center.y, progress: 0 });
@@ -4666,12 +4666,9 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
   private updateMouseInput(x: number, y: number, isTouch: boolean) {
       if (this.gameState.isPaused() || this.gameState.isDeadMenuOpen() || this.isDead()) return;
-      // Touch targets carry the finger offset, so ability aiming and
-      // the hold charge read the same point the bird steers to.
-      const adjusted = this.gameState.applyTouchOffset(x, y, isTouch);
-      this.mouseX = adjusted.x;
-      this.mouseY = adjusted.y;
-      this.holdStill.sample(Date.now(), adjusted.x, adjusted.y);
+      this.mouseX = x;
+      this.mouseY = y;
+      this.holdStill.sample(Date.now(), x, y);
   }
 
 
@@ -4717,9 +4714,8 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
   private handleInputStart(x: number, y: number, isTouch: boolean) {
       if (this.gameState.currentGameMode() === 'ai_vs_ai') return;
-      const adjusted = this.gameState.applyTouchOffset(x, y, isTouch);
       this.isMouseHeld = true;
-      this.holdStill.press(Date.now(), adjusted.x, adjusted.y);
+      this.holdStill.press(Date.now(), x, y);
       this.holdTimer = 0;
 
       const now = Date.now();

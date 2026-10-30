@@ -1,4 +1,5 @@
-import { Component, signal, computed, OnInit, inject } from '@angular/core';
+import { Component, signal, computed, OnInit, inject, effect, untracked } from '@angular/core';
+import { highlightPurchase, buyTagFor } from '../../autoplay/purchase-highlight';
 import { GameStateService } from '../../services/game-state.service';
 import { ABILITIES, GADGETS, WORLDS } from '../../constants/game.constants';
 import { PASSIVE_BY_STAT, AD_UPGRADE_MAX_COST, GEM_EXCHANGE_COINS_PER_GEM, ABILITY_UPGRADE_GROWTH } from '../../data/balance.constants';
@@ -123,7 +124,7 @@ import { CommonModule } from '@angular/common';
               } @else if (gameState.coins() < getCost('damage', 250, 1, 10)) {
                  @if (adGrantAllowed(getCost('damage', 250, 1, 10))) {
                    <button (click)="buyWithAd('damage')" class="w-full py-2 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
-                     <span class="text-xl">📺</span>
+                     <span class="text-xl">📺</span><span class="text-sm tracking-wide">Watch Ad</span>
                    </button>
                  } @else {
                    <button data-ap="buy-damage" (click)="buyDamage()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
@@ -168,7 +169,7 @@ import { CommonModule } from '@angular/common';
               } @else if (gameState.coins() < getCost('attackSpeed', 300, 0.1, 1)) {
                  @if (adGrantAllowed(getCost('attackSpeed', 300, 0.1, 1))) {
                    <button (click)="buyWithAd('attackSpeed')" class="w-full py-2 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
-                     <span class="text-xl">📺</span>
+                     <span class="text-xl">📺</span><span class="text-sm tracking-wide">Watch Ad</span>
                    </button>
                  } @else {
                    <button data-ap="buy-attack-speed" (click)="buyAttackSpeed()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
@@ -213,7 +214,7 @@ import { CommonModule } from '@angular/common';
               } @else if (gameState.coins() < getCost('homingLevel', 300, 1, 0)) {
                  @if (adGrantAllowed(getCost('homingLevel', 300, 1, 0))) {
                    <button (click)="buyWithAd('homingLevel')" class="w-full py-2 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
-                     <span class="text-xl">📺</span>
+                     <span class="text-xl">📺</span><span class="text-sm tracking-wide">Watch Ad</span>
                    </button>
                  } @else {
                    <button data-ap="buy-homing" (click)="buyHoming()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
@@ -262,7 +263,7 @@ import { CommonModule } from '@angular/common';
               } @else if (gameState.coins() < getCost('maxHealth', 100, 10, 100)) {
                  @if (adGrantAllowed(getCost('maxHealth', 100, 10, 100))) {
                    <button (click)="buyWithAd('maxHealth')" class="w-full py-2 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
-                     <span class="text-xl">📺</span>
+                     <span class="text-xl">📺</span><span class="text-sm tracking-wide">Watch Ad</span>
                    </button>
                  } @else {
                    <button data-ap="buy-health" (click)="buyHealth()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
@@ -307,7 +308,7 @@ import { CommonModule } from '@angular/common';
               } @else if (gameState.coins() < getCost('speed', 150, 0.1, 2)) {
                  @if (adGrantAllowed(getCost('speed', 150, 0.1, 2))) {
                    <button (click)="buyWithAd('speed')" class="w-full py-2 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
-                     <span class="text-xl">📺</span>
+                     <span class="text-xl">📺</span><span class="text-sm tracking-wide">Watch Ad</span>
                    </button>
                  } @else {
                    <button data-ap="buy-speed" (click)="buySpeed()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
@@ -352,7 +353,7 @@ import { CommonModule } from '@angular/common';
               } @else if (gameState.coins() < getCost('aegisPlating', 400, 1, 0)) {
                  @if (adGrantAllowed(getCost('aegisPlating', 400, 1, 0))) {
                    <button (click)="buyWithAd('aegisPlating')" class="w-full py-2 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
-                     <span class="text-xl">📺</span>
+                     <span class="text-xl">📺</span><span class="text-sm tracking-wide">Watch Ad</span>
                    </button>
                  } @else {
                    <button data-ap="buy-aegis" (click)="buyAegisPlating()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
@@ -401,7 +402,7 @@ import { CommonModule } from '@angular/common';
               } @else if (gameState.coins() < getCost('magnetism', 200, 0.1, 1)) {
                  @if (adGrantAllowed(getCost('magnetism', 200, 0.1, 1))) {
                    <button (click)="buyWithAd('magnetism')" class="w-full py-2 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
-                     <span class="text-xl">📺</span>
+                     <span class="text-xl">📺</span><span class="text-sm tracking-wide">Watch Ad</span>
                    </button>
                  } @else {
                    <button data-ap="buy-magnet" (click)="buyMagnet()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
@@ -446,7 +447,7 @@ import { CommonModule } from '@angular/common';
               } @else if (gameState.coins() < getCost('attackRange', 250, 50, 400)) {
                  @if (adGrantAllowed(getCost('attackRange', 250, 50, 400))) {
                    <button (click)="buyWithAd('attackRange')" class="w-full py-2 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
-                     <span class="text-xl">📺</span>
+                     <span class="text-xl">📺</span><span class="text-sm tracking-wide">Watch Ad</span>
                    </button>
                  } @else {
                    <button data-ap="buy-range" (click)="buyAttackRange()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
@@ -491,7 +492,7 @@ import { CommonModule } from '@angular/common';
               } @else if (gameState.coins() < getCost('auraRadius', 400, 10, 250)) {
                  @if (adGrantAllowed(getCost('auraRadius', 400, 10, 250))) {
                    <button (click)="buyWithAd('auraRadius')" class="w-full py-2 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
-                     <span class="text-xl">📺</span>
+                     <span class="text-xl">📺</span><span class="text-sm tracking-wide">Watch Ad</span>
                    </button>
                  } @else {
                    <button data-ap="buy-aura" (click)="buyAuraRadius()" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 opacity-50" disabled>
@@ -570,7 +571,7 @@ import { CommonModule } from '@angular/common';
                            } @else if (gameState.coins() < ability.unlockCost) {
                               @if (adGrantAllowed(ability.unlockCost)) {
                                 <button (click)="buyWithAd('unlock_' + ability.id)" class="w-full py-2 bg-gradient-to-r from-orange-500 to-red-600 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition shadow-[0_0_15px_rgba(0,200,255,0.3)]">
-                                   <span class="text-xl">📺</span> Unlock
+                                   <span class="text-xl">📺</span><span class="text-sm tracking-wide">Watch Ad</span> Unlock
                                 </button>
                               } @else {
                                 <button (click)="unlockAbility(ability.id, ability.unlockCost)" class="w-full py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-xl font-bold text-sm flex items-center justify-center gap-1 opacity-50" disabled>
@@ -1011,7 +1012,20 @@ export class ShopComponent implements OnInit {
      return this.baseGems.map(g => firstPurchaseBonus ? g * 2 : g);
   });
 
-  constructor(public gameState: GameStateService) {}
+  constructor(public gameState: GameStateService) {
+    // Any passive purchase (tap, ad, gems, autoplay) scrolls its card
+    // into view and flashes it, so an off-screen buy is never silent.
+    effect(() => {
+      const p = this.gameState.lastPurchase();
+      if (!p) return;
+      untracked(() => setTimeout(() => {
+        const b = document.querySelector<HTMLElement>(`app-shop [data-ap="${buyTagFor(p.stat)}"]`);
+        if (!b) return;
+        try { b.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { }
+        highlightPurchase(b);
+      }, 0));
+    });
+  }
 
   setTab(tab: 'passives' | 'abilities' | 'gems') {
       this.activeTab.set(tab);
@@ -1354,27 +1368,18 @@ export class ShopComponent implements OnInit {
 
     const cost = this.getCost('maxHealth', 100, 10, 100);
         if (isFree) {
-      this.gameState.worldUpgrades.update(u => {
-          u[this.gameState.selectedWorldIndex()].maxHealth += 10;
-          return { ...u };
-        });
+      this.gameState.bumpWorldStat('maxHealth', 10);
       this.gameState.audio.playSFX('buy');
     } else if (useGems) {
       const gemCost = this.getGemCost(cost);
       if (this.gameState.gems() >= gemCost) {
         this.gameState.gems.update(c => c - gemCost);
-        this.gameState.worldUpgrades.update(u => {
-          u[this.gameState.selectedWorldIndex()].maxHealth += 10;
-          return { ...u };
-        });
+        this.gameState.bumpWorldStat('maxHealth', 10);
         this.gameState.audio.playSFX('buy');
       }
     } else if (this.gameState.coins() >= cost) {
       this.gameState.coins.update(c => c - cost);
-      this.gameState.worldUpgrades.update(u => {
-        u[this.gameState.selectedWorldIndex()].maxHealth += 10;
-        return { ...u };
-      });
+      this.gameState.bumpWorldStat('maxHealth', 10);
       this.gameState.audio.playSFX('buy');
     }
   }
@@ -1384,27 +1389,18 @@ export class ShopComponent implements OnInit {
 
     const cost = this.getCost('speed', 150, 0.1, 2);
         if (isFree) {
-      this.gameState.worldUpgrades.update(u => {
-          u[this.gameState.selectedWorldIndex()].speed = +(u[this.gameState.selectedWorldIndex()].speed + 0.1).toFixed(2);
-          return { ...u };
-        });
+      this.gameState.bumpWorldStat('speed', 0.1);
       this.gameState.audio.playSFX('buy');
     } else if (useGems) {
       const gemCost = this.getGemCost(cost);
       if (this.gameState.gems() >= gemCost) {
         this.gameState.gems.update(c => c - gemCost);
-        this.gameState.worldUpgrades.update(u => {
-          u[this.gameState.selectedWorldIndex()].speed = +(u[this.gameState.selectedWorldIndex()].speed + 0.1).toFixed(2);
-          return { ...u };
-        });
+        this.gameState.bumpWorldStat('speed', 0.1);
         this.gameState.audio.playSFX('buy');
       }
     } else if (this.gameState.coins() >= cost) {
       this.gameState.coins.update(c => c - cost);
-      this.gameState.worldUpgrades.update(u => {
-        u[this.gameState.selectedWorldIndex()].speed = +(u[this.gameState.selectedWorldIndex()].speed + 0.1).toFixed(2);
-        return { ...u };
-      });
+      this.gameState.bumpWorldStat('speed', 0.1);
       this.gameState.audio.playSFX('buy');
     }
   }
@@ -1414,27 +1410,18 @@ export class ShopComponent implements OnInit {
 
     const cost = this.getCost('magnetism', 200, 0.1, 1);
         if (isFree) {
-      this.gameState.worldUpgrades.update(u => {
-          u[this.gameState.selectedWorldIndex()].magnetism = +(u[this.gameState.selectedWorldIndex()].magnetism + 0.1).toFixed(2);
-          return { ...u };
-        });
+      this.gameState.bumpWorldStat('magnetism', 0.1);
       this.gameState.audio.playSFX('buy');
     } else if (useGems) {
       const gemCost = this.getGemCost(cost);
       if (this.gameState.gems() >= gemCost) {
         this.gameState.gems.update(c => c - gemCost);
-        this.gameState.worldUpgrades.update(u => {
-          u[this.gameState.selectedWorldIndex()].magnetism = +(u[this.gameState.selectedWorldIndex()].magnetism + 0.1).toFixed(2);
-          return { ...u };
-        });
+        this.gameState.bumpWorldStat('magnetism', 0.1);
         this.gameState.audio.playSFX('buy');
       }
     } else if (this.gameState.coins() >= cost) {
       this.gameState.coins.update(c => c - cost);
-      this.gameState.worldUpgrades.update(u => {
-        u[this.gameState.selectedWorldIndex()].magnetism = +(u[this.gameState.selectedWorldIndex()].magnetism + 0.1).toFixed(2);
-        return { ...u };
-      });
+      this.gameState.bumpWorldStat('magnetism', 0.1);
       this.gameState.audio.playSFX('buy');
     }
   }
@@ -1444,27 +1431,18 @@ export class ShopComponent implements OnInit {
 
     const cost = this.getCost('damage', 250, 1, 10);
         if (isFree) {
-      this.gameState.worldUpgrades.update(u => {
-          u[this.gameState.selectedWorldIndex()].damage += 1;
-          return { ...u };
-        });
+      this.gameState.bumpWorldStat('damage', 1);
       this.gameState.audio.playSFX('buy');
     } else if (useGems) {
       const gemCost = this.getGemCost(cost);
       if (this.gameState.gems() >= gemCost) {
         this.gameState.gems.update(c => c - gemCost);
-        this.gameState.worldUpgrades.update(u => {
-          u[this.gameState.selectedWorldIndex()].damage += 1;
-          return { ...u };
-        });
+        this.gameState.bumpWorldStat('damage', 1);
         this.gameState.audio.playSFX('buy');
       }
     } else if (this.gameState.coins() >= cost) {
       this.gameState.coins.update(c => c - cost);
-      this.gameState.worldUpgrades.update(u => {
-        u[this.gameState.selectedWorldIndex()].damage += 1;
-        return { ...u };
-      });
+      this.gameState.bumpWorldStat('damage', 1);
       this.gameState.audio.playSFX('buy');
     }
   }
@@ -1474,27 +1452,18 @@ export class ShopComponent implements OnInit {
 
     const cost = this.getCost('attackSpeed', 300, 0.1, 1);
         if (isFree) {
-      this.gameState.worldUpgrades.update(u => {
-          u[this.gameState.selectedWorldIndex()].attackSpeed = +(u[this.gameState.selectedWorldIndex()].attackSpeed + 0.1).toFixed(2);
-          return { ...u };
-        });
+      this.gameState.bumpWorldStat('attackSpeed', 0.1);
       this.gameState.audio.playSFX('buy');
     } else if (useGems) {
       const gemCost = this.getGemCost(cost);
       if (this.gameState.gems() >= gemCost) {
         this.gameState.gems.update(c => c - gemCost);
-        this.gameState.worldUpgrades.update(u => {
-          u[this.gameState.selectedWorldIndex()].attackSpeed = +(u[this.gameState.selectedWorldIndex()].attackSpeed + 0.1).toFixed(2);
-          return { ...u };
-        });
+        this.gameState.bumpWorldStat('attackSpeed', 0.1);
         this.gameState.audio.playSFX('buy');
       }
     } else if (this.gameState.coins() >= cost) {
       this.gameState.coins.update(c => c - cost);
-      this.gameState.worldUpgrades.update(u => {
-        u[this.gameState.selectedWorldIndex()].attackSpeed = +(u[this.gameState.selectedWorldIndex()].attackSpeed + 0.1).toFixed(2);
-        return { ...u };
-      });
+      this.gameState.bumpWorldStat('attackSpeed', 0.1);
       this.gameState.audio.playSFX('buy');
     }
   }
@@ -1504,27 +1473,18 @@ export class ShopComponent implements OnInit {
 
     const cost = this.getCost('attackRange', 250, 50, 400);
         if (isFree) {
-      this.gameState.worldUpgrades.update(u => {
-          u[this.gameState.selectedWorldIndex()].attackRange += 50;
-          return { ...u };
-        });
+      this.gameState.bumpWorldStat('attackRange', 50);
       this.gameState.audio.playSFX('buy');
     } else if (useGems) {
       const gemCost = this.getGemCost(cost);
       if (this.gameState.gems() >= gemCost) {
         this.gameState.gems.update(c => c - gemCost);
-        this.gameState.worldUpgrades.update(u => {
-          u[this.gameState.selectedWorldIndex()].attackRange += 50;
-          return { ...u };
-        });
+        this.gameState.bumpWorldStat('attackRange', 50);
         this.gameState.audio.playSFX('buy');
       }
     } else if (this.gameState.coins() >= cost) {
       this.gameState.coins.update(c => c - cost);
-      this.gameState.worldUpgrades.update(u => {
-        u[this.gameState.selectedWorldIndex()].attackRange += 50;
-        return { ...u };
-      });
+      this.gameState.bumpWorldStat('attackRange', 50);
       this.gameState.audio.playSFX('buy');
     }
   }
@@ -1534,27 +1494,18 @@ export class ShopComponent implements OnInit {
 
     const cost = this.getCost('auraRadius', 400, 10, 250);
         if (isFree) {
-      this.gameState.worldUpgrades.update(u => {
-          u[this.gameState.selectedWorldIndex()].auraRadius += 10;
-          return { ...u };
-        });
+      this.gameState.bumpWorldStat('auraRadius', 10);
       this.gameState.audio.playSFX('buy');
     } else if (useGems) {
       const gemCost = this.getGemCost(cost);
       if (this.gameState.gems() >= gemCost) {
         this.gameState.gems.update(c => c - gemCost);
-        this.gameState.worldUpgrades.update(u => {
-          u[this.gameState.selectedWorldIndex()].auraRadius += 10;
-          return { ...u };
-        });
+        this.gameState.bumpWorldStat('auraRadius', 10);
         this.gameState.audio.playSFX('buy');
       }
     } else if (this.gameState.coins() >= cost) {
       this.gameState.coins.update(c => c - cost);
-      this.gameState.worldUpgrades.update(u => {
-        u[this.gameState.selectedWorldIndex()].auraRadius += 10;
-        return { ...u };
-      });
+      this.gameState.bumpWorldStat('auraRadius', 10);
       this.gameState.audio.playSFX('buy');
     }
   }
@@ -1564,27 +1515,18 @@ export class ShopComponent implements OnInit {
 
     const cost = this.getCost('homingLevel', 300, 1, 0);
         if (isFree) {
-      this.gameState.worldUpgrades.update(u => {
-          u[this.gameState.selectedWorldIndex()].homingLevel += 1;
-          return { ...u };
-        });
+      this.gameState.bumpWorldStat('homingLevel', 1);
       this.gameState.audio.playSFX('buy');
     } else if (useGems) {
       const gemCost = this.getGemCost(cost);
       if (this.gameState.gems() >= gemCost) {
         this.gameState.gems.update(c => c - gemCost);
-        this.gameState.worldUpgrades.update(u => {
-          u[this.gameState.selectedWorldIndex()].homingLevel += 1;
-          return { ...u };
-        });
+        this.gameState.bumpWorldStat('homingLevel', 1);
         this.gameState.audio.playSFX('buy');
       }
     } else if (this.gameState.coins() >= cost) {
       this.gameState.coins.update(c => c - cost);
-      this.gameState.worldUpgrades.update(u => {
-        u[this.gameState.selectedWorldIndex()].homingLevel += 1;
-        return { ...u };
-      });
+      this.gameState.bumpWorldStat('homingLevel', 1);
       this.gameState.audio.playSFX('buy');
     }
   }
@@ -1596,27 +1538,18 @@ export class ShopComponent implements OnInit {
     if (this.passiveAtMax('aegisPlating')) return; // S5 hard cap (Section 5.2)
     const cost = this.getCost('aegisPlating', 400, 1, 0);
     if (isFree) {
-      this.gameState.worldUpgrades.update(u => {
-          u[this.gameState.selectedWorldIndex()].aegisPlating = (u[this.gameState.selectedWorldIndex()].aegisPlating || 0) + 1;
-          return { ...u };
-        });
+      this.gameState.bumpWorldStat('aegisPlating', 1);
       this.gameState.audio.playSFX('buy');
     } else if (useGems) {
       const gemCost = this.getGemCost(cost);
       if (this.gameState.gems() >= gemCost) {
         this.gameState.gems.update(c => c - gemCost);
-        this.gameState.worldUpgrades.update(u => {
-          u[this.gameState.selectedWorldIndex()].aegisPlating = (u[this.gameState.selectedWorldIndex()].aegisPlating || 0) + 1;
-          return { ...u };
-        });
+        this.gameState.bumpWorldStat('aegisPlating', 1);
         this.gameState.audio.playSFX('buy');
       }
     } else if (this.gameState.coins() >= cost) {
       this.gameState.coins.update(c => c - cost);
-      this.gameState.worldUpgrades.update(u => {
-        u[this.gameState.selectedWorldIndex()].aegisPlating = (u[this.gameState.selectedWorldIndex()].aegisPlating || 0) + 1;
-        return { ...u };
-      });
+      this.gameState.bumpWorldStat('aegisPlating', 1);
       this.gameState.audio.playSFX('buy');
     }
   }

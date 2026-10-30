@@ -11,7 +11,8 @@ import { phoenixSkinForWorld } from '../../components/particle-bg/particle-bg.co
 // The only shake triggers allowed to fire (spec Section 4); the
 // harness asserts on the component's shake event log against this
 // list. Moved with the FX logic in the organization pass.
-export const SHAKE_ALLOWED_TRIGGERS = ['boss_death', 'ultimate_cast', 'boss_contact', 'false_rebirth', 'singularity_detonation'];
+import { SHAKE_ALLOWED_TRIGGERS, SHAKE_AMP, shakeAmplitude } from './shake';
+export { SHAKE_ALLOWED_TRIGGERS, SHAKE_AMP, shakeAmplitude };
 import { BossFight } from './boss-fight';
 
 export interface FxHost {
@@ -43,16 +44,11 @@ export class FxController {
   // Reduced applies at the setting and automatically while the
   // Feather Brake is held.
 triggerShake(trigger: string) {
-    if (!SHAKE_ALLOWED_TRIGGERS.includes(trigger)) return;
-    // Boss telegraph suppression (deferred to the boss stages by
-    // S1): while a boss telegraph is showing, no shake fires, so
-    // the dodge read stays exact.
-    if (this.host.bossFight.bossTelegraphShowing()) return;
-    const setting = this.host.gameState.screenShakeSetting();
-    if (setting === 'off') return;
-    let amp = 6 * this.host.speedScale;
-    if (setting === 'reduced') amp *= 0.4;
-    if (this.host.gameState.playerMovement.braking) amp *= 0.4;
+    const amp = shakeAmplitude(trigger, this.host.gameState.screenShakeSetting(), !!this.host.gameState.playerMovement.braking,
+      this.host.bossFight.bossTelegraphShowing(), this.host.speedScale);
+    if (amp <= 0) return;
+    // A light shake never cuts a stronger one short.
+    if (this.host.shakeDurMs > 0 && amp < this.host.shakeAmpPx && performance.now() - this.host.shakeStartPerf < this.host.shakeDurMs) return;
     this.host.shakeAmpPx = amp;
     this.host.shakeDurMs = 250;
     this.host.shakeStartPerf = performance.now();

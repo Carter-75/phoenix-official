@@ -16,7 +16,7 @@
 // window sums well past the threshold, so it can never charge;
 // a planted finger's natural jitter sums to nearly nothing, so it
 // always can. Positions are the game's adjusted steering
-// coordinates (touch offset applied), the same space the bird and
+// coordinates, the same space the bird and
 // the ability aim read.
 
 export const HOLD_ARM_MS = 500;

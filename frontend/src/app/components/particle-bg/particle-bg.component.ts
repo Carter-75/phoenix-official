@@ -292,7 +292,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     // listeners when the component is recreated).
     window.addEventListener('resize', this.boundResize);
     window.addEventListener('mousemove', this.boundMouseMove);
-    // touchstart so a simple tap/hold (no drag) immediately moves the Phoenix — required for APK.
+    // touchstart so a simple tap/hold (no drag) immediately moves the Phoenix, required for APK.
     window.addEventListener('touchstart', this.boundTouchMove, { passive: false });
     window.addEventListener('touchmove', this.boundTouchMove, { passive: false });
     window.addEventListener('touchend', this.boundTouchStamp, { passive: true });
@@ -803,12 +803,6 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
   }
 
   private updateMouseTarget(x: number, y: number, isTouch: boolean) {
-    // Touch finger offset (spec Section 2.1): the steering target is
-    // lifted above the fingertip on the game screen when the setting
-    // is on; mouse input is never offset.
-    const adjusted = this.gameState.applyTouchOffset(x, y, isTouch);
-    x = adjusted.x;
-    y = adjusted.y;
     const vec = new THREE.Vector3();
     const pos = new THREE.Vector3();
     vec.set((x / window.innerWidth) * 2 - 1, -(y / window.innerHeight) * 2 + 1, 0.5);

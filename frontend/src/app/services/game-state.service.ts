@@ -195,7 +195,6 @@ export class GameStateService {
   // Local presentation and feel preferences (spec Sections 2.1, 4.3,
   // 4.4). Stored with the other local preferences, NOT in the synced
   // save: they describe this device, not the player's progression.
-  public touchOffsetEnabled = signal<boolean>(true);
   public screenShakeSetting = signal<'on' | 'reduced' | 'off'>('on');
   public damageNumbersEnabled = signal<boolean>(true);
 
@@ -296,8 +295,7 @@ export class GameStateService {
   constructor() {
       // Local preferences first: the guest restore below and every
       // settings consumer read them.
-      const prefOffset = this.storage.getItem('phoenix_pref_touch_offset');
-      if (prefOffset !== null) this.touchOffsetEnabled.set(prefOffset !== '0');
+      this.storage.removeItem('phoenix_pref_touch_offset');
       const prefShake = this.storage.getItem('phoenix_pref_screen_shake');
       if (prefShake === 'reduced' || prefShake === 'off') this.screenShakeSetting.set(prefShake);
       const prefDmg = this.storage.getItem('phoenix_pref_damage_numbers');
@@ -553,6 +551,25 @@ export class GameStateService {
       if (changed) this.worldUpgrades.set({ ...all, [w]: next });
   }
 
+  /** Last passive upgrade bought (any path: tap, ad, gems, autoplay), for the shop highlight. */
+  public lastPurchase = signal<{ stat: string; at: number } | null>(null);
+
+  /**
+   * The single write path for passive shop upgrades. Applies to the
+   * selected realm only (per-realm loadouts), copies the realm record
+   * instead of mutating it so every reader and the save effect see the
+   * change, and records the purchase for the shop highlight.
+   */
+  public bumpWorldStat(stat: string, delta: number): void {
+      const w = this.selectedWorldIndex();
+      this.ensureRealmLoadout(w);
+      const all = this.worldUpgrades();
+      const cur: any = all[w];
+      const next = +(((Number(cur[stat]) || 0) + delta).toFixed(2));
+      this.worldUpgrades.set({ ...all, [w]: { ...cur, [stat]: next } });
+      this.lastPurchase.set({ stat, at: Date.now() });
+  }
+
   public currentStats = computed(() => {
       const stats = this.worldUpgrades()[this.selectedWorldIndex()];
       // Starter kit: every realm runs Burst on tap and Aura on hold
@@ -661,11 +678,6 @@ export class GameStateService {
 
   // --- Local preferences (persisted on this device only) ---
 
-  public setTouchOffsetEnabled(on: boolean) {
-      this.touchOffsetEnabled.set(on);
-      this.storage.setItem('phoenix_pref_touch_offset', on ? '1' : '0');
-  }
-
   public setScreenShakeSetting(value: 'on' | 'reduced' | 'off') {
       this.screenShakeSetting.set(value);
       this.storage.setItem('phoenix_pref_screen_shake', value);
@@ -674,17 +686,6 @@ export class GameStateService {
   public setDamageNumbersEnabled(on: boolean) {
       this.damageNumbersEnabled.set(on);
       this.storage.setItem('phoenix_pref_damage_numbers', on ? '1' : '0');
-  }
-
-  // Touch steering offset (spec Section 2.1): on touch devices the
-  // steering target sits about 8 percent of the min dimension above
-  // the fingertip so the bird is not hidden under the thumb. Mouse
-  // input is never offset, and neither is anything off the game
-  // screen. Ability aiming uses the same adjusted point, so what the
-  // player sees is what fires.
-  public applyTouchOffset(x: number, y: number, isTouch: boolean): { x: number, y: number } {
-      if (!isTouch || !this.touchOffsetEnabled() || this.activeScreen() !== 'game') return { x, y };
-      return { x, y: y - 0.08 * Math.min(window.innerWidth, window.innerHeight) };
   }
 
   // Sync with DB User

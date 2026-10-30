@@ -5,6 +5,7 @@
 // executes the chosen action, verifies it, and enforces the hard
 // safety rails (no real money, no ads, gems only with a quoted
 // permission from the prompt). Ads stay suppressed by AdGuard.
+import { highlightPurchase } from './purchase-highlight';
 import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
@@ -266,6 +267,10 @@ export class AutoplayService {
     return all.find(b => !b.disabled && b.offsetParent !== null && b.getBoundingClientRect().width > 0) || null;
   }
   private clickEl(b: HTMLElement) {
+    // Bring off-screen targets (shop rows far down the list) into view
+    // first, so the tester sees what the AI is pressing.
+    try { b.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior }); } catch { }
+    highlightPurchase(b);
     const r = b.getBoundingClientRect();
     this.ripple(r.left + r.width / 2, r.top + r.height / 2);
     b.click();
@@ -426,7 +431,13 @@ export class AutoplayService {
         if (g) return { ok: false, note: g };
         const d = this.diff(before, after);
         if (d.length) {
-          if (after.coins < before.coins || after.gems < before.gems) this.ledger.push(`- ${a.id}: ${d.join(', ')}`);
+          const spent = after.coins < before.coins || after.gems < before.gems;
+          if (spent && el.getAttribute('data-ap')?.startsWith('buy-') && before.loadout === after.loadout) {
+            const msg = `${a.id}: balance dropped (${d.join(', ')}) but the upgrade level did not change`;
+            this.ledger.push(`- PROBLEM ${msg}`);
+            return { ok: false, note: msg };
+          }
+          if (spent) this.ledger.push(`- ${a.id}: ${d.join(', ')} (verified by code)`);
           return { ok: true, note: d.join(', ') };
         }
         return { ok: false, note: 'tapped, but no visible change (balances, loadout, screen all the same)' };

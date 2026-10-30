@@ -117,19 +117,8 @@ import { copyText } from '../../services/clipboard';
                 </div>
 
                 <!-- Gameplay feel and information layers (systems S1).
-                     All three are local preferences, stored on this
+                     These are local preferences, stored on this
                      device only, never in the synced save. -->
-                <div class="separator"></div>
-                <div class="slider-group">
-                    <div class="flex justify-between items-center">
-                        <label>Touch Offset</label>
-                        <button (click)="gameState.setTouchOffsetEnabled(!gameState.touchOffsetEnabled())"
-                                class="press px-3 py-1 rounded bg-white/10 border border-white/20 text-white/90 font-bold text-sm hover:bg-white/20 transition">
-                            {{ gameState.touchOffsetEnabled() ? 'On' : 'Off' }}
-                        </button>
-                    </div>
-                    <p class="text-white/40 text-xs mt-1">Steering target sits above your fingertip on touch screens so the phoenix is not hidden under your thumb.</p>
-                </div>
 
                 <div class="slider-group">
                     <div class="flex justify-between items-center">
@@ -139,7 +128,7 @@ import { copyText } from '../../services/clipboard';
                             {{ gameState.screenShakeSetting() === 'on' ? 'On' : gameState.screenShakeSetting() === 'reduced' ? 'Reduced' : 'Off' }}
                         </button>
                     </div>
-                    <p class="text-white/40 text-xs mt-1">A short shake on boss deaths, ultimate casts, and boss contact hits. Nothing else shakes.</p>
+                    <p class="text-white/40 text-xs mt-1">Shakes the screen when you take a hit, on explosions, and on boss attacks, boss deaths and ultimates. Reduced is gentler; Off never shakes.</p>
                 </div>
 
                 <div class="slider-group">
