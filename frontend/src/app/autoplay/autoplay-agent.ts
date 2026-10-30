@@ -100,6 +100,13 @@ export function requiredScreens(prompt: string): string[] {
 }
 
 /** Sub-goals of the prompt that code has not verified yet (empty: goal_met may stand). */
+/** The realm a prompt names first ("start realm 1, ..."), 1-based, or null. */
+export function promptRealm(prompt: string): number | null {
+  const m = /\b(?:realm|world)\s*(\d{1,2})\b/i.exec(prompt) || /\b(\d{1,2})(?:st|nd|rd|th)\s+realm\b/i.exec(prompt);
+  const n = m ? parseInt(m[1], 10) : NaN;
+  return n >= 1 && n <= 10 ? n : null;
+}
+
 export function unmetSubgoals(prompt: string, c: Checklist | undefined): string[] {
   if (!c) return [];
   const p = prompt.toLowerCase(), out: string[] = [];

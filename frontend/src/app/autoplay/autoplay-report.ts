@@ -18,6 +18,7 @@ export interface Telemetry {
   bugs: BugRecord[]; ui: BugRecord[];
   frames: { samples: number; longFrames: number; worstMs: number; lowFpsSeconds: number; fpsMin: number; fpsAvg: number };
   moves: Record<string, number>;
+  blockedInputs?: number;
   kills: number; pickups: number; coinsStart: number; coinsEnd: number; gemsStart: number; gemsEnd: number;
   realmsCleared: number[]; goalMet: boolean; goalNote: string;
   battle: { matches: number; wins: number; losses: number };

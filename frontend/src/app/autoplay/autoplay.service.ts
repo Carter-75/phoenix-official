@@ -21,7 +21,7 @@ import { TOUCH_DRAG_SCALE } from '../data/balance.constants';
 import { decide, Snapshot, Threat, Foe, Pt } from './autoplay-pilot';
 import { AttemptRecord, BossRecord, Telemetry, addFinding, newTelemetry } from './autoplay-report';
 import { autoplayAllowed, DevFlags } from './autoplay-gate';
-import { CHECK_SCREENS, Checklist, requiredScreens, unmetSubgoals } from './autoplay-agent';
+import { CHECK_SCREENS, Checklist, promptRealm, requiredScreens, unmetSubgoals } from './autoplay-agent';
 import { AgentAction, AgentApiError, AgentEnv, LlmRequest, ObsButton, Observation, StepResult, classifyCurrency, gemQuoteValid, gemsAllowedByPrompt, parseCost, runAgent, stepCapFor } from './autoplay-agent';
 
 const AD_REASON = 'autoplay';
@@ -108,7 +108,7 @@ export class AutoplayService {
   private tut: any = null;
   private visited = new Set<string>();
   private passive = false;
-  private ck = { deaths: 0, buys: 0, lastDeathAt: 0, lastBuyAt: 0, runAfterDeath: false, runAfterBuy: false, tutorialDone: false, tutPassed: [] as string[], tutSkipped: [] as string[] };
+  private ck = { deaths: 0, buys: 0, lastDeathAt: 0, lastBuyAt: 0, runAfterDeath: false, runAfterBuy: false, tutorialDone: false, tutPassed: [] as string[], tutSkipped: [] as string[], runRealms: [] as number[], abil: {} as Record<string, number> };
 
   /** Screen name for the checklist: overlays (settings, pause, KO) count as their own screens. */
   screenName(): string {
@@ -147,7 +147,7 @@ export class AutoplayService {
     this.playing = false;
     this.events = []; this.ledger = []; this.model = '';
     this.visited = new Set(); this.passive = false;
-    this.ck = { deaths: 0, buys: 0, lastDeathAt: 0, lastBuyAt: 0, runAfterDeath: false, runAfterBuy: false, tutorialDone: false, tutPassed: [], tutSkipped: [] };
+    this.ck = { deaths: 0, buys: 0, lastDeathAt: 0, lastBuyAt: 0, runAfterDeath: false, runAfterBuy: false, tutorialDone: false, tutPassed: [], tutSkipped: [], runRealms: [], abil: {} };
     this.tm = newTelemetry(Date.now());
     this.out.setStart(this.tm.startedAt);
     const user: any = this.auth.currentUser();
@@ -246,14 +246,26 @@ export class AutoplayService {
     console.error = (...a: any[]) => { try { addFinding(this.tm.bugs, 'console.error', a.map(x => x?.message || String(x)).join(' ').slice(0, 300), this.where()); } catch { } origErr.apply(console, a); };
     const onVis = () => { if (document.hidden) this.stop('App went to background'); };
     document.addEventListener('visibilitychange', onVis);
+    // While the AI runs, real (trusted) touches never reach gameplay: they
+    // are stopped in the capture phase before the game's window listeners.
+    // The only effect of a real touch is pausing the AI (tap-to-pause),
+    // plus the autoplay badge/Stop control. Once paused, buttons work again
+    // so the tester can resume or stop, but the playfield stays blocked.
+    let swallowUntil = 0;
     const onManual = (e: Event) => {
       if (!e.isTrusted) return;
       const t = e.target as HTMLElement | null;
       if (t?.closest?.('[data-ap-badge]')) return;
-      this.manualPause();
+      const isStart = e.type === 'touchstart' || e.type === 'mousedown' || e.type === 'pointerdown';
+      const onButton = !!t?.closest?.('button, [role="button"], a, input, select');
+      if (this.paused() && onButton && Date.now() > swallowUntil) return;
+      if (isStart && !this.paused()) { swallowUntil = Date.now() + 900; this.manualPause(); }
+      this.tm.blockedInputs = (this.tm.blockedInputs || 0) + 1;
+      e.stopImmediatePropagation();
+      if (e.cancelable && e.type !== 'touchstart') e.preventDefault();
     };
-    window.addEventListener('touchstart', onManual, true);
-    window.addEventListener('mousedown', onManual, true);
+    const BLOCK = ['touchstart', 'touchmove', 'touchend', 'touchcancel', 'mousedown', 'mousemove', 'mouseup', 'pointerdown', 'pointermove', 'pointerup', 'click', 'dblclick'];
+    for (const ty of BLOCK) window.addEventListener(ty, onManual, { capture: true, passive: false });
     let last = performance.now(), frames = 0, secStart = last, fpsSum = 0;
     const raf = (now: number) => {
       const dt = now - last; last = now; frames++;
@@ -272,7 +284,7 @@ export class AutoplayService {
     this.cleanup.push(() => {
       window.removeEventListener('error', onErr); window.removeEventListener('unhandledrejection', onRej);
       console.error = origErr; document.removeEventListener('visibilitychange', onVis);
-      window.removeEventListener('touchstart', onManual, true); window.removeEventListener('mousedown', onManual, true);
+      for (const ty of BLOCK) window.removeEventListener(ty, onManual, true);
       cancelAnimationFrame(this.rafId);
     });
   }
@@ -311,6 +323,12 @@ export class AutoplayService {
     const r = b.getBoundingClientRect();
     this.ripple(r.left + r.width / 2, r.top + r.height / 2);
     b.click();
+  }
+  /** Realm the menu's Play button will start (1-based), read from the DOM. */
+  private pickerRealm(): number | null {
+    const v = this.btn('play')?.getAttribute('data-realm');
+    const n = v ? parseInt(v, 10) : NaN;
+    return Number.isInteger(n) ? n : null;
   }
   private click(tag: string, note?: string): boolean {
     const b = this.btn(tag);
@@ -364,7 +382,7 @@ export class AutoplayService {
 
   private checklistLine(): string {
     const c = this.checklist();
-    return `Checklist (code-verified): visited ${c.visited.join(', ') || 'none'}; not visited ${c.notVisited.join(', ') || 'none'}; deaths ${c.deaths}; buys ${c.buys}; retried after death ${c.retriedAfterDeath ? 'yes' : 'no'}; retried after buy ${c.retriedAfterBuy ? 'yes' : 'no'}; tutorial ${c.tutorialDone ? 'completed' : 'not completed'} (${c.tutorialPassed} steps done by gesture, ${c.tutorialSkipped} skipped); UI findings ${c.uiFindings}; bugs ${c.bugs}.`;
+    return `Checklist (code-verified): visited ${c.visited.join(', ') || 'none'}; not visited ${c.notVisited.join(', ') || 'none'}; deaths ${c.deaths}; buys ${c.buys}; retried after death ${c.retriedAfterDeath ? 'yes' : 'no'}; retried after buy ${c.retriedAfterBuy ? 'yes' : 'no'}; tutorial ${c.tutorialDone ? 'completed' : 'not completed'} (${c.tutorialPassed} steps done by gesture, ${c.tutorialSkipped} skipped); UI findings ${c.uiFindings}; bugs ${c.bugs}; run realms ${this.ck.runRealms.join(', ') || 'none'}; abilities ${Object.entries(this.ck.abil).map(([k, v]) => `${k} ${v}`).join(', ') || 'none'}.`;
   }
   private findingLines(): string[] {
     const all = [...this.tm.ui, ...this.tm.bugs];
@@ -494,7 +512,9 @@ export class AutoplayService {
         const el = this.btnMap.get(a.id);
         if (!el || !el.isConnected) return { ok: false, note: `button ${a.id} is gone` };
         if (gemsAllowedByPrompt(this.prompt) || (a.allowGems && a.gemQuote && gemQuoteValid(a.gemQuote, this.prompt))) this.gemPermitted = true;
-        if (el.getAttribute('data-ap') === 'play' || el.getAttribute('data-ap') === 'play-battle') this.beginAttempt();
+        const apTag = el.getAttribute('data-ap');
+        // Play taps go through start_run so the requested realm is enforced.
+        if (apTag === 'play' || apTag === 'play-battle') return this.execute({ action: 'start_run', mode: apTag === 'play-battle' ? 'battle' : (this.btn('mode-endless')?.getAttribute('aria-pressed') === 'true' ? 'endless' : 'campaign'), realm: promptRealm(this.prompt) ?? undefined });
         this.clickEl(el);
         await sleep(700);
         const after = this.fingerprint();
@@ -515,7 +535,7 @@ export class AutoplayService {
         return { ok: false, note: 'tapped, but no visible change (balances, loadout, screen all the same)' };
       }
       case 'select_realm': {
-        if (this.gs.selectedWorldIndex() === a.realm - 1) return { ok: false, note: `realm ${a.realm} is already selected, do something else` };
+        if (this.gs.selectedWorldIndex() === a.realm - 1 && (this.pickerRealm() ?? a.realm) === a.realm) return { ok: false, note: `realm ${a.realm} is already selected, do something else` };
         const fromShop = this.gs.activeScreen() === 'shop';
         if (this.gs.activeScreen() === 'game') return { ok: false, note: 'select_realm is not available during a run; navigate menu first' };
         if (this.screenName() !== 'menu') await this.toMenu();
@@ -523,11 +543,13 @@ export class AutoplayService {
         const want = a.realm - 1;
         if (!this.gs.unlockedWorlds().includes(want)) return { ok: false, note: `realm ${a.realm} is locked` };
         if (!this.btn('world-next') && !this.btn('world-prev')) { this.click('mode-normal'); await sleep(500); }
-        for (let i = 0; i < 12 && this.gs.selectedWorldIndex() !== want; i++) {
-          if (!this.click(this.gs.selectedWorldIndex() < want ? 'world-next' : 'world-prev')) break;
+        const cur = () => (this.pickerRealm() ?? this.gs.selectedWorldIndex() + 1) - 1;
+        for (let i = 0; i < 12 && (cur() !== want || this.gs.selectedWorldIndex() !== want); i++) {
+          if (!this.click(cur() < want ? 'world-next' : 'world-prev')) break;
           await sleep(450);
         }
-        const ok = this.gs.selectedWorldIndex() === want;
+        const ok = cur() === want && this.gs.selectedWorldIndex() === want;
+        this.log('menu', `select_realm: wanted ${a.realm}, picker ${cur() + 1}, state ${this.gs.selectedWorldIndex() + 1}`);
         if (ok && fromShop) { this.click('open-shop'); await sleep(600); }
         return { ok, note: ok ? `realm ${a.realm} selected${fromShop ? ', back on shop' : ''}` : `could not select realm ${a.realm} (now ${this.gs.selectedWorldIndex() + 1})` };
       }
@@ -568,16 +590,32 @@ export class AutoplayService {
           if (this.gs.activeScreen() !== 'menu') return { ok: false, note: `start_run could not reach the menu (on ${this.gs.activeScreen()}); try navigate menu` };
         }
         this.click('tutorial-decline'); await sleep(400);
+        const wantRealm = a.realm ?? promptRealm(this.prompt) ?? undefined;
+        a = { ...a, realm: wantRealm };
         if (a.mode === 'battle') {
           if (!this.btn('play-battle')) { this.click('mode-battle'); await sleep(500); }
         } else {
           if (a.realm && this.gs.selectedWorldIndex() !== a.realm - 1) { const r = await this.execute({ action: 'select_realm', realm: a.realm }); if (!r.ok) return r; }
           this.click(a.mode === 'endless' ? 'mode-endless' : 'mode-normal'); await sleep(400);
         }
+        if (wantRealm && a.mode !== 'battle') {
+          const pr = this.pickerRealm(), st = this.gs.selectedWorldIndex() + 1;
+          if (pr !== wantRealm || st !== wantRealm) {
+            this.log('menu', `start_run refused: requested realm ${wantRealm}, picker ${pr ?? '?'}, state ${st}`);
+            return { ok: false, note: `realm check failed before Play: requested ${wantRealm}, menu shows ${pr ?? '?'}; call select_realm ${wantRealm}` };
+          }
+        }
         this.beginAttempt();
         if (!this.click(a.mode === 'battle' ? 'play-battle' : 'play')) return { ok: false, note: 'Play button not available' };
         for (let i = 0; i < 20 && this.gs.activeScreen() !== 'game'; i++) await sleep(200);
-        const ok = this.gs.activeScreen() === 'game';
+        let ok = this.gs.activeScreen() === 'game';
+        const actual = this.gs.selectedWorldIndex() + 1;
+        if (ok) { this.ck.runRealms.push(actual); this.log('menu', `run realm: actual ${actual}${wantRealm ? `, requested ${wantRealm}` : ''}`); }
+        if (ok && wantRealm && a.mode !== 'battle' && actual !== wantRealm) {
+          try { this.game?.quitGame(); } catch { }
+          await sleep(700);
+          return { ok: false, note: `run started in realm ${actual}, not the requested ${wantRealm}; quit it. Call select_realm ${wantRealm}, then start_run` };
+        }
         if (ok) { if (this.ck.lastDeathAt) this.ck.runAfterDeath = true; if (this.ck.lastBuyAt) this.ck.runAfterBuy = true; this.visited.add('game'); }
         return { ok, note: ok ? `run started: ${this.gs.currentGameMode()} realm ${this.gs.selectedWorldIndex() + 1}. If the prompt only asked to start a run, call finish goal_met now; otherwise use play until run_end` : 'the run did not start' };
       }

@@ -386,7 +386,10 @@ export class GameStateService {
                   this.beatenWorlds.set(data.unlockedWorlds.filter((w: number) => w > 0).map((w: number) => w - 1));
               }
               if (data.modeRecords) this.modeRecords.set(sanitizeModeRecords(data.modeRecords));
-              if (data.selectedWorldIndex) this.selectedWorldIndex.set(data.selectedWorldIndex);
+              // The device preference (phoenix_selected_world) is written on every
+              // realm change; the guest save is written less often and could hold a
+              // stale realm, so it only applies when no preference exists.
+              if (!(Number.isInteger(prefWorld) && prefWorld >= 0 && prefWorld <= 9) && Number.isInteger(data.selectedWorldIndex)) this.selectedWorldIndex.set(data.selectedWorldIndex);
               if (data.coinMultiplier) this.coinMultiplier.set(data.coinMultiplier);
               if (data.xpMultiplier) this.xpMultiplier.set(data.xpMultiplier);
               if (data.hasCosmicTrail !== undefined) this.hasCosmicTrail.set(data.hasCosmicTrail);

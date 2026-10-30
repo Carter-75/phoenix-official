@@ -276,7 +276,7 @@ import { shouldOfferTutorial, writeTutorialState } from '../../tutorial/tutorial
                fire orange, Endless is violet, Battle (below) is red.
                Before this, Normal and Endless shared the same gold
                family button and near-white label.) -->
-          <button data-ap="play" (click)="startGame(campaignPlayMode())"
+          <button data-ap="play" [attr.data-realm]="campaignWorldIndex() + 1" (click)="startGame(campaignPlayMode())"
                   class="menu-play stagger-in relative group mt-8 transition-transform hover:scale-105 active:scale-95" style="--d: 3"
                   [class.opacity-50]="!isWorldUnlocked()"
                   [class.grayscale]="!isWorldUnlocked()">
