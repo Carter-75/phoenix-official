@@ -401,7 +401,10 @@ export class MainMenuComponent {
     }
   }
 
-  campaignWorldIndex = signal(0);
+  // The carousels open on the shared selected realm (persisted in
+  // GameStateService), so a run that chained into a new realm after a
+  // boss kill returns to the menu showing that realm, not realm 1.
+  campaignWorldIndex = signal(this.initialWorldIndex());
   // Mode trio: which campaign-family mode the campaign screen's
   // Play button starts for the selected realm.
   campaignPlayMode = signal<'campaign' | 'endless'>('campaign');
@@ -410,7 +413,11 @@ export class MainMenuComponent {
   // forever. A world is playable when it is in the player's unlockedWorlds.
   isWorldUnlocked = computed(() => this.gameState.unlockedWorlds().includes(this.campaignWorldIndex()));
   
-  selectedBattleWorldIndex = signal(0);
+  selectedBattleWorldIndex = signal(this.initialWorldIndex());
+  private initialWorldIndex(): number {
+    const idx = this.gameState.selectedWorldIndex();
+    return Number.isInteger(idx) && idx >= 0 && idx < WORLDS.length ? idx : 0;
+  }
   currentBattleWorld = computed(() => WORLDS[this.selectedBattleWorldIndex()]);
   // Locked realms are progression gated, not unreleased: say how to unlock.
   unlockHint(index: number): string {
