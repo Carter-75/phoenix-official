@@ -68,3 +68,39 @@ export function phoenixSkinForWorld(worldIndex: number): PhoenixSkin {
   const world = WORLDS[Math.max(0, Math.min(WORLDS.length - 1, worldIndex))];
   return phoenixSkinById(world ? world.skinId : 'ember');
 }
+
+// Battle mini bosses (the per-realm rivals). Each realm's rival is a
+// distinct hostile phoenix: its own palette, crest, wing cut, glow
+// treatment and trail. The shared HOSTILE_SKIN record is re-pointed to
+// the realm's rival (setRivalSkinForWorld) so every renderer path that
+// reads HOSTILE_SKIN draws the current rival without extra plumbing.
+const g = (crest: PhoenixSkin['glyph']['crest'], o: Partial<PhoenixSkin['glyph']> = {}): PhoenixSkin['glyph'] =>
+  ({ crest, angular: false, serrated: false, darkHeart: false, facets: false, sparkles: false, broadWings: false, ...o });
+export const RIVAL_SKINS: PhoenixSkin[] = [
+  { id: 'rival_0', name: 'Slag Brute', bright: [1.0, 0.55, 0.2], mid: [0.75, 0.12, 0.02], deep: [0.25, 0.06, 0.04],
+    glyph: g('spikes', { serrated: true, broadWings: true }), glowSpan: 1.45, glowRing: 'none', trailStyle: 'ember', trailA: null, trailB: null, flickerScale: 1.2 },
+  { id: 'rival_1', name: 'Umbral Stalker', bright: [0.75, 0.45, 1.0], mid: [0.3, 0.08, 0.55], deep: [0.06, 0.02, 0.14],
+    glyph: g('swept', { darkHeart: true, angular: true }), glowSpan: 1.35, glowRing: 'eclipse', trailStyle: 'eclipse', trailA: null, trailB: null, flickerScale: 0.8 },
+  { id: 'rival_2', name: 'Prism Warden', bright: [0.95, 1.0, 1.0], mid: [0.95, 0.35, 0.85], deep: [0.2, 0.3, 0.6],
+    glyph: g('spikes', { facets: true, angular: true, sparkles: true }), glowSpan: 1.4, glowRing: 'halo', trailStyle: 'sequence', trailA: [1.0, 0.5, 0.9], trailB: [0.5, 0.95, 1.0], flickerScale: 0.35 },
+  { id: 'rival_3', name: 'Gale Harrier', bright: [1.0, 1.0, 0.6], mid: [0.35, 0.6, 0.95], deep: [0.1, 0.15, 0.4],
+    glyph: g('swept', { angular: true, serrated: true }), glowSpan: 1.3, glowRing: 'none', trailStyle: 'ribbon', trailA: null, trailB: null, flickerScale: 1.4 },
+  { id: 'rival_4', name: 'Grave Lantern', bright: [0.55, 1.0, 0.75], mid: [0.15, 0.45, 0.35], deep: [0.04, 0.08, 0.08],
+    glyph: g('tuft', { darkHeart: true }), glowSpan: 1.5, glowRing: 'halo', trailStyle: 'snow', trailA: null, trailB: null, flickerScale: 0.6 },
+  { id: 'rival_5', name: 'Sun Herald', bright: [1.0, 0.95, 0.6], mid: [1.0, 0.55, 0.05], deep: [0.6, 0.15, 0.02],
+    glyph: g('rays', { broadWings: true, sparkles: true }), glowSpan: 1.55, glowRing: 'halo', trailStyle: 'ribbon', trailA: null, trailB: null, flickerScale: 1.0 },
+  { id: 'rival_6', name: 'Rime Seer', bright: [0.9, 1.0, 1.0], mid: [0.45, 0.75, 1.0], deep: [0.1, 0.2, 0.5],
+    glyph: g('crown', { facets: true, angular: true }), glowSpan: 1.4, glowRing: 'none', trailStyle: 'snow', trailA: null, trailB: null, flickerScale: 0.3 },
+  { id: 'rival_7', name: 'Wyrm Knight', bright: [1.0, 0.7, 0.25], mid: [0.2, 0.5, 0.25], deep: [0.05, 0.18, 0.08],
+    glyph: g('spikes', { serrated: true, broadWings: true }), glowSpan: 1.45, glowRing: 'none', trailStyle: 'ember', trailA: null, trailB: null, flickerScale: 1.0 },
+  { id: 'rival_8', name: 'Flux Golem', bright: [0.6, 1.0, 0.9], mid: [0.9, 0.15, 0.4], deep: [0.2, 0.04, 0.25],
+    glyph: g('leaf', { facets: true, darkHeart: true }), glowSpan: 1.5, glowRing: 'eclipse', trailStyle: 'sequence', trailA: [1.0, 0.3, 0.5], trailB: [0.5, 1.0, 0.9], flickerScale: 1.6 },
+  { id: 'rival_9', name: 'Ashborn Rival', bright: [1.0, 1.0, 0.85], mid: [0.95, 0.3, 0.1], deep: [0.15, 0.08, 0.08],
+    glyph: g('crown', { broadWings: true, sparkles: true, serrated: true }), glowSpan: 1.6, glowRing: 'halo', trailStyle: 'sequence', trailA: [1.0, 0.85, 0.35], trailB: [1.0, 0.35, 0.1], flickerScale: 1.1 },
+];
+
+export function setRivalSkinForWorld(worldIndex: number): PhoenixSkin {
+  const w = Math.max(0, Math.min(RIVAL_SKINS.length - 1, worldIndex | 0));
+  Object.assign(HOSTILE_SKIN, RIVAL_SKINS[w]);
+  return HOSTILE_SKIN;
+}

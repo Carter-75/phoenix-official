@@ -5,7 +5,8 @@ import { WORLDS, HOSTILE_RGB } from '../../constants/game.constants';
 import { PhysicsEntity, WorldTheme } from '../../models/game.models';
 import { buildEntityGeometry } from './entity-builder';
 import { PhoenixState, ParticleEntity, DyingBurst } from './phoenix-state';
-import { Rgb3, PhoenixSkin, PHOENIX_SKINS, HOSTILE_SKIN, phoenixSkinById, phoenixSkinForWorld } from './phoenix-skins';
+import { Rgb3, PhoenixSkin, PHOENIX_SKINS, HOSTILE_SKIN, phoenixSkinById, phoenixSkinForWorld, setRivalSkinForWorld } from './phoenix-skins';
+import { buildBossAdornment, animateBossAdornment } from './boss-adornments';
 import { pointInGlyph } from './phoenix-glyph';
 import { makeBackdropTexture, makeScrollBackdropTexture, silColor, themePainters, wallPainters } from './theme-painters';
 import { EntitySync } from './entity-sync';
@@ -212,6 +213,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       this.updateColors(theme);
       this.applyThemeScene(worldIndex);
       if (this.bird) this.applySkin(phoenixSkinForWorld(worldIndex));
+      this.applyRivalForWorld(worldIndex);
     });
   }
   
@@ -226,7 +228,9 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
 
     this.aiBird = this.createBirdState('crimson'); // Different theme for AI
     this.initHistory(this.aiBird);
+    setRivalSkinForWorld(this.gameState.selectedWorldIndex());
     this.createBirdRig(this.aiBird, HOSTILE_SKIN);
+    this.applyRivalForWorld(this.gameState.selectedWorldIndex());
     
     this.updateColors(WORLDS[this.gameState.selectedWorldIndex()].theme);
     this.applyThemeScene(this.gameState.selectedWorldIndex());
@@ -948,6 +952,46 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     return this.colorForPoint(bird, phoenixSkinById(bird.skinId), k);
   }
 
+  // Battle mini boss look: the realm's rival skin plus its themed
+  // adornment (the realm boss's motif at rival scale).
+  private rivalAdorn: THREE.Group | null = null;
+  private applyRivalForWorld(worldIndex: number) {
+    const skin = setRivalSkinForWorld(worldIndex);
+    const ai = this.aiBird;
+    if (!ai || !this.scene) return;
+    ai.glowSpanFactor = skin.glowSpan;
+    if (ai.glow) {
+      const gm = ai.glow.material as THREE.SpriteMaterial;
+      gm.color.setRGB(skin.bright[0], skin.bright[1], skin.bright[2]);
+      const tex = skin.glowRing === 'eclipse' ? this.createRingGlowTexture()
+        : skin.glowRing === 'halo' ? this.createHaloGlowTexture()
+        : this.glowTexture;
+      if (tex && gm.map !== tex) { gm.map = tex; gm.needsUpdate = true; }
+    }
+    if (this.rivalAdorn) {
+      this.scene.remove(this.rivalAdorn);
+      this.rivalAdorn.traverse(o => {
+        const m = o as THREE.Mesh;
+        if (m.isMesh) { m.geometry.dispose(); (m.material as THREE.Material).dispose(); }
+      });
+    }
+    this.rivalAdorn = buildBossAdornment(worldIndex);
+    this.rivalAdorn.visible = false;
+    this.scene.add(this.rivalAdorn);
+  }
+
+  private updateRivalAdornment(isBattle: boolean, nowMs: number) {
+    const adorn = this.rivalAdorn;
+    const sprite = this.aiBird?.sprite;
+    if (!adorn) return;
+    adorn.visible = isBattle && !!sprite;
+    if (!adorn.visible || !sprite) return;
+    adorn.position.copy(sprite.position);
+    const span = 8 * this.birdScale * 0.85 * this.visScaleMul * 1.15;
+    adorn.scale.set(span, span, 1);
+    animateBossAdornment(adorn, nowMs, false, false);
+  }
+
   private applySkin(skin: PhoenixSkin) {
     const bird = this.bird;
     if (!bird || !bird.sprite) return;
@@ -1560,6 +1604,7 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
         }
 
         this.updatePlayerVisualStates(dt, nowMs);
+        this.updateRivalAdornment(isBattle, nowMs);
 
         this.entitySync.syncEntities();
 
