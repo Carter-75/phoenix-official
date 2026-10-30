@@ -532,33 +532,33 @@ export class GameStateService {
   // Computed helper for current world's stats, falling back to defaults for any newly added stats missing in local storage
 
 
-  // Fills any empty equip slot in a realm's record. A slot left empty
-  // inherits the previous realm's equipped ability (the loadout the
-  // player carried in), granted at level 1 here if this realm has not
-  // unlocked it yet; tap and hold finally fall back to the starter
-  // kit (Burst and Aura). Writes only when something was missing, so
-  // it is idempotent and never overrides a choice the player made.
+  // Loadouts are per realm: each realm keeps its own purchased
+  // abilities and its own equipped slots, saved in worldUpgrades[w].
+  // Entering a realm (menu pick, Play, or the same-session boss chain
+  // into the next realm) just switches to that realm's saved record.
+  // This only repairs it: a slot pointing at an ability this realm
+  // never bought is cleared, and an empty tap or hold slot takes the
+  // realm's true starter kit (Burst and Aura, owned at level 1 in
+  // every realm). Double and triple stay empty until bought here.
+  // Writes only when something changed, so it is idempotent and never
+  // overrides a choice the player made or copies another realm.
   public ensureRealmLoadout(worldIndex: number, all: Record<number, WorldStats> = this.worldUpgrades()) {
       const w = Math.max(0, Math.min(9, worldIndex | 0));
       const cur = all[w];
-      const prev = w > 0 ? all[w - 1] : undefined;
+      const starter: Record<string, string> = { activeTapAbility: 'burst', activeHoldAbility: 'aura' };
       const slots = ['activeTapAbility', 'activeHoldAbility', 'activeDoubleAbility', 'activeTripleAbility'] as const;
-      const starter: Record<string, string | null> = { activeTapAbility: 'burst', activeHoldAbility: 'aura', activeDoubleAbility: null, activeTripleAbility: null };
       const next: WorldStats = { ...BASE_STATS, ...(cur || {}), unlockedAbilities: { ...((cur && cur.unlockedAbilities) || {}) } } as WorldStats;
       let changed = !cur;
       for (const slot of slots) {
-          if (next[slot]) {
-              if (!next.unlockedAbilities[next[slot] as string]) {
-                  next.unlockedAbilities[next[slot] as string] = { level: 1, modifiers: deterministicAbilityModifiers(next[slot] as string, 1) };
-                  changed = true;
-              }
-              continue;
+          const id = next[slot] as string | null | undefined;
+          if (id && !next.unlockedAbilities[id] && id !== starter[slot]) { (next as any)[slot] = null; changed = true; }
+          const pick = starter[slot];
+          if (!next[slot] && pick) { (next as any)[slot] = pick; changed = true; }
+          const eq = next[slot] as string | null;
+          if (eq && eq === pick && !next.unlockedAbilities[eq]) {
+              next.unlockedAbilities[eq] = { level: 1, modifiers: deterministicAbilityModifiers(eq, 1) };
+              changed = true;
           }
-          const pick = (prev && prev[slot]) || starter[slot];
-          if (!pick || !ABILITIES[pick]) continue;
-          (next as any)[slot] = pick;
-          if (!next.unlockedAbilities[pick]) next.unlockedAbilities[pick] = { level: 1, modifiers: deterministicAbilityModifiers(pick, 1) };
-          changed = true;
       }
       if (changed) this.worldUpgrades.set({ ...all, [w]: next });
   }
