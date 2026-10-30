@@ -29,10 +29,14 @@ export interface Snapshot {
   threats: Threat[]; foes: Foe[]; pickups: Pickup[];
   stamina: number; staminaMax?: number; dashCost: number; rollCost: number;
   telegraph: boolean; hpFrac: number;
+  /** Set by the service: low movement while taking damage over the last 2 s. */
+  stuck?: boolean;
 }
 export interface Decision {
   target: Pt; danger: number; dash: Pt | null; roll: boolean; brake: boolean;
   aim: Foe | null; safeForHold: boolean; timeToHit: number;
+  /** Why an escape verb fired: 'boxed', 'stuck', 'corner', or null. */
+  escape: 'boxed' | 'stuck' | 'corner' | null;
 }
 
 const HORIZON_S = 0.9;
@@ -67,10 +71,46 @@ export function dangerAt(q: Pt, s: Snapshot): number {
     const keep = f.boss ? 90 : 40;
     if (dist < keep) d += (keep - dist) / keep * (f.boss ? 14 : 6);
   }
-  const m = 0.07 * Math.min(s.w, s.h);
-  const edge = Math.min(q.x, s.w - q.x, q.y, s.h - q.y);
-  if (edge < m) d += (m - edge) / m * 4;
+  d += wallPenalty(q, s) + densityAt(q, s);
   return d;
+}
+
+/** Walls and corners: a band along each edge, much worse where two bands meet. */
+export function wallPenalty(q: Pt, s: Snapshot): number {
+  const m = 0.12 * Math.min(s.w, s.h);
+  const ex = Math.min(q.x, s.w - q.x), ey = Math.min(q.y, s.h - q.y);
+  const px = ex < m ? (m - ex) / m : 0, py = ey < m ? (m - ey) / m : 0;
+  return (px + py) * 5 + px * py * 12;
+}
+
+/** Threat density: how crowded the 170 px around q is with foes and shots. */
+export function densityAt(q: Pt, s: Snapshot): number {
+  let n = 0;
+  for (const f of s.foes) { const dd = Math.hypot(f.x - q.x, f.y - q.y); if (dd < 170) n += (170 - dd) / 170 * (f.boss ? 1.5 : 1); }
+  for (const th of s.threats) { const dd = Math.hypot(th.x - q.x, th.y - q.y); if (dd < 170) n += (170 - dd) / 170 * 0.5; }
+  return n > 1 ? (n - 1) * 1.2 : 0;
+}
+
+/** Danger along the straight path from a to b (sampled), so routes through a cluster lose. */
+export function pathDanger(a: Pt, b: Pt, s: Snapshot): number {
+  let d = 0;
+  for (const t of [0.33, 0.66]) {
+    const q = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    for (const f of s.foes) { const dd = Math.hypot(f.x - q.x, f.y - q.y) - f.r - s.birdR; if (dd < 30) d += (30 - dd) / 30 * 3; }
+    for (const th of s.threats) { const dd = Math.hypot(th.x - q.x, th.y - q.y) - th.r - s.birdR; if (dd < 20) d += (20 - dd) / 20; }
+  }
+  return d;
+}
+
+/** Boxed in: most short-range escape spots around p are dangerous. */
+export function boxedIn(s: Snapshot): boolean {
+  let bad = 0; const N = 12;
+  for (let k = 0; k < N; k++) {
+    const a = (k / N) * Math.PI * 2;
+    const q = { x: s.p.x + Math.cos(a) * 110, y: s.p.y + Math.sin(a) * 110 };
+    if (q.x < 4 || q.y < 4 || q.x > s.w - 4 || q.y > s.h - 4 || dangerAt(q, s) > 3) bad++;
+  }
+  return bad >= N * 0.7;
 }
 
 export function decide(s: Snapshot, rng: () => number = Math.random): Decision {
@@ -105,12 +145,28 @@ export function decide(s: Snapshot, rng: () => number = Math.random): Decision {
       const dd = Math.hypot(c.x - p.x, c.y - p.y);
       if (dd < 220) pick += ((220 - dd) / 220) * pickupWeight(p.kind, stamFrac, s.hpFrac);
     }
-    const score = danger * (s.telegraph ? 1.6 : 1) + travel * 0.6 + toIdeal * 1.4 - Math.min(4, pick) * 0.5 + rng() * 0.05;
+    const score = danger * (s.telegraph ? 1.6 : 1) + pathDanger(s.p, c, s) + travel * 0.6 + toIdeal * 1.4 - Math.min(4, pick) * 0.5 + rng() * 0.05;
     if (score < bestScore) { bestScore = score; best = c; bestDanger = danger; }
   }
 
   let dash: Pt | null = null, roll = false;
-  if (tth < 0.3) {
+  let escape: Decision['escape'] = null;
+  const boxed = boxedIn(s);
+  const corner = wallPenalty(s.p, s) > 6;
+  if ((boxed || s.stuck || corner) && tth >= 0.3) {
+    escape = s.stuck ? 'stuck' : boxed ? 'boxed' : 'corner';
+    // Break out toward the far, open side: the best far candidate.
+    let far = best, fs = Infinity;
+    for (const c of cands) {
+      if (Math.hypot(c.x - s.p.x, c.y - s.p.y) < 180) continue;
+      const sc = dangerAt(c, s) + pathDanger(s.p, c, s) * 0.5;
+      if (sc < fs) { fs = sc; far = c; }
+    }
+    best = far;
+    if (s.stamina >= s.dashCost) dash = { x: far.x - s.p.x, y: far.y - s.p.y };
+    else if (s.stamina >= s.rollCost && !corner) roll = true;
+  }
+  if (!dash && !roll && tth < 0.3) {
     if (s.stamina >= s.dashCost && Math.hypot(best.x - s.p.x, best.y - s.p.y) > 30) {
       dash = { x: best.x - s.p.x, y: best.y - s.p.y };
     } else if (s.stamina >= s.rollCost && tth < 0.18) {
@@ -120,5 +176,5 @@ export function decide(s: Snapshot, rng: () => number = Math.random): Decision {
   const speed = Math.hypot(s.v.x, s.v.y);
   const brake = !dash && speed > 900 && Math.hypot(best.x - s.p.x, best.y - s.p.y) < 40;
   const safeForHold = tth === Infinity && dangerAt(s.p, s) < 0.4 && !s.telegraph;
-  return { target: best, danger: bestDanger, dash, roll, brake, aim, safeForHold, timeToHit: tth };
+  return { target: best, danger: bestDanger, dash, roll, brake, aim, safeForHold, timeToHit: tth, escape };
 }

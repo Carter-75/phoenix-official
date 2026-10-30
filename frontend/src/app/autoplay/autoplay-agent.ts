@@ -256,7 +256,7 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
   const maxSteps = opt.maxSteps ?? MAX_STEPS;
   const sleep = opt.sleep ?? ((ms: number) => new Promise<void>(r => setTimeout(r, ms)));
   const history: HistoryItem[] = [];
-  let badReplies = 0, rateHits = 0, finalCall = false, step = 0, played = false, impossibleRejected = false;
+  let badReplies = 0, rateHits = 0, finalCall = false, step = 0, played = false, impossibleRejected = 0;
   let lastKey = env.stateKey?.() ?? '', lastLabel = '', repeat = 0, noProgress = 0;
   while (step < maxSteps) {
     step++;
@@ -297,8 +297,8 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
       history.push({ step, action: 'finish', ok: false, note: 'REJECTED: you are autonomous and must never ask the tester anything. Keep working toward the goal. Only finish with outcome "goal_met", or "impossible" plus a reason.' });
       continue;
     }
-    if (a.action === 'finish' && !finalCall && !impossibleRejected && a.outcome === 'impossible' && (GAMEPLAY_RE.test(prompt) || requiredScreens(prompt).some(x => !(obs.checklist?.visited || []).includes(x)))) {
-      impossibleRejected = true;
+    if (a.action === 'finish' && !finalCall && impossibleRejected < 3 && a.outcome === 'impossible' && (GAMEPLAY_RE.test(prompt) || requiredScreens(prompt).some(x => !(obs.checklist?.visited || []).includes(x)))) {
+      impossibleRejected++;
       env.log('safety', 'AI called a gameplay goal impossible; asking it to retry once (a death or empty wallet is not impossible).');
       history.push({ step, action: 'finish', ok: false, note: 'REJECTED once: a gameplay goal is not impossible just because of a KO, 0 coins, or an ended run. Runs earn coins. Tap give-up on KO, then start_run and play again. Only call impossible again if truly blocked.' });
       continue;

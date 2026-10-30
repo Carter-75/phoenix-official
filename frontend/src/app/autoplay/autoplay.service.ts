@@ -108,7 +108,7 @@ export class AutoplayService {
   private tut: any = null;
   private visited = new Set<string>();
   private passive = false;
-  private ck = { deaths: 0, buys: 0, lastDeathAt: 0, lastBuyAt: 0, runAfterDeath: false, runAfterBuy: false, tutorialDone: false, tutPassed: [] as string[], tutSkipped: [] as string[], runRealms: [] as number[], abil: {} as Record<string, number> };
+  private ck = { deaths: 0, buys: 0, lastDeathAt: 0, lastBuyAt: 0, runAfterDeath: false, runAfterBuy: false, tutorialDone: false, tutPassed: [] as string[], tutSkipped: [] as string[], runRealms: [] as number[], abil: {} as Record<string, number>, escapes: {} as Record<string, number> };
 
   /** Screen name for the checklist: overlays (settings, pause, KO) count as their own screens. */
   screenName(): string {
@@ -147,7 +147,7 @@ export class AutoplayService {
     this.playing = false;
     this.events = []; this.ledger = []; this.model = '';
     this.visited = new Set(); this.passive = false;
-    this.ck = { deaths: 0, buys: 0, lastDeathAt: 0, lastBuyAt: 0, runAfterDeath: false, runAfterBuy: false, tutorialDone: false, tutPassed: [], tutSkipped: [], runRealms: [], abil: {} };
+    this.ck = { deaths: 0, buys: 0, lastDeathAt: 0, lastBuyAt: 0, runAfterDeath: false, runAfterBuy: false, tutorialDone: false, tutPassed: [], tutSkipped: [], runRealms: [], abil: {}, escapes: {} };
     this.tm = newTelemetry(Date.now());
     this.out.setStart(this.tm.startedAt);
     const user: any = this.auth.currentUser();
@@ -382,7 +382,7 @@ export class AutoplayService {
 
   private checklistLine(): string {
     const c = this.checklist();
-    return `Checklist (code-verified): visited ${c.visited.join(', ') || 'none'}; not visited ${c.notVisited.join(', ') || 'none'}; deaths ${c.deaths}; buys ${c.buys}; retried after death ${c.retriedAfterDeath ? 'yes' : 'no'}; retried after buy ${c.retriedAfterBuy ? 'yes' : 'no'}; tutorial ${c.tutorialDone ? 'completed' : 'not completed'} (${c.tutorialPassed} steps done by gesture, ${c.tutorialSkipped} skipped); UI findings ${c.uiFindings}; bugs ${c.bugs}; run realms ${this.ck.runRealms.join(', ') || 'none'}; abilities ${Object.entries(this.ck.abil).map(([k, v]) => `${k} ${v}`).join(', ') || 'none'}.`;
+    return `Checklist (code-verified): visited ${c.visited.join(', ') || 'none'}; not visited ${c.notVisited.join(', ') || 'none'}; deaths ${c.deaths}; buys ${c.buys}; retried after death ${c.retriedAfterDeath ? 'yes' : 'no'}; retried after buy ${c.retriedAfterBuy ? 'yes' : 'no'}; tutorial ${c.tutorialDone ? 'completed' : 'not completed'} (${c.tutorialPassed} steps done by gesture, ${c.tutorialSkipped} skipped); UI findings ${c.uiFindings}; bugs ${c.bugs}; run realms ${this.ck.runRealms.join(', ') || 'none'}; abilities ${Object.entries(this.ck.abil).map(([k, v]) => `${k} ${v}`).join(', ') || 'none'}; escapes ${Object.entries(this.ck.escapes).map(([k, v]) => `${k} ${v}`).join(', ') || 'none'}; real touches blocked ${this.tm.blockedInputs || 0}.`;
   }
   private findingLines(): string[] {
     const all = [...this.tm.ui, ...this.tm.bugs];
@@ -747,6 +747,7 @@ export class AutoplayService {
     if (until === 'death') seconds = Math.max(seconds, 150);
     const t0 = Date.now(), deaths0 = this.attempt?.deaths ?? 0, cleared0 = this.tm.realmsCleared.length, realm0 = this.gs.selectedWorldIndex() + 1;
     const coins0 = this.gs.coins(), gems0 = this.gs.gems();
+    const abil0 = { ...this.ck.abil };
     this.playing = true; this.useAbilities = abilities;
     // Die on purpose: until death with aggression 0 hands the phoenix no pilot, so it stops dodging.
     this.passive = until === 'death' && aggression <= 0.05;
@@ -772,6 +773,9 @@ export class AutoplayService {
     const g = this.game;
     if (g && this.gs.activeScreen() === 'game') parts.push(`hp ${Math.round(g.currentHealth?.() ?? 0)}/${Math.round(g.maxHealth?.() ?? 0)}, phase ${g.bossPhase?.()}`);
     if (this.lastHitCause) parts.push(`last hit: ${this.lastHitCause}`);
+    const used = Object.entries(this.ck.abil).map(([k, v]) => [k, v - (abil0[k] || 0)] as const).filter(([, v]) => v > 0);
+    parts.push(`abilities this play: ${used.map(([k, v]) => `${k} ${v}`).join(', ') || 'none'}`);
+    this.log('progress', `Abilities this play (verified): ${used.map(([k, v]) => `${k} ${v}`).join(', ') || 'none'}`);
     return { ok: true, note: parts.join('; ') };
   }
 
@@ -960,36 +964,74 @@ export class AutoplayService {
     const now = Date.now();
     if (now < this.busyUntil) return;
     const s = this.snapshot(); if (!s) return;
+    const hp = g.currentHealth();
+    this.posHist.push({ t: now, x: s.p.x, y: s.p.y, hp });
+    while (this.posHist.length && now - this.posHist[0].t > 2000) this.posHist.shift();
+    const h0 = this.posHist[0];
+    s.stuck = !!h0 && now - h0.t > 1500 && Math.hypot(s.p.x - h0.x, s.p.y - h0.y) < 40 && hp < h0.hp;
     const d = decide(s);
     // Reaction delay: commit to a new target only every 120 to 180 ms.
     if (now >= this.reactUntil || d.timeToHit < 0.25) {
       this.plannedTarget = { x: d.target.x + (Math.random() - 0.5) * 8, y: d.target.y + (Math.random() - 0.5) * 8 };
       this.reactUntil = now + 120 + Math.random() * 60;
     }
-    if (d.dash) { this.count('flick dash'); return this.runGesture(synthFlick(s.p.x, s.p.y, d.dash.x, d.dash.y, innerWidth, innerHeight), true); }
-    if (d.roll && this.f1) { this.count('air roll'); return this.runGesture(synthRoll(Math.min(innerWidth - 20, s.p.x + 120), s.p.y), false); }
-    if (d.brake && this.f1) { this.count('brake'); return this.runGesture(synthBrake(Math.min(innerWidth - 20, s.p.x + 120), s.p.y, 320), false); }
-    // Abilities, off cooldown, only when no hit is imminent.
-    if (this.useAbilities && d.aim && d.timeToHit > 0.6 && now >= this.nextAbilityAt && now - this.lastPressAt > 350) {
+    // Escape verbs (boxed in, stuck, corner) at most every 1.4 s so they never spam.
+    const escaping = !!d.escape;
+    if (escaping && now - this.lastEscapeAt < 1400) { d.dash = null; d.roll = false; }
+    if (escaping && (d.dash || d.roll)) { this.lastEscapeAt = now; this.ck.escapes[d.escape!] = (this.ck.escapes[d.escape!] || 0) + 1; this.posHist = []; }
+    if (d.dash) { this.count('flick dash'); this.verifyMove('dash', s.stamina); return this.runGesture(synthFlick(s.p.x, s.p.y, d.dash.x, d.dash.y, innerWidth, innerHeight), true); }
+    if (d.roll) {
+      this.count('air roll'); this.verifyMove('roll', s.stamina);
+      if (!this.f1) { const p = s.p; this.touch('start', 1, Math.max(30, Math.min(innerWidth - 30, p.x)), Math.max(30, Math.min(innerHeight - 30, p.y + 60))); }
+      return this.runGesture(synthRoll(Math.min(innerWidth - 20, s.p.x + 120), s.p.y), false);
+    }
+    if (d.brake && this.f1) { this.count('brake'); this.bumpAbil('brake'); return this.runGesture(synthBrake(Math.min(innerWidth - 20, s.p.x + 120), s.p.y, 320), false); }
+    // Slot abilities (TAP 2x, DBL 3x, ULT 4x) whenever one is off cooldown, a target exists, and no hit is imminent.
+    if (this.useAbilities && d.aim && d.timeToHit > 0.35 && now >= this.nextAbilityAt && now - this.lastPressAt > 300) {
       const fam = this.pickAbility(g);
       if (fam) {
         const chain = synthTapChain(fam, d.aim.x, d.aim.y);
-        if (chainIsValid(chain.steps, fam)) { this.count(`${fam} ability`); this.nextAbilityAt = now + chain.durationMs + chain.quietMs + 250; return this.runGesture(chain.steps, true, chain.quietMs); }
+        if (chainIsValid(chain.steps, fam)) {
+          this.count(`${fam} ability`);
+          this.nextAbilityAt = now + chain.durationMs + chain.quietMs + 150;
+          this.verifySlot(fam, chain.durationMs + chain.quietMs + 250);
+          return this.runGesture(chain.steps, true, chain.quietMs);
+        }
       }
     }
-    if (this.useAbilities && d.safeForHold && g.holdCooldown() <= 0 && now >= this.nextAbilityAt && s.foes.length && now - this.lastPressAt > 400 && Math.random() < 0.02) {
+    if (this.useAbilities && d.safeForHold && g.holdCooldown() <= 0 && now >= this.nextAbilityAt && s.foes.length && now - this.lastPressAt > 400 && Math.random() < 0.05) {
       const ms = holdChargeMs(false);
       this.count('hold ability'); this.nextAbilityAt = now + ms + 600;
+      this.verifySlot('hold', ms + 500);
       return this.runGesture([{ at: 0, type: 'start', id: 1, x: s.p.x, y: s.p.y }, { at: ms, type: 'end', id: 1, x: s.p.x, y: s.p.y }], true, 120);
     }
     this.steer(this.plannedTarget || d.target);
   }
 
+  private lastEscapeAt = 0;
+  private posHist: { t: number; x: number; y: number; hp: number }[] = [];
+  private bumpAbil(k: string) { this.ck.abil[k] = (this.ck.abil[k] || 0) + 1; }
+  /** Count a slot ability only when its cooldown actually starts (the game accepted it). */
+  private verifySlot(fam: SlotFamily | 'hold', afterMs: number) {
+    const g = this.game; if (!g) return;
+    const cd = () => fam === 'tap' ? g.tapCooldown() : fam === 'double' ? g.doubleCooldown() : fam === 'triple' ? g.tripleCooldown() : g.holdCooldown();
+    const name = fam === 'tap' ? 'TAP' : fam === 'double' ? 'DBL' : fam === 'triple' ? 'ULT' : 'HOLD';
+    setTimeout(() => { try { if (cd() > 0) this.bumpAbil(name); else { this.bumpAbil(`${name} missed`); if (fam !== 'hold') this.abilBackoff[fam] = Date.now() + 4000; } } catch { } }, afterMs);
+  }
+  /** Count dash/roll only when stamina was actually spent. */
+  private verifyMove(kind: 'dash' | 'roll', stam0: number) {
+    setTimeout(() => { const st = (this.gs.playerMovement as any)?.stamina ?? stam0; this.bumpAbil(st < stam0 - 1 ? kind : `${kind} missed`); }, 500);
+  }
+
+  /** Families that just missed back off for 4 s so the next one (TAP, DBL, ULT) gets used instead. */
+  private abilBackoff: Record<string, number> = {};
   private pickAbility(g: any): SlotFamily | null {
+    const st: any = this.gs.currentStats(), now = Date.now();
     const beaten = this.gs.isWorldBossBeaten(this.gs.selectedWorldIndex());
-    if (beaten && g.tripleCooldown() <= 0) return 'triple';
-    if (g.doubleCooldown() <= 0) return 'double';
-    if (g.tapCooldown() <= 0) return 'tap';
+    const ok = (f: SlotFamily, eq: any, cd: number) => !!eq && cd <= 0 && now >= (this.abilBackoff[f] || 0);
+    if (beaten && ok('triple', st.activeTripleAbility, g.tripleCooldown())) return 'triple';
+    if (ok('double', st.activeDoubleAbility, g.doubleCooldown())) return 'double';
+    if (ok('tap', st.activeTapAbility, g.tapCooldown())) return 'tap';
     return null;
   }
 
