@@ -1,4 +1,5 @@
-import { Component, inject, computed, signal, effect, untracked } from '@angular/core';
+import { Component, inject, computed, signal, effect, untracked, DestroyRef } from '@angular/core';
+import { BoostIndicatorComponent, activeBoosts } from '../boost-indicator/boost-indicator.component';
 import { GameStateService } from '../../services/game-state.service';
 import { AuthService } from '../../services/auth.service';
 import { AudioService } from '../../services/audio.service';
@@ -10,7 +11,7 @@ import { AdsService } from '../../services/ads.service';
 @Component({
   selector: 'app-main-menu',
   standalone: true,
-  imports: [CommonModule, SettingsComponent],
+  imports: [CommonModule, SettingsComponent, BoostIndicatorComponent],
   styles: [`
     /* Safety net: a menu screen may scroll rather than clip content. */
     .menu-screen { overflow-y: auto; }
@@ -167,16 +168,19 @@ import { AdsService } from '../../services/ads.service';
          part of SETTINGS and the Battle Mode chevron at phone widths).
          The centre of the row stays empty for the mode toggle. -->
     <div class="menu-bottombar screen-in fixed bottom-0 inset-x-0 z-50 flex items-end justify-between gap-3 p-4 md:p-6 pointer-events-none">
-      <!-- Deliberate 2x boost (rewarded ad, opt-in only) -->
-      <button (click)="watchBoostAd()" class="press pointer-events-auto px-4 py-2 rounded-full border font-bold transition max-w-[52vw] shadow-[0_10px_30px_rgba(0,0,0,0.45)]"
-              [ngClass]="gameState.tempCoinMultiplier() > 1 ? 'bg-orange-500/25 border-orange-400/50 text-white' : 'bg-orange-500/10 border-orange-400/30 text-orange-200 hover:bg-orange-500/20'">
-         @if (gameState.tempCoinMultiplier() > 1) {
-            ⚡ 2x Boost Active
-         } @else {
+      <!-- Deliberate 2x boost (rewarded ad, opt-in only). While any
+           boost runs, the pill turns into the live boost indicator
+           (icon, multiplier, countdown, end time) and offers no ad. -->
+      @if (boostActive()) {
+        <div class="pointer-events-auto max-w-[60vw]" role="status">
+          <app-boost-indicator></app-boost-indicator>
+        </div>
+      } @else {
+        <button (click)="watchBoostAd()" class="press pointer-events-auto px-4 py-2 rounded-full border font-bold transition max-w-[52vw] shadow-[0_10px_30px_rgba(0,0,0,0.45)] bg-orange-500/10 border-orange-400/30 text-orange-200 hover:bg-orange-500/20">
             <span class="boost-label-full">📺 Watch Ad: 2x Coins + XP (5 min)</span>
             <span class="boost-label-short">📺 2x Boost Ad</span>
-         }
-      </button>
+        </button>
+      }
 
       <!-- Settings Button -->
       <button (click)="showSettings = true" class="press glass pointer-events-auto shrink-0 px-4 py-2 rounded-full text-white/60 hover:text-white font-bold transition">
@@ -392,8 +396,13 @@ export class MainMenuComponent {
   // Deliberate rewarded placement (audit 6.3): the player chooses to watch
   // an ad for a 2x coins and XP boost for 5 minutes. Never damage, never
   // auto-shown. If a boost is already active, the button shows it instead.
+  private boostNow = signal(Date.now());
+  private boostTimer = setInterval(() => this.boostNow.set(Date.now()), 1000);
+  private boostTimerCleanup = inject(DestroyRef).onDestroy(() => clearInterval(this.boostTimer));
+  boostActive = computed(() => activeBoosts(this.gameState, this.boostNow()).length > 0);
+
   async watchBoostAd() {
-    if (this.gameState.tempCoinMultiplier() > 1) return;
+    if (this.boostActive()) return;
     const rewarded = await this.adsService.showRewarded('boost');
     if (rewarded) {
       this.gameState.grantTemporaryMultiplier('coin', 2, 5);

@@ -16,6 +16,7 @@ import { AudioService } from '../../services/audio.service';
 import { SettingsComponent } from '../settings/settings.component';
 import * as Matter from 'matter-js';
 import { RivalSignature } from './rival-signature';
+import { BoostIndicatorComponent } from '../../components/boost-indicator/boost-indicator.component';
 import anime from 'animejs';
 import { MlAiService } from '../../services/ml-ai.service';
 import { BattleAiService, BattleContext } from '../../services/battle-ai.service';
@@ -33,7 +34,7 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
 @Component({
   selector: 'app-game',
   standalone: true,
-  imports: [CommonModule, SettingsComponent],
+  imports: [CommonModule, SettingsComponent, BoostIndicatorComponent],
   template: `
     <div class="fixed inset-0 z-10 w-full h-full pointer-events-none" [style.transform]="shakeTransform()">
       
@@ -41,6 +42,7 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
            width-capped so it can never run under the pause button,
            which owns the top-right corner). -->
       <div class="absolute top-4 left-1/2 -translate-x-1/2 w-[68%] max-w-2xl flex flex-col items-center gap-2 pointer-events-auto">
+        <app-boost-indicator [compact]="true"></app-boost-indicator>
         @if (gameState.currentGameMode() === 'battle' || gameState.currentGameMode() === 'ai_vs_ai') {
            <span class="text-white font-bold tracking-widest uppercase drop-shadow-md text-xl">{{ gameState.currentGameMode() === 'ai_vs_ai' ? 'AI VS AI' : 'BATTLE MODE' }}</span>
            <span class="text-white/90 font-mono text-2xl font-bold">{{ formatTime(battleTimer()) }}</span>
