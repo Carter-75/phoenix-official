@@ -1,3 +1,4 @@
+import { TouchCompatGuard } from './touch-compat';
 import { Component, ElementRef, OnInit, OnDestroy, ViewChild, NgZone, effect, inject } from '@angular/core';
 import { GameStateService, STAMINA } from '../../services/game-state.service';
 import { AudioService } from '../../services/audio.service';
@@ -294,6 +295,8 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     // touchstart so a simple tap/hold (no drag) immediately moves the Phoenix — required for APK.
     window.addEventListener('touchstart', this.boundTouchMove, { passive: false });
     window.addEventListener('touchmove', this.boundTouchMove, { passive: false });
+    window.addEventListener('touchend', this.boundTouchStamp, { passive: true });
+    window.addEventListener('touchcancel', this.boundTouchStamp, { passive: true });
   }
 
   private boundResize = this.onResize.bind(this);
@@ -305,6 +308,8 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
     window.removeEventListener('resize', this.boundResize);
     window.removeEventListener('mousemove', this.boundMouseMove);
     window.removeEventListener('touchstart', this.boundTouchMove);
+    window.removeEventListener('touchend', this.boundTouchStamp);
+    window.removeEventListener('touchcancel', this.boundTouchStamp);
     window.removeEventListener('touchmove', this.boundTouchMove);
     this.renderer.dispose();
   }
@@ -758,13 +763,20 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       && !!t.closest('button, a, input, select, textarea, [data-ui]');
   }
 
+  // A tap's synthesized mousemove must never become an absolute
+  // steering target (touch-compat.ts); only a real mouse steers.
+  private touchCompat = new TouchCompatGuard();
+  private boundTouchStamp = () => this.touchCompat.markTouch(Date.now());
+
   private onMouseMove(event: MouseEvent) {
+    if (this.touchCompat.isSynthesizedMouse(event as any, Date.now())) return;
     if (this.isUiTarget(event)) return;
     if (this.gameState.isPaused() || this.gameState.isDeadMenuOpen()) return;
     this.updateMouseTarget(event.clientX, event.clientY, false);
   }
 
   private onTouchMove(event: TouchEvent) {
+    this.touchCompat.markTouch(Date.now());
     if (this.isUiTarget(event)) return;
     if (this.gameState.isPaused() || this.gameState.isDeadMenuOpen()) return;
     if (event.touches.length > 0) {

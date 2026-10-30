@@ -147,6 +147,13 @@ import { GameStateService } from '../../services/game-state.service';
                     <p class="text-white/40 text-xs mt-1">Floating numbers for the damage you deal. Enemy damage is never numbered.</p>
                 </div>
 
+                <!-- Replay the interactive tutorial (menu only, so a live run is never abandoned). -->
+                @if (gameState.activeScreen() === 'menu') {
+                    <div class="separator"></div>
+                    <button class="press w-full py-2.5 rounded-xl font-bold text-orange-200 bg-orange-500/10 border border-orange-400/30 hover:bg-orange-500/20 transition"
+                            (click)="replayTutorial()">🎓 Replay Tutorial</button>
+                }
+
                 <!-- Reset AI Brain (hold 3s) -->
                 <div class="separator"></div>
                 <div class="slider-group">
@@ -302,6 +309,11 @@ export class SettingsComponent {
   public gameState = inject(GameStateService);
   private mlAi = inject(MlAiService);
   @Output() close = new EventEmitter<void>();
+
+  replayTutorial(): void {
+    this.close.emit();
+    this.gameState.activeScreen.set('tutorial');
+  }
 
   cycleShake() {
       const cur = this.gameState.screenShakeSetting();

@@ -1,4 +1,4 @@
-// Boss fight execution: the campaign boss's kill screen, signature
+// Boss fight execution: the campaign boss's signature
 // attacks, enrage and shield rig ticking, minion summons, and the
 // state the renderer publishes each frame. The rig's data and rules
 // live in data/boss-rig.ts; this class is the executor that runs
@@ -42,7 +42,7 @@ export interface BossFightHost {
   isDead: WritableSignal<boolean>;
   logicalUnit: number;
   playerBody: Matter.Body;
-  rageDeferred: boolean;
+  bossPhaseDriven(): boolean;
   scaledSpeed(pxPerStepAtRef: number): number;
   spawner: EntitySpawnerService;
   speedScale: number;
@@ -50,62 +50,10 @@ export interface BossFightHost {
   spliceRemove<T>(arr: T[], item: T): void;
   takeDamage(amount: number, source?: 'boss_contact'): void;
   triggerImpactEffect(x: number, y: number, isBoss: boolean): void;
-  triggerRageMode(): void;
 }
 
 export class BossFight {
   constructor(private host: BossFightHost) {}
-
-executeKillScreen() {
-      const boss = this.host.enemies.find(e => e.plugin['data']?.type === 'boss');
-      if (!boss) return;
-      
-      this.host.annihilationModeActive.set(true);
-      
-      // Clear all enemies except boss
-      this.host.enemies.forEach(e => {
-          if (e.plugin['data']?.type !== 'boss') {
-              Matter.Composite.remove(this.host.engine.world, e);
-          }
-      });
-      this.host.spliceOut(this.host.enemies, e => e === boss);
-      
-      // Clear existing projectiles
-      const currentBodies = Matter.Composite.allBodies(this.host.engine.world);
-      currentBodies.forEach(b => {
-          if (b.label === 'projectile') {
-              Matter.Composite.remove(this.host.engine.world, b);
-          }
-      });
-
-      // Start Annihilation Barrage (every 200ms)
-      if (this.host.annihilationInterval) clearInterval(this.host.annihilationInterval);
-      this.host.annihilationInterval = setInterval(() => {
-          if (this.host.isDead() || this.host.gameEnded() || this.host.inBossDefeatSequence()) {
-              clearInterval(this.host.annihilationInterval);
-              return;
-          }
-          // A7: the barrage fires from the boss's body; while the
-          // boss is outside the arena it holds.
-          if (boss.position.x < -60 || boss.position.x > window.innerWidth + 60 || boss.position.y < -60 || boss.position.y > window.innerHeight + 60) return;
-
-          const dir = Matter.Vector.normalise(Matter.Vector.sub(this.host.playerBody.position, boss.position));
-          const angle = Math.atan2(dir.y, dir.x);
-          const fireDir = { x: Math.cos(angle), y: Math.sin(angle) };
-          const proj = Matter.Bodies.circle(boss.position.x, boss.position.y, 20, {
-              label: 'projectile', isSensor: true,
-              plugin: { data: { id: Math.random().toString(), type: 'annihilation_fire', health: 1, maxHealth: 1 } as EnemyData }
-          });
-          Matter.Body.setVelocity(proj, Matter.Vector.mult(fireDir, this.host.scaledSpeed(7.5)));
-          Matter.Composite.add(this.host.engine.world, proj);
-          
-      }, 200);
-  }
-
-
-
-
-
 
 calculateBossGemDrop(realmIndex: number): number {
       // Boss drop should be roughly the equivalent of $5 worth of gems (approx 50 gems)
@@ -189,12 +137,12 @@ tickBossRig(boss: Matter.Body, data: EnemyData, st: BossFightState, deltaSec: nu
 
       // Enrage: warning first (glow and cracks build over the final
       // seconds, with a rising audio cue), then the trigger.
-      if (!st.enraged && !st.enrageWarned && t >= st.enrageAtSec - BOSS_ENRAGE_WARNING_SEC) {
+      if (!this.host.bossPhaseDriven() && !st.enraged && !st.enrageWarned && t >= st.enrageAtSec - BOSS_ENRAGE_WARNING_SEC) {
           st.enrageWarned = true;
           bossEvent(st, 'enrage_warning', `enrage at ${st.enrageAtSec.toFixed(1)}s`);
           this.host.audioService.playSFX('boss');
       }
-      if (!st.enraged && t >= st.enrageAtSec) {
+      if (!this.host.bossPhaseDriven() && !st.enraged && t >= st.enrageAtSec) {
           st.enraged = true;
           this.host.bossEnraged.set(true);
           bossEvent(st, 'enraged');
@@ -254,15 +202,7 @@ tickBossRig(boss: Matter.Body, data: EnemyData, st: BossFightState, deltaSec: nu
           }
       }
 
-      // Enrage and overtime (S6 item 4): if the kill screen's
-      // countdown finished while this fight's enrage is still
-      // pending, the rage was deferred (see triggerRageMode); it
-      // starts 20 s after the enrage lands, so the player always
-      // gets a real enraged fight before the overtime ends it.
-      if (this.host.rageDeferred && st.enraged && t >= st.enrageAtSec + 20) {
-          this.host.rageDeferred = false;
-          this.host.triggerRageMode();
-      }
+
 
       // Signature schedule.
       if (!st.sig && !this.host.annihilationModeActive() && t >= st.nextSignatureAtSec && !this.bossAshen(st)) {

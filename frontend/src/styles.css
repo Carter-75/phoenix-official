@@ -228,3 +228,7 @@ button, a, input, select, textarea {
   .trophy-toast { animation: none !important; opacity: 1; transform: none; }
   .trophy-toast-exit { opacity: 0; }
 }
+
+/* Campaign boss final attack: an unbroken 360 degree ring. */
+.final-ring { width: 10vmin; height: 10vmin; animation: final-ring-expand 0.9s ease-out forwards; box-shadow: 0 0 60px rgba(220,38,38,0.9), inset 0 0 60px rgba(220,38,38,0.9); }
+@keyframes final-ring-expand { from { transform: scale(0.2); opacity: 1; } to { transform: scale(16); opacity: 0.2; } }

@@ -27,6 +27,7 @@ import { HoldStillTracker } from './hold-still';
 import { BossFight } from './boss-fight';
 import { AbilityExecutor } from './ability-executor';
 import { FxController } from './fx-controller';
+import { BossPhase, tickBossPhase, phaseDuration, phaseLabel, initialBossPhase, RAGE_DAMAGE_MULT, FINAL_ATTACK_DEATH_REASON } from '../../data/boss-phase';
 import { BattleSetup } from './battle-setup';
 import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mothFuseCharge, phantomReappearCharge, wraithLockCharge, serpentCoilCharge, darterLineupCharge } from './enemy-charges';
 
@@ -59,21 +60,42 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
            <span class="text-white/90 font-mono text-2xl font-bold">{{ formatTime(gameState.sessionPlayTime()) }}</span>
            <span class="text-white/60 font-mono text-xs tracking-widest uppercase">Escalation {{ endlessStep() + 1 }} · Kills {{ totalSessionKills() }}</span>
         } @else {
-           <span class="text-white font-bold tracking-widest uppercase drop-shadow-md">
-              SURVIVE
+           <span data-phase-label class="font-bold tracking-widest uppercase drop-shadow-md"
+                 [class.text-white]="bossPhase() === 'survive'"
+                 [class.text-orange-300]="bossPhase() === 'boss'"
+                 [class.text-red-400]="bossPhase() === 'rage' || bossPhase() === 'final'">
+              {{ bossPhaseLabel() }}
            </span>
-           <div class="w-full h-3 bg-black/50 border border-white/20 rounded-full overflow-hidden shadow-[0_0_15px_rgba(255,255,255,0.1)]">
+           <div class="w-full h-3 bg-black/50 border rounded-full overflow-hidden"
+                [class.border-white/20]="bossPhase() === 'survive'"
+                [class.border-orange-400/60]="bossPhase() === 'boss'"
+                [class.border-red-500/80]="bossPhase() === 'rage' || bossPhase() === 'final'">
+              @if (bossPhase() === 'survive') {
               <div class="h-full bg-gradient-to-r transition-all duration-1000"
                    [ngClass]="currentWorld().textColorClass"
-                   [style.width]="progressPercent() + '%'"></div>
+                   [style.width]="phaseBarPercent() + '%'"></div>
+              } @else if (bossPhase() === 'boss') {
+              <div class="h-full bg-gradient-to-r from-orange-500 to-red-500 transition-all duration-1000"
+                   [style.width]="phaseBarPercent() + '%'"></div>
+              } @else {
+              <div class="h-full bg-gradient-to-r from-red-600 to-red-900 transition-all duration-1000"
+                   [style.width]="phaseBarPercent() + '%'"></div>
+              }
            </div>
-           <span class="text-white/80 font-mono text-sm">{{ formatTime(Math.max(0, timeRemaining())) }}</span>
+           <span class="font-mono text-sm"
+                 [class.text-white/80]="bossPhase() !== 'rage' && bossPhase() !== 'final'"
+                 [class.text-red-300]="bossPhase() === 'rage' || bossPhase() === 'final'">{{ formatTime(Math.max(0, timeRemaining())) }}</span>
            
            @if (bossSpawned()) {
-               <span class="text-white font-bold tracking-widest uppercase drop-shadow-md mt-4">
-                  {{ currentWorld().bossName }} @if (bossEnraged()) { <span class="text-red-400">- ENRAGED</span> }
+               <span data-boss-name class="font-bold tracking-widest uppercase drop-shadow-md mt-4"
+                     [class.text-white]="bossPhase() !== 'rage' && bossPhase() !== 'final'"
+                     [class.text-red-400]="bossPhase() === 'rage' || bossPhase() === 'final'">
+                  {{ bossPhase() === 'rage' || bossPhase() === 'final' ? 'Raging ' : '' }}{{ currentWorld().bossName }}
                </span>
-               <div class="hp-track relative w-full h-3 border border-white/20 rounded-full overflow-hidden shadow-[0_0_15px_rgba(255,0,0,0.1)]">
+               <div class="hp-track relative w-full h-3 border rounded-full overflow-hidden shadow-[0_0_15px_rgba(255,0,0,0.1)]"
+                    [class.border-white/20]="bossPhase() !== 'rage' && bossPhase() !== 'final'"
+                    [class.border-red-500]="bossPhase() === 'rage' || bossPhase() === 'final'"
+                    [style.filter]="bossPhase() === 'rage' || bossPhase() === 'final' ? 'hue-rotate(-20deg) saturate(1.8)' : null">
                   <div class="hp-ghost absolute inset-y-0 left-0 rounded-full" [style.width]="bossGhostPercent() + '%'"></div>
                   <div class="hp-fill-boss absolute inset-y-0 left-0 rounded-full" [style.width]="bossHealthPercent() + '%'"></div>
                </div>
@@ -290,20 +312,12 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
         </div>
       }
 
-      <!-- Boss Warning & Rage Mode (A13: the approach banner is
-           timed by the spawner at about 2 s; it no longer lingers
-           for the whole fight) -->
-      @if (bossWarningVisible() && !rageModeActive()) {
-        <div class="absolute top-24 left-1/2 -translate-x-1/2 animate-pulse pointer-events-none z-20">
-           <h2 class="text-4xl font-black text-red-600 drop-shadow-[0_0_20px_rgba(255,0,0,0.8)] tracking-widest uppercase">World Boss Approaching</h2>
+      <!-- Boss phases show only through the timer label and the
+           boss bar (no banners). The final attack ring: -->
+      @if (finalAttackFx()) {
+        <div class="absolute inset-0 pointer-events-none z-20 flex items-center justify-center">
+          <div class="final-ring rounded-full border-[18px] border-red-600"></div>
         </div>
-      }
-      @if (rageModeActive() && !isDead() && !gameEnded()) {
-        <div class="absolute top-24 left-1/2 -translate-x-1/2 pointer-events-none z-20 flex flex-col items-center">
-           <h2 class="text-5xl font-black text-red-600 drop-shadow-[0_0_30px_rgba(255,0,0,1)] tracking-widest uppercase animate-ping">RAGE MODE</h2>
-           <span class="text-2xl text-white font-mono mt-2 bg-black/50 px-4 py-1 rounded">Death in: {{ killScreenTimer() }}s</span>
-        </div>
-        <div class="absolute inset-0 bg-red-900/20 pointer-events-none z-10 animate-pulse"></div>
       }
 
       <!-- Pause Button -->
@@ -363,10 +377,17 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
         <div data-ui class="backdrop-in absolute inset-0 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto z-50 px-6">
           @if (!annihilationModeActive() && gameState.currentGameMode() !== 'battle') {
           <div class="panel-in w-full flex flex-col items-center">
-          <h2 class="text-5xl font-black text-red-500 mb-2 drop-shadow-lg tracking-wide">KNOCKED OUT</h2>
-          <p class="text-white/80 text-lg font-semibold mb-8 text-center max-w-md">Your phoenix is down. It only truly dies if you give up.</p>
+          <h2 class="text-5xl font-black text-red-500 mb-2 drop-shadow-lg tracking-wide">{{ deathUnsurvivable() ? 'DEFEATED' : 'KNOCKED OUT' }}</h2>
+          @if (deathUnsurvivable()) {
+          <p class="text-white/80 text-lg font-semibold mb-2 text-center max-w-md">Killed by: infinite damage</p>
+          <p data-unsurvivable class="text-red-300 text-base font-semibold mb-8 text-center max-w-md">{{ finalAttackReason }}. Revives are disabled.</p>
+          } @else {
+          <p class="text-white/80 text-lg font-semibold mb-2 text-center max-w-md">Your phoenix is down. It only truly dies if you give up.</p>
+          <p class="text-white/50 text-sm font-semibold mb-8 text-center max-w-md">Killed by: {{ Math.round(lastDeathDamage()) }} damage</p>
+          }
 
               <div class="flex flex-col gap-4 w-full max-w-sm">
+                @if (!deathUnsurvivable()) {
                 <button (click)="reviveWithGems()"
                         [disabled]="adReviveInFlight || gameState.gems() < getReviveCost()"
                         [class.opacity-50]="adReviveInFlight || gameState.gems() < getReviveCost()"
@@ -389,6 +410,10 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
                   <span class="text-white font-bold text-xl">({{ gameState.reviveTokens() }})</span>
                   <span class="text-2xl">🪶</span>
                 </button>
+                }
+                } @else {
+                <button disabled class="w-full py-4 bg-white/5 border border-white/10 rounded-2xl text-white/40 font-bold text-xl cursor-not-allowed">Instant Revive (disabled)</button>
+                <button disabled class="w-full mt-2 py-4 bg-white/5 border border-white/10 rounded-2xl text-white/40 font-bold text-xl cursor-not-allowed">Watch Ad to Revive (disabled)</button>
                 }
                 @if (gameState.currentStats().activeHoldAbility === 'rebirth' && holdCooldown() > 0) {
                 <div class="w-full mt-2 py-3 bg-white/5 border border-white/10 rounded-2xl flex justify-center items-center gap-3 opacity-60">
@@ -507,7 +532,7 @@ export class GameComponent implements OnInit, OnDestroy {
   // (triggerAbility, fireProjectile) to count casts, so the
   // component surface and its internal call routing stay exactly
   // as they were before the organization pass.
-  public executeKillScreen() { return this.bossFight.executeKillScreen(); }
+  public bossPhaseDriven(): boolean { return this.gameState.currentGameMode() === 'campaign'; }
   public calculateBossGemDrop(realmIndex: number): number { return this.bossFight.calculateBossGemDrop(realmIndex); }
   public bossProjectileCount(): number { return this.bossFight.bossProjectileCount(); }
   public fireBossProjectile(x: number, y: number, angle: number, speedPerStep: number, damage: number = 10, radius: number = 8): boolean { return this.bossFight.fireBossProjectile(x, y, angle, speedPerStep, damage, radius); }
@@ -649,11 +674,21 @@ export class GameComponent implements OnInit, OnDestroy {
   public celestialShieldActive = signal<boolean>(true);
 
   
+  public bossPhase = signal<BossPhase>('survive');
   public totalTimeSignal = signal<number>(300);
+  // The timer bar's fill for the current phase.
+  public phaseBarPercent = computed(() => {
+      const tot = this.totalTimeSignal();
+      if (tot <= 0) return 0;
+      return ((tot - this.timeRemaining()) / tot) * 100;
+  });
 
   public timeRemaining = signal<number>(300);
 
+  // Difficulty progress: ramps across SURVIVE and holds at 100
+  // through the boss and rage phases (the spawner and scaling read it).
   public progressPercent = computed(() => {
+      if (this.bossPhase() !== 'survive') return 100;
       const tot = this.totalTimeSignal();
       if (tot <= 0) return 0;
       return ((tot - this.timeRemaining()) / tot) * 100;
@@ -668,10 +703,8 @@ export class GameComponent implements OnInit, OnDestroy {
 
   public bossSpawned = signal<boolean>(false);
 
-  // Fix Round 2 (A13): the "World Boss Approaching" banner shows
-  // for about 2 s at the spawn and then clears (it used to render
-  // for the entire fight). The spawner flips this on at spawn and
-  // times it out there.
+  // The spawner still flips this at spawn (harness evidence); no
+  // banner renders it since the Oct 30 boss flow rework.
   public bossWarningVisible = signal<boolean>(false);
 
   public bossHealth = signal<number>(1000);
@@ -1028,33 +1061,19 @@ export class GameComponent implements OnInit, OnDestroy {
 
   private infiniteBurnInterval: any = null;
 
-  public killScreenTimer = signal<number>(10);
-  // S6: the overtime kill screen is deferred while a campaign
-  // boss's rolled enrage is still pending (see triggerRageMode).
-  public rageDeferred = false;
-
-
+  // Campaign boss flow (data/boss-phase.ts).
+  public bossPhaseLabel = computed(() => phaseLabel(this.bossPhase()));
+  public finalAttackFx = signal<boolean>(false);
+  // The killing hit's damage (Infinity for the final attack). When
+  // infinite, every revive option is disabled and the reason shown.
+  public lastDeathDamage = signal<number>(0);
+  public deathUnsurvivable = computed(() => this.lastDeathDamage() === Infinity);
+  public readonly finalAttackReason = FINAL_ATTACK_DEATH_REASON;
+  private finalAttackTimer: any = null;
   constructor(private ngZone: NgZone) {
       // Remove old health-based intense BGM effect because intense BGM is now for the boss
-      effect(() => {
-          if (this.audioService.onWorldBgmEnded() && !this.bossSpawned() && !this.gameEnded()) {
-              // Untracked to avoid infinite loops, but using setTimeout is safer in Angular
-              setTimeout(() => {
-                  this.spawner.spawnBoss(this.getSpawnerContext());
-                  this.audioService.playIntenseBgm(this.gameState.selectedWorldIndex());
-              }, 0);
-          }
-      });
-
-      effect(() => {
-          if (this.audioService.onIntenseBgmEnded() && this.bossSpawned() && !this.inBossDefeatSequence() && !this.isDead()) {
-              setTimeout(() => {
-                  if (!this.rageModeActive()) {
-                      this.triggerRageMode();
-                  }
-              }, 0);
-          }
-      });
+      // The boss spawn and rage are driven only by the phase clock
+      // (tickBossPhase), never by the music ending.
 
       // HP bar damage ghost (UI animation pass): when health drops,
       // the ghost keeps the pre-hit width for about 450 ms, then its
@@ -1155,9 +1174,7 @@ export class GameComponent implements OnInit, OnDestroy {
     this.gameState.isRebirthing.set(false);
     this.gameState.phoenixOverridePosition.set(null);
     this.gameState.isPaused.set(false);
-    this.killScreenTimer.set(10);
-    this.rageModeActive.set(false);
-    this.rageDeferred = false;
+    this.resetBossPhase();
     this.annihilationModeActive.set(false);
     this.infiniteBurnActive.set(false);
     this.entranceActive.set(false);
@@ -1452,13 +1469,7 @@ export class GameComponent implements OnInit, OnDestroy {
           // context, and the run ends only on death (the standard
           // death and revive flow) or quit.
       } else {
-          this.timeRemaining.update(t => Math.max(0, Math.floor(t - 1)));
-          if (this.timeRemaining() === 0 && this.bossSpawned() && !this.inBossDefeatSequence() && !this.isDead() && !this.rageModeActive()) {
-              this.triggerRageMode();
-          }
-          if (this.timeRemaining() === 0 && !this.bossSpawned() && this.progressPercent() >= 100) {
-              this.spawner.spawnBoss(this.getSpawnerContext());
-          }
+          this.advanceBossPhase();
       }
       
       if (this.gameState.sessionPlayTime() >= 60) this.gameState.awardTrophy("Survivor");
@@ -3972,7 +3983,9 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
     if (source === 'boss_contact') this.triggerShake('boss_contact');
 
     // Hit sound removed permanently
+    if (this.rageModeActive() && this.gameState.currentGameMode() === 'campaign') amount *= RAGE_DAMAGE_MULT;
     this.gameState.immortalUntil = Date.now() + 500; // 0.5s i-frames
+    this.lastDeathDamage.set(amount);
     this.currentHealth.update(h => Math.max(0, h - amount));
     this.damageFlash.set(true);
     setTimeout(() => this.damageFlash.set(false), 200);
@@ -4285,15 +4298,13 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       this.gameState.immortalUntil = Date.now() + 5000;
       this.gameState.speedBoostUntil = Date.now() + 2500;
       this.gameState.phoenixOverridePosition.set(null);
-      this.rageModeActive.set(false); // Reset rage mode on revive
-      this.killScreenTimer.set(10); // Reset timer just in case
+      // A revive keeps the boss phase and its clock (the phase
+      // never restarts at 5:00).
       this.gameState.playerDownPhase.set('none');
       this.isDead.set(false);
       this.stopDownWatcher();
       if (this.engine) this.startPhysics(); // Unfreeze physics
       if (this.bossSpawned()) {
-          // Boss fight continues: reset timer so rage mode doesn't trigger instantly
-          this.timeRemaining.set(this.totalTimeSignal());
           // Restart the intense BGM if it ended
           if (this.audioService.onIntenseBgmEnded() || this.audioService.getBgmDuration() === 0) {
               this.audioService.playIntenseBgm(this.gameState.selectedWorldIndex());
@@ -4311,6 +4322,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
   public reviveWithGems() {
     if (!this.koPanelOpen()) return;
+    if (this.deathUnsurvivable()) return;
     const cost = this.getReviveCost();
     if (this.gameState.gems() >= cost) {
         this.gameState.gems.update(g => g - cost);
@@ -4322,6 +4334,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
   public reviveWithToken() {
     if (!this.koPanelOpen()) return;
+    if (this.deathUnsurvivable()) return;
     if (this.gameState.reviveTokens() <= 0) return;
     this.gameState.reviveTokens.update(t => t - 1);
     this.reviveCount++;
@@ -4332,6 +4345,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
   public async reviveWithAd() {
     if (!this.koPanelOpen()) return;
+    if (this.deathUnsurvivable()) return;
     if (this.adRevivesUsed >= this.maxAdRevivesPerRun) return;
     if (this.adReviveInFlight) return;
     // The ad revive is an extra revive unit on the KO panel. The
@@ -4413,6 +4427,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
   private winGame() {
     this.gameEnded.set(true);
+    this.resetBossPhase();
     this.gameWon.set(true);
     this.finishRunForAds();
     
@@ -4465,6 +4480,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       this.bossSpawned.set(false);
       this.bossEnraged.set(false);
       this.bossShieldHealth.set(0);
+      this.resetBossPhase();
       // A new realm is a new run: fresh stamina pool (Section 2.5).
       this.gameState.playerMovement = createMovementState();
       this.rawBrakeHeld = false;
@@ -4500,7 +4516,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
 
               // 4. Restart Level fully (the new realm's BGM was already
               // started in the reset step above).
-              this.timeRemaining.set(this.totalTimeSignal());
+              this.resetBossPhase();
               this.startGameLoop();
           }
       };
@@ -4940,41 +4956,69 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   }
 
 
-  public triggerRageMode() {
-      if (this.rageModeActive()) return; // Fix race condition
-      // Enrage and overtime (S6 item 4): the run clock (300 s) and
-      // the intense track both end before the top of every enrage
-      // window in a natural run (the boss arrives at about 128 s,
-      // so the old kill screen started at about 172 s of fight
-      // time, while enrage rolls reach 195, 234, and 247 s). The
-      // top of each window could therefore never be seen outside
-      // the harness. Resolution: while a campaign boss is alive
-      // and its rolled enrage is still pending, the kill screen
-      // defers; tickBossRig starts it 20 s after the enrage lands.
-      // The overtime system's purpose is intact (an over-long
-      // fight still ends, and pre-boss overtime is unchanged);
-      // only the pre-emption of a mechanic Carter mandated for
-      // every boss is removed.
-      const bossBody = this.enemies.find(e => e.plugin['data']?.type === 'boss');
-      const bst = (bossBody?.plugin['data'] as EnemyData | undefined)?.bossState;
-      if (bst && !bst.enraged && !this.inBossDefeatSequence() && !this.isDead()) {
-          this.rageDeferred = true;
-          return;
+  // Campaign boss flow: one whole second of the phase clock.
+  private advanceBossPhase() {
+      if (this.inBossDefeatSequence() || this.isDead() || this.gameEnded()) return;
+      const { state, event } = tickBossPhase({ phase: this.bossPhase(), remaining: this.timeRemaining() });
+      if (state.phase !== this.bossPhase()) {
+          this.bossPhase.set(state.phase);
+          this.totalTimeSignal.set(Math.max(1, phaseDuration(state.phase)));
       }
+      this.timeRemaining.set(state.remaining);
+      if (event === 'spawn_boss') {
+          if (!this.bossSpawned()) this.spawner.spawnBoss(this.getSpawnerContext());
+          this.audioService.playIntenseBgm(this.gameState.selectedWorldIndex());
+      } else if (event === 'enter_rage') {
+          this.enterRage();
+      } else if (event === 'final_attack') {
+          this.executeFinalAttack();
+      }
+  }
+
+  private enterRage() {
       this.rageModeActive.set(true);
-      const kInt = setInterval(() => {
-          if (this.gameEnded() || this.isDead() || this.inBossDefeatSequence()) {
-              clearInterval(kInt);
-              return;
-          }
-          if (!this.gameState.isPaused()) {
-              this.killScreenTimer.update(t => t - 1);
-              if (this.killScreenTimer() <= 0) {
-                  clearInterval(kInt);
-                  this.executeKillScreen();
-              }
-          }
-      }, 1000);
+      const bossBody = this.enemies.find(e => e.plugin['data']?.type === 'boss');
+      const st = (bossBody?.plugin['data'] as EnemyData | undefined)?.bossState;
+      if (st && !st.enraged) {
+          st.enraged = true;
+          st.enrageWarned = true;
+          bossEvent(st, 'enraged', 'rage phase');
+      }
+      this.bossEnraged.set(true);
+      this.audioService.playSFX('boss');
+  }
+
+  // The boss's final 360 degree attack: no gaps, ignores dash, roll,
+  // i-frames, shields and the Aegis Charm, and deals infinite damage.
+  // It bypasses takeDamage (and with it Rebirth and the Feather Charm).
+  public executeFinalAttack() {
+      if (this.isDead() || this.gameEnded() || this.inBossDefeatSequence()) return;
+      this.bossPhase.set('final');
+      this.finalAttackFx.set(true);
+      if (this.finalAttackTimer) clearTimeout(this.finalAttackTimer);
+      this.finalAttackTimer = setTimeout(() => this.finalAttackFx.set(false), 900);
+      this.triggerShake('boss_contact');
+      this.lastDeathDamage.set(Infinity);
+      this.currentHealth.set(0);
+      this.damageFlash.set(true);
+      setTimeout(() => this.damageFlash.set(false), 200);
+      this.gameState.isRebirthing.set(false);
+      this.triggerDeathSequence();
+  }
+
+  // Every exit path (init, realm switch, win, death, quit) resets
+  // the boss phase to a fresh SURVIVE clock.
+  public resetBossPhase() {
+      const s = initialBossPhase();
+      this.bossPhase.set(s.phase);
+      this.totalTimeSignal.set(s.remaining);
+      this.timeRemaining.set(s.remaining);
+      this.rageModeActive.set(false);
+      this.annihilationModeActive.set(false);
+      if (this.annihilationInterval) { clearInterval(this.annihilationInterval); this.annihilationInterval = null; }
+      if (this.finalAttackTimer) { clearTimeout(this.finalAttackTimer); this.finalAttackTimer = null; }
+      this.finalAttackFx.set(false);
+      this.lastDeathDamage.set(0);
   }
 
 
@@ -5104,6 +5148,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       this.gameState.playerDownPhase.set('none');
       this.reviveBlastFx.set(null);
       this.adReviveInFlight = false;
+      this.resetBossPhase();
       this.finishRunForAds();
       if (this.gameState.currentGameMode() === 'battle') {
           // If we quit without dying, still add the collected coins

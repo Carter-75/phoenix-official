@@ -16,5 +16,6 @@ export const routes: Routes = [
   { path: 'profile', component: ProfileComponent },
   { path: 'leaderboard', component: LeaderboardComponent },
   { path: 'codex', component: CodexComponent },
+  { path: 'tutorial', loadComponent: () => import('./pages/tutorial/tutorial.component').then(m => m.TutorialComponent) },
   { path: 'crate_opening', loadComponent: () => import('./components/crate-opening/crate-opening.component').then(m => m.CrateOpeningComponent) }
 ];

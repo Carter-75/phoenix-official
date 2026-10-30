@@ -115,7 +115,7 @@ export class GameStateService {
 
   // UI State
   // Screens: 'menu' | 'game' | 'shop' | 'login' | 'profile' | 'leaderboard' | 'crate_opening'
-  public activeScreen = signal<'menu' | 'game' | 'shop' | 'login' | 'profile' | 'leaderboard' | 'codex' | 'crate_opening'>('menu');
+  public activeScreen = signal<'menu' | 'game' | 'shop' | 'login' | 'profile' | 'leaderboard' | 'codex' | 'crate_opening' | 'tutorial'>('menu');
   public unlockedWorlds = signal<number[]>([0]); // IDs of unlocked worlds
   // S4 (systems spec Section 3.4): worlds whose boss has been beaten
   // at least once. The triple (ultimate) slot is gated on this per
@@ -432,7 +432,7 @@ export class GameStateService {
 
       effect(() => {
           const screen = this.activeScreen();
-          if (screen === 'menu' || screen === 'shop' || screen === 'login' || screen === 'profile' || screen === 'leaderboard' || screen === 'codex') {
+          if (screen === 'menu' || screen === 'shop' || screen === 'login' || screen === 'profile' || screen === 'leaderboard' || screen === 'codex' || screen === 'tutorial') {
               setTimeout(() => this.audio.playMenuBgm(), 0);
           } else if (screen === 'game') {
               setTimeout(() => this.audio.playWorldBgm(this.selectedWorldIndex()), 0);

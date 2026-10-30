@@ -7,6 +7,9 @@ import { WORLDS } from '../../constants/game.constants';
 import { CommonModule } from '@angular/common';
 import { SettingsComponent } from '../../pages/settings/settings.component';
 import { AdsService } from '../../services/ads.service';
+import { StorageService } from '../../services/storage.service';
+import { environment } from '../../../environments/environment';
+import { shouldOfferTutorial, writeTutorialState } from '../../tutorial/tutorial-progress';
 
 @Component({
   selector: 'app-main-menu',
@@ -181,6 +184,11 @@ import { AdsService } from '../../services/ads.service';
             <span class="boost-label-short">📺 2x Boost Ad</span>
         </button>
       }
+
+      <!-- How to Play: replays the interactive tutorial. -->
+      <button (click)="openTutorial()" aria-label="How to play" class="press glass pointer-events-auto shrink-0 w-10 h-10 rounded-full text-orange-200/80 hover:text-white font-black transition">
+         ?
+      </button>
 
       <!-- Settings Button -->
       <button (click)="showSettings = true" class="press glass pointer-events-auto shrink-0 px-4 py-2 rounded-full text-white/60 hover:text-white font-bold transition">
@@ -385,6 +393,22 @@ import { AdsService } from '../../services/ads.service';
     @if(showSettings) {
        <app-settings (close)="showSettings = false" class="relative z-50 pointer-events-auto"></app-settings>
     }
+
+    <!-- First launch: offer the interactive tutorial once. -->
+    @if (showTutorialOffer()) {
+      <div class="fixed inset-0 z-[70] flex items-center justify-center p-5 bg-black/70 backdrop-blur-sm pointer-events-auto"
+           style="padding-top: max(env(safe-area-inset-top), 20px); padding-bottom: max(env(safe-area-inset-bottom), 20px)">
+        <div class="w-full max-w-sm rounded-3xl border border-orange-400/30 bg-zinc-950/90 p-6 text-center shadow-[0_20px_60px_rgba(0,0,0,0.6),0_0_40px_rgba(255,90,20,0.2)]">
+          <div class="text-5xl mb-2">🔥</div>
+          <h2 class="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-orange-300 to-red-400">New to Phoenix?</h2>
+          <p class="mt-2 text-sm text-white/75">Take a quick hands-on tutorial in a safe practice arena. No damage, no ads, and it never touches your progress. You can replay it anytime from the ? button or Settings.</p>
+          <div class="mt-5 flex flex-col gap-2">
+            <button (click)="acceptTutorialOffer()" class="press w-full py-3 rounded-full font-black text-white bg-gradient-to-r from-orange-500 to-red-600 shadow-[0_0_20px_rgba(255,90,20,0.45)]">Start tutorial</button>
+            <button (click)="declineTutorialOffer()" class="press w-full py-2 rounded-full font-bold text-white/55 hover:text-white">Not now</button>
+          </div>
+        </div>
+      </div>
+    }
   `
 })
 export class MainMenuComponent {
@@ -392,6 +416,25 @@ export class MainMenuComponent {
   auth = inject(AuthService);
   audio = inject(AudioService);
   private adsService = inject(AdsService);
+  private storage = inject(StorageService);
+
+  // Interactive tutorial (Oct 30, 2026). Offered once on first launch;
+  // automated runs (cloudtest build or phoenix_debug_hooks) never see
+  // the offer so it cannot block a harness.
+  showTutorialOffer = signal(shouldOfferTutorial(this.storage, MainMenuComponent.isAutomation()));
+  private static isAutomation(): boolean {
+    if (environment.cloudTest) return true;
+    try { return typeof window !== 'undefined' && window.localStorage.getItem('phoenix_debug_hooks') === '1'; } catch { return false; }
+  }
+  openTutorial(): void {
+    this.showTutorialOffer.set(false);
+    this.gameState.activeScreen.set('tutorial');
+  }
+  acceptTutorialOffer(): void { this.openTutorial(); }
+  declineTutorialOffer(): void {
+    writeTutorialState(this.storage, 'skipped');
+    this.showTutorialOffer.set(false);
+  }
 
   // Deliberate rewarded placement (audit 6.3): the player chooses to watch
   // an ad for a 2x coins and XP boost for 5 minutes. Never damage, never
