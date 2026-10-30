@@ -777,6 +777,7 @@ export class AutoplayService {
     this.releaseFingers();
     const todo = unmetSubgoals(this.prompt, this.checklist());
     if (todo.length) why += `. Still to do for the prompt: ${todo.join('; ')}`;
+    if ((this.attempt?.deaths ?? 0) > deaths0) why += `. Attempt ${this.attempt?.n} failed (died). If the prompt allows upgrades, spend coins (${this.gs.coins()}) on buy-<stat> in the shop before the next start_run; then restart where the goal needs (for a one-run sweep, realm 1)`;
     const parts = [...(wasPassive ? ['passive mode, pilot not dodging (die on purpose)'] : []),`played ${Math.round((Date.now() - t0) / 1000)} s, ended: ${why}`, `realm ${realm0} -> ${this.gs.selectedWorldIndex() + 1}`,
       `deaths +${(this.attempt?.deaths ?? 0) - deaths0}`, `realms cleared +${this.tm.realmsCleared.length - cleared0}`, `coins ${coins0} -> ${this.gs.coins()}`];
     const g = this.game;
@@ -858,6 +859,7 @@ export class AutoplayService {
   }
 
   private beginAttempt() {
+    if (this.attempt?.result === 'running') this.closeAttempt(this.attempt.deaths ? 'failed' : 'stopped');
     const n = this.tm.attempts.length + 1;
     this.attempt = { n, startRealm: this.gs.selectedWorldIndex() + 1, furthestRealm: this.gs.selectedWorldIndex() + 1, deaths: 0, result: 'running', causes: [], upgradesAfter: [], durationSec: 0 };
     this.tm.attempts.push(this.attempt);

@@ -356,7 +356,7 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
       env.log('safety', 'AI called the goal impossible, but code verified every required screen was visited; recording goal_met.');
       a.outcome = 'goal_met'; a.reason = 'code-verified: every required screen visited';
     }
-    if (a.action === 'finish' && !finalCall && impossibleRejected < 3 && a.outcome === 'impossible' && !realmRefusal(prompt, obs.unlockedRealms || []) && (GAMEPLAY_RE.test(prompt) || requiredScreens(prompt).some(x => !(obs.checklist?.visited || []).includes(x)))) {
+    if (a.action === 'finish' && !finalCall && (impossibleRejected < 3 || (verifiableGoal(prompt) && (obs.secondsLeft ?? 0) > 90)) && a.outcome === 'impossible' && !realmRefusal(prompt, obs.unlockedRealms || []) && (GAMEPLAY_RE.test(prompt) || requiredScreens(prompt).some(x => !(obs.checklist?.visited || []).includes(x)))) {
       impossibleRejected++;
       env.log('safety', 'AI called a gameplay goal impossible; asking it to retry once (a death or empty wallet is not impossible).');
       history.push({ step, action: 'finish', ok: false, note: 'REJECTED once: a gameplay goal is not impossible just because of a KO, 0 coins, or an ended run. Runs earn coins. Tap give-up on KO, then start_run and play again. Only call impossible again if truly blocked.' });
