@@ -353,8 +353,9 @@ getTapMaxCooldown() {
       const id = this.host.gameState.currentStats().activeTapAbility || 'burst';
       const abilityData = this.host.gameState.worldUpgrades()[this.host.gameState.selectedWorldIndex()]?.unlockedAbilities[id];
       const mod = abilityData?.modifiers?.['cooldown'] || 1.0;
-      if (id === 'drill_attack') return 3 * mod;
-      if (id === 'fire_breath') return 8 * mod;
+      // Oct 29, 2026: the drill (3) and fire_breath (8) hardcodes
+      // disagreed with the real cast cooldown; every tap move now
+      // reads ABILITIES like the other slots.
       // S2: burst (now 6 s) and the new tap moves read their real
       // base cooldown from ABILITIES; the old hardcoded 5 here was
       // burst's pre-S2 value.

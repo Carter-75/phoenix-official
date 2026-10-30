@@ -224,6 +224,10 @@ export class GameStateService {
   public immortalUntil = 0;
   
   public mousePos = signal<{x: number, y: number}>({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+  // Relative drag steering: the screen-space steering target the game
+  // component derives from touch drag deltas. The particle-bg render
+  // loop consumes it (sets it back to null) each frame.
+  public steerScreenTarget: {x: number, y: number} | null = null;
   public phoenixScreenPos = signal<{x: number, y: number}>({x: window.innerWidth / 2, y: window.innerHeight / 2});
   // The player bird's current heading as a screen-space unit vector
   // (x right, y down; straight up-screen is {x: 0, y: -1}), written

@@ -510,3 +510,12 @@ export const MOVE_PI_DATA: MovePiData[] = [
   { id: 'divine_wrath', name: 'Divine Wrath', family: 'triple', catalogId: 'hold_8', damage: '5 strikes of 3 SU over 2 s (15 SU total)', damageSuTotal: 15, cooldownSeconds: 70, intendedTargets: 'large area, grouped targets', pi: null, piNote: 'Ultimate: capped at 25 percent of current boss HP per cast, dynamically clamped.' },
   { id: 'phoenix_singularity', name: 'Phoenix Singularity', family: 'triple', catalogId: 'hold_24', damage: '2 s pull, then 15 SU detonation', damageSuTotal: 15, cooldownSeconds: 90, intendedTargets: 'medium area', pi: null, piNote: 'Ultimate: capped at 25 percent of current boss HP per cast, dynamically clamped. The pull can gather enemies toward the player if placed badly.' },
 ];
+
+// Relative drag steering (Carter, Oct 29, 2026): on touch, the
+// phoenix's steering target moves by the finger's movement delta
+// times this factor, from wherever the phoenix is when the finger
+// lands. It never jumps to the finger. Tune here.
+export const TOUCH_DRAG_SCALE = 2.5;
+// Finger travel in px below which a touch still counts as a tap or
+// hold (no steering), so taps and hold charges are never eaten.
+export const TOUCH_DRAG_DEADZONE_PX = 6;

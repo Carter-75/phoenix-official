@@ -4,7 +4,7 @@ import { GameStateService, STAMINA, createMovementState } from '../../services/g
 import { phoenixSkinForWorld } from '../../components/particle-bg/particle-bg.component';
 import { PhysicsEntity, WorldStats } from '../../models/game.models';
 import { ABILITIES, BASE_STATS, REALM_ABILITIES } from '../../constants/game.constants';
-import { PI_RULES, DROP_RULES, levelHpBonusFor, ENDLESS_ESCALATION, endlessHpScale, endlessStepAt, endlessPhaseAt } from '../../data/balance.constants';
+import { TOUCH_DRAG_SCALE, TOUCH_DRAG_DEADZONE_PX, PI_RULES, DROP_RULES, levelHpBonusFor, ENDLESS_ESCALATION, endlessHpScale, endlessStepAt, endlessPhaseAt } from '../../data/balance.constants';
 import {
   bossDefFor, BossFightState, BOSS_ENRAGE_WARNING_SEC, BOSS_PROJECTILE_CAP,
   SHIELD_HEAL_PHASE_CAP_FRAC, SHIELD_HEAL_FIGHT_CAP_FRAC, SHIELD_MIN_HP_FRAC,
@@ -207,8 +207,8 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
               <span class="text-3xl z-10" [class.opacity-50]="tapCooldown() > 0">{{ getTapIcon() }}</span>
               <span class="absolute bottom-1 inset-x-0 z-20 text-center text-[9px] font-bold text-white/50 uppercase tracking-wider">Tap</span>
               @if (tapCooldown() > 0) {
-                <div class="absolute bottom-0 left-0 w-full bg-orange-500/40 transition-all" [style.height]="(tapCooldown() / getTapMaxCooldown()) * 100 + '%'"></div>
-                <span class="absolute z-20 text-white font-bold drop-shadow-md">{{ tapCooldown().toFixed(1) }}</span>
+                <div class="absolute inset-0 z-[15] pointer-events-none" [style.background]="cooldownSweep('tap')"></div>
+                <span class="absolute z-20 text-white font-bold drop-shadow-md">{{ cooldownLabel(tapCooldown()) }}</span>
               }
             </div>
             <!-- Hold Ability -->
@@ -217,8 +217,8 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
               <span class="text-3xl z-10" [class.opacity-50]="holdCooldown() > 0">{{ getHoldIcon() }}</span>
               <span class="absolute bottom-1 inset-x-0 z-20 text-center text-[9px] font-bold text-white/50 uppercase tracking-wider">Hold</span>
               @if (holdCooldown() > 0) {
-                <div class="absolute bottom-0 left-0 w-full bg-red-500/40 transition-all" [style.height]="(holdCooldown() / getHoldMaxCooldown()) * 100 + '%'"></div>
-                <span class="absolute z-20 text-white font-bold drop-shadow-md">{{ holdCooldown().toFixed(1) }}</span>
+                <div class="absolute inset-0 z-[15] pointer-events-none" [style.background]="cooldownSweep('hold')"></div>
+                <span class="absolute z-20 text-white font-bold drop-shadow-md">{{ cooldownLabel(holdCooldown()) }}</span>
               }
               @if (holdChargeProgress() > 0 && (holdCooldown() <= 0 || overchargeReady())) {
                 <div class="absolute bottom-0 left-0 w-full bg-orange-400/40" [style.height]="holdChargeProgress() * 100 + '%'"></div>
@@ -233,8 +233,8 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
               }
               <span class="absolute bottom-1 inset-x-0 z-20 text-center text-[9px] font-bold text-white/50 uppercase tracking-wider">Dbl</span>
               @if (doubleCooldown() > 0) {
-                <div class="absolute bottom-0 left-0 w-full bg-orange-700/40 transition-all" [style.height]="(doubleCooldown() / getDoubleMaxCooldown()) * 100 + '%'"></div>
-                <span class="absolute z-20 text-white font-bold drop-shadow-md">{{ doubleCooldown().toFixed(1) }}</span>
+                <div class="absolute inset-0 z-[15] pointer-events-none" [style.background]="cooldownSweep('double')"></div>
+                <span class="absolute z-20 text-white font-bold drop-shadow-md">{{ cooldownLabel(doubleCooldown()) }}</span>
               }
             </div>
             <!-- Triple-tap slot (the ultimate slot, spec Section 3.2). -->
@@ -246,8 +246,8 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
               }
               <span class="absolute bottom-1 inset-x-0 z-20 text-center text-[9px] font-bold text-white/50 uppercase tracking-wider">Ult</span>
               @if (tripleCooldown() > 0) {
-                <div class="absolute bottom-0 left-0 w-full bg-red-700/50 transition-all" [style.height]="(tripleCooldown() / getTripleMaxCooldown()) * 100 + '%'"></div>
-                <span class="absolute z-20 text-white font-bold drop-shadow-md">{{ tripleCooldown().toFixed(1) }}</span>
+                <div class="absolute inset-0 z-[15] pointer-events-none" [style.background]="cooldownSweep('triple')"></div>
+                <span class="absolute z-20 text-white font-bold drop-shadow-md">{{ cooldownLabel(tripleCooldown()) }}</span>
               }
             </div>
           </div>
@@ -390,7 +390,7 @@ import { contactDamageFor, impTelegraphCharge, shardCharge, mineArmedCharge, mot
                 @if (gameState.currentStats().activeHoldAbility === 'rebirth' && holdCooldown() > 0) {
                 <div class="w-full mt-2 py-3 bg-white/5 border border-white/10 rounded-2xl flex justify-center items-center gap-3 opacity-60">
                   <span class="text-white font-semibold text-base">Rebirth recharging</span>
-                  <span class="text-orange-300 font-mono font-bold">{{ holdCooldown() }}s</span>
+                  <span class="text-orange-300 font-mono font-bold">{{ cooldownLabel(holdCooldown()) }}s</span>
                 </div>
                 }
                 @if (gameState.currentStats().activeGadget === 'phoenix_feather' && featherUsedThisRun) {
@@ -830,6 +830,32 @@ export class GameComponent implements OnInit, OnDestroy {
   // Double and triple slot cooldowns (spec Section 3.2). The slots and
   // parser are live from S1; their move pools ship in S2 and S4.
   public doubleCooldown = signal<number>(0);
+  // Cooldown HUD (Oct 29, 2026 fix): each slot remembers the full
+  // length of the cooldown it actually started, so the sweep is
+  // remaining / started. The old overlay divided by get*MaxCooldown,
+  // which could disagree with the real cast cooldown (drill_attack
+  // showed 3 s against a real 20 s, so the bar sat pinned full and
+  // then "jumped"), and its CSS height transition restarted every
+  // physics tick so the bar lagged instead of tracking.
+  public cooldownTotals: Record<'tap' | 'hold' | 'double' | 'triple', number> = { tap: 0, hold: 0, double: 0, triple: 0 };
+  public startCooldown(family: 'tap' | 'hold' | 'double' | 'triple', cd: number) {
+      this.cooldownTotals[family] = cd;
+      (family === 'tap' ? this.tapCooldown : family === 'hold' ? this.holdCooldown
+          : family === 'double' ? this.doubleCooldown : this.tripleCooldown).set(cd);
+  }
+  public cooldownSweep(family: 'tap' | 'hold' | 'double' | 'triple'): string {
+      const left = family === 'tap' ? this.tapCooldown() : family === 'hold' ? this.holdCooldown()
+          : family === 'double' ? this.doubleCooldown() : this.tripleCooldown();
+      const total = this.cooldownTotals[family] > 0 ? this.cooldownTotals[family] : left;
+      const frac = total > 0 ? Math.max(0, Math.min(1, left / total)) : 0;
+      const deg = (frac * 360).toFixed(1);
+      // Clockwise dark wedge for the remaining time; it shrinks to
+      // nothing as the move comes ready, and the tile clears at 0.
+      return `conic-gradient(rgba(0,0,0,0.62) ${deg}deg, rgba(0,0,0,0) ${deg}deg)`;
+  }
+  public cooldownLabel(left: number): string {
+      return left >= 10 ? Math.ceil(left).toString() : left.toFixed(1);
+  }
 
   public tripleCooldown = signal<number>(0);
 
@@ -2250,7 +2276,7 @@ export class GameComponent implements OnInit, OnDestroy {
                     // S5 Overcharge: a charged cast consumes the
                     // charge and starts no cooldown.
                     if (this.overchargeActive()) this.consumeOvercharge();
-                    else this.holdCooldown.set(cd);
+                    else this.startCooldown('hold', cd);
                 }
                 this.holdTimer = 0;
                 this.lastChargeStamp = 0;
@@ -4065,7 +4091,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
     if (this.currentHealth() <= 0) {
       const activeHold = this.gameState.currentStats().activeHoldAbility;
       if (activeHold === 'rebirth' && this.holdCooldown() === 0 && !this.annihilationModeActive()) {
-         this.holdCooldown.set(this.getHoldMaxCooldown());
+         this.startCooldown('hold', this.getHoldMaxCooldown());
          this.gameState.isRebirthing.set(true);
          // Hit sound removed permanently
          
@@ -4688,7 +4714,53 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
   private onTouchMove(event: TouchEvent) {
       if (this.isUiTarget(event)) return;
       event.preventDefault();
-      if (event.touches.length > 0) this.updateMouseInput(event.touches[0].clientX, event.touches[0].clientY, true);
+      if (event.touches.length > 0) {
+          const t = event.touches[0];
+          this.updateMouseInput(t.clientX, t.clientY, true);
+          this.applyDragDelta(t.clientX, t.clientY);
+      }
+  }
+
+  // Relative drag steering (Carter, Oct 29, 2026): the steering
+  // target starts at the phoenix and moves by the finger's delta
+  // times TOUCH_DRAG_SCALE. Until the finger has travelled past
+  // TOUCH_DRAG_DEADZONE_PX the touch is a pure tap or hold and
+  // steers nothing, so the tap chain and hold charge behave as
+  // before. Ability aim and hold-still keep reading the finger.
+  private dragActive = false;
+  private dragArmed = false;
+  private dragLastX = 0;
+  private dragLastY = 0;
+  private dragTargetX = 0;
+  private dragTargetY = 0;
+  private beginDrag(x: number, y: number) {
+      if (this.gameState.currentGameMode() === 'ai_vs_ai') return;
+      const p = this.gameState.phoenixScreenPos();
+      this.dragActive = true;
+      this.dragArmed = false;
+      this.dragLastX = x; this.dragLastY = y;
+      this.dragTargetX = p.x; this.dragTargetY = p.y;
+  }
+  private applyDragDelta(x: number, y: number) {
+      if (!this.dragActive) return;
+      if (this.gameState.isPaused() || this.gameState.isDeadMenuOpen() || this.isDead()) return;
+      const dx = x - this.dragLastX;
+      const dy = y - this.dragLastY;
+      if (!this.dragArmed) {
+          if (Math.hypot(dx, dy) < TOUCH_DRAG_DEADZONE_PX) return;
+          this.dragArmed = true;
+      }
+      this.dragLastX = x; this.dragLastY = y;
+      const w = window.innerWidth, h = window.innerHeight;
+      this.dragTargetX = Math.max(0, Math.min(w, this.dragTargetX + dx * TOUCH_DRAG_SCALE));
+      this.dragTargetY = Math.max(0, Math.min(h, this.dragTargetY + dy * TOUCH_DRAG_SCALE));
+      this.gameState.steerScreenTarget = { x: this.dragTargetX, y: this.dragTargetY };
+  }
+  private endDrag() {
+      // Lifting the finger stops drag input; the target stays put and
+      // the existing arrive-and-park damping settles the phoenix.
+      this.dragActive = false;
+      this.dragArmed = false;
   }
 
 
@@ -4736,6 +4808,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
           this.pressY = t.clientY;
           this.pressT = Date.now();
           this.handleInputStart(t.clientX, t.clientY, true);
+          this.beginDrag(t.clientX, t.clientY);
       }
   }
 
@@ -4820,11 +4893,11 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
           return;
       }
       if (family === 'tap') {
-          this.tapCooldown.set(cd);
+          this.startCooldown('tap', cd);
       } else if (family === 'double') {
-          this.doubleCooldown.set(cd);
+          this.startCooldown('double', cd);
       } else {
-          this.tripleCooldown.set(cd);
+          this.startCooldown('triple', cd);
           // An ultimate cast is an allowed shake trigger (Section 4.3).
           this.triggerShake('ultimate_cast');
       }
@@ -4872,6 +4945,7 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
           this.rawBrakeHeld = false;
           const t = event.changedTouches[0];
           if (t) this.evaluateFlick(t.clientX, t.clientY);
+          this.endDrag();
           this.isMouseHeld = false;
           this.holdStill.release();
       }

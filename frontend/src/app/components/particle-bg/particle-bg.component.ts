@@ -777,6 +777,11 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
       // game component's own touchmove prevention.
       const onCanvas = event.target === this.canvasRef?.nativeElement;
       if (this.gameState.activeScreen() === 'game' && event.cancelable && onCanvas) event.preventDefault();
+      // Relative drag steering (Carter, Oct 29, 2026): on the game
+      // screen a touch never sets an absolute target. The game
+      // component turns finger deltas into gameState.steerScreenTarget,
+      // which the render loop consumes below. Menus keep follow-finger.
+      if (this.gameState.activeScreen() === 'game') return;
       this.updateMouseTarget(event.touches[0].clientX, event.touches[0].clientY, true);
     }
   }
@@ -1504,6 +1509,11 @@ export class ParticleBgComponent implements OnInit, OnDestroy {
         // visible width already encodes the screen size.
         const baseSpeed = this.nominalBirdSpeed();
 
+        const steer = this.gameState.steerScreenTarget;
+        if (steer) {
+            this.gameState.steerScreenTarget = null;
+            if (this.gameState.activeScreen() === 'game') this.updateMouseTarget(steer.x, steer.y, false);
+        }
         let targetForMainBird = this.mouseTarget;
         if (this.gameState.currentGameMode() === 'ai_vs_ai' && this.gameState.activeScreen() === 'game') {
             const ai2Mouse = this.gameState.ai2MousePos();
