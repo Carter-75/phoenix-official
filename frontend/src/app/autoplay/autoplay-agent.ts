@@ -79,7 +79,7 @@ export interface AgentEnv {
 
 /** A finish that only asks the tester something is not a real finish. */
 /** goal_met while a gameplay goal's run is still live is premature: keep playing. */
-export const GAMEPLAY_RE = /surviv|speed|realms|\bdie\b|death|clear|beat|\bwin\b|\bplay\b|boss|minutes?/i;
+export const GAMEPLAY_RE = /surviv|speed|realms|\bdie\b|dying|death|clear|beat|\bwin\b|\bplay\b|\b(?:in )?(?:1|one) run\b|keep going|\b1\s*-\s*10\b|boss|minutes?/i;
 
 export function prematureGoal(a: { outcome?: string }, obs: Observation, prompt: string, played = true): boolean {
   if (a.outcome !== 'goal_met') return false;
@@ -121,7 +121,7 @@ const ranges = (xs: number[]) => {
   return out.join(', ') || 'none';
 };
 
-/** Code-verified impossibility: the goal needs a realm that is locked. Null when the goal is possible. */
+/** Verifies an AI "impossible" finish: the prompt asks to start in a realm that is locked right now. Null when the goal is possible. */
 export function realmRefusal(prompt: string, unlocked: number[]): string | null {
   const r = goalRealm(prompt);
   return r && !unlocked.includes(r) ? `Realm ${r} is locked; unlocked: ${ranges(unlocked)}` : null;
@@ -153,7 +153,7 @@ export function unmetSubgoals(prompt: string, c: Checklist | undefined): string[
     if ((c.longestLifeSec ?? 0) < need) out.push(`survive: longest continuous life is ${c.longestLifeSec ?? 0} s, need ${need} s in one life (a death resets it; start_run and play until time)`);
   }
   const noDeath = /no deaths?|without dying|don.t die|zero deaths/.test(p);
-  const allRealms = /all (?:(?:10|ten) )?realms|realms? 1\s*(?:-|to|through)\s*10|every realm/.test(p);
+  const allRealms = /all (?:(?:10|ten) )?realms|\b1\s*(?:-|to|through)\s*10\b|every realm/.test(p);
   if (allRealms) {
     const cl = c.realmsCleared ?? [];
     const miss = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].filter(r => !cl.includes(r));
@@ -225,17 +225,9 @@ export function singlePurchasePrompt(prompt: string): boolean {
 }
 
 export function railCheck(a: AgentAction, obs: Observation, prompt: string): string | null {
-  const gr = goalRealm(prompt);
-  if (gr && (a.action === 'select_realm' || a.action === 'start_run') && a.realm && a.realm !== gr)
-    return `the goal starts in realm ${gr}, not realm ${a.realm}`;
-  // A pure gameplay goal plays first: no menu wandering before the first run.
-  const pureGame = GAMEPLAY_RE.test(prompt) && !/shop|upgrade|\bbuy\b|purchase|menu|screen|settings|codex|leaderboard|tutorial|bug|\bui\b/i.test(prompt);
-  if (pureGame && a.action === 'navigate' && a.page !== 'menu' && !(obs.checklist?.visited || []).includes('game'))
-    return `the goal is gameplay; use start_run${gr ? ` (realm ${gr})` : ''} and play before visiting ${a.page}`;
-  if (pureGame && a.action === 'tap_button' && /premium|b-buy|shop/i.test(a.id) && !(obs.checklist?.visited || []).includes('game'))
-    return 'the goal is gameplay; use start_run and play first';
   if (a.action !== 'tap_button') return null;
-  if (gr && /unlock|realm-buy|buy-realm/i.test(a.id)) return 'never unlock or buy a realm; play the realm the goal names';
+  // Safety: realms unlock only by beating bosses, never by paying.
+  if (/unlock|realm-buy|buy-realm/i.test(a.id)) return 'realms unlock only by beating the previous boss; never buy or unlock one';
   const tb = obs.buttons.find(x => x.id === a.id);
   const isBuy = a.id.startsWith('buy-') || tb?.currency === 'coins' || tb?.currency === 'gems';
   if (isBuy && singlePurchasePrompt(prompt) && (obs.progress || []).some(p => /^- (?!PROBLEM)/.test(p)))
@@ -314,12 +306,6 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
   const history: HistoryItem[] = [];
   let badReplies = 0, rateHits = 0, finalCall = false, step = 0, played = false, impossibleRejected = 0, apiRetries = 0;
   let lastKey = env.stateKey?.() ?? '', lastLabel = '', repeat = 0, noProgress = 0;
-  // Code-verified impossible goal: stop at once and count it as a correct refusal (never unlock, buy, or swap realms).
-  const refusal = realmRefusal(prompt, env.observe().unlockedRealms || []);
-  if (refusal) {
-    env.log('safety', `Goal is impossible: ${refusal}. Stopping without playing (correct refusal).`);
-    return { report: `Correctly refused: ${refusal}. Nothing was unlocked, bought, or played in another realm.`, endReason: `Success (correctly refused): ${refusal}`, steps: 0, success: true };
-  }
   while (step < maxSteps) {
     step++;
     if (opt.shouldStop?.()) return { report: null, endReason: 'Stopped by tester', steps: step - 1 };
@@ -370,7 +356,7 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
       env.log('safety', 'AI called the goal impossible, but code verified every required screen was visited; recording goal_met.');
       a.outcome = 'goal_met'; a.reason = 'code-verified: every required screen visited';
     }
-    if (a.action === 'finish' && !finalCall && impossibleRejected < 3 && a.outcome === 'impossible' && (GAMEPLAY_RE.test(prompt) || requiredScreens(prompt).some(x => !(obs.checklist?.visited || []).includes(x)))) {
+    if (a.action === 'finish' && !finalCall && impossibleRejected < 3 && a.outcome === 'impossible' && !realmRefusal(prompt, obs.unlockedRealms || []) && (GAMEPLAY_RE.test(prompt) || requiredScreens(prompt).some(x => !(obs.checklist?.visited || []).includes(x)))) {
       impossibleRejected++;
       env.log('safety', 'AI called a gameplay goal impossible; asking it to retry once (a death or empty wallet is not impossible).');
       history.push({ step, action: 'finish', ok: false, note: 'REJECTED once: a gameplay goal is not impossible just because of a KO, 0 coins, or an ended run. Runs earn coins. Tap give-up on KO, then start_run and play again. Only call impossible again if truly blocked.' });

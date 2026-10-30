@@ -48,20 +48,25 @@ describe('realm rules', () => {
     expect(realmRefusal('play realm 5', [1, 2, 3])).toBe('Realm 5 is locked; unlocked: 1-3');
     expect(realmRefusal('play realm 3', [1, 2, 3])).toBeNull();
   });
-  it('blocks switching to a different realm or unlocking one', () => {
-    const obs: any = { buttons: [], checklist: undefined };
-    expect(railCheck({ action: 'start_run', mode: 'campaign', realm: 1 }, obs, 'survive in realm 2')).toMatch(/realm 2/);
-    expect(railCheck({ action: 'start_run', mode: 'campaign', realm: 2 }, obs, 'survive in realm 2')).toBeNull();
+  it('leaves realm choice to the AI but never lets it buy or unlock a realm', () => {
+    const obs: any = { buttons: [{ id: 'realm-unlock-5', enabled: true, currency: 'gems' }], checklist: undefined };
+    expect(railCheck({ action: 'start_run', mode: 'campaign', realm: 1 }, obs, 'start at realm 1, clear realms 1-10')).toBeNull();
+    expect(railCheck({ action: 'tap_button', id: 'realm-unlock-5' } as any, obs, 'start at realm 1, clear realms 1-10')).toMatch(/beating/);
   });
-  it('the agent stops at once on a locked realm and counts it as success', async () => {
-    const logs: string[] = [];
+  const env = (unlocked: number[]) => ({ observe: () => ({ screen: 'menu', unlockedRealms: unlocked, buttons: [] }), execute: async () => ({ ok: true, note: '' }), log: () => {}, now: () => 0 } as any);
+  const opts = { deadline: null, reportMaxChars: 500, sleep: async () => {} } as any;
+  it('no hard pre-refusal: the AI is asked, and its impossible finish is verified by code', async () => {
     let called = 0;
-    const out = await runAgent('survive 1 minute in realm 5', async () => { called++; return { action: 'wait', seconds: 1 }; },
-      { observe: () => ({ screen: 'menu', unlockedRealms: [1, 2, 3], buttons: [] }), execute: async () => ({ ok: true, note: '' }), log: (_k: string, m: string) => logs.push(m), now: () => 0 } as any,
-      { deadline: null, reportMaxChars: 500, sleep: async () => {} } as any);
-    expect(called).toBe(0);
+    const out = await runAgent('start at realm 5', async () => { called++; return { action: 'finish', outcome: 'impossible', reason: 'locked', report: 'Realm 5 is locked.' } as any; }, env([1, 2, 3]), opts);
+    expect(called).toBe(1);
     expect(out.success).toBe(true);
     expect(out.endReason).toBe('Success (correctly refused): Realm 5 is locked; unlocked: 1-3');
+  });
+  it('a progression goal starting in an unlocked realm is not refused', async () => {
+    let called = 0;
+    const out = await runAgent('Start at realm 1 keep going until in 1 run u do 1-10 all without dying', async () => { called++; return { action: 'finish', outcome: 'impossible', reason: 'x', report: 'x' } as any; }, env([1, 2, 3]), { ...opts, maxSteps: 3 });
+    expect(called).toBeGreaterThan(0);
+    expect(out.success).not.toBe(true);
   });
 });
 
@@ -74,10 +79,10 @@ describe('code-verified outcome', () => {
   });
 });
 
-describe('gameplay goals play first', () => {
-  it('blocks menu wandering before the first run', () => {
-    const obs: any = { buttons: [], checklist: ck({ visited: ['menu'] }) };
-    expect(railCheck({ action: 'navigate', page: 'shop' } as any, obs, 'clear all realms in one run with no deaths')).toMatch(/start_run \(realm 1\)/);
-    expect(railCheck({ action: 'navigate', page: 'shop' } as any, obs, 'die on purpose, then buy an upgrade')).toBeNull();
+describe('Carter prompt verification', () => {
+  it('"do 1-10 all without dying" needs a clean sweep', () => {
+    const p = 'Start at realm 1 keep going until in 1 run u do 1-10 all without dying, upgrade as you wish with coins.';
+    expect(unmetSubgoals(p, ck({})).join(';')).toMatch(/not cleared yet: 1, 2/);
+    expect(unmetSubgoals(p, ck({ realmsCleared: [1,2,3,4,5,6,7,8,9,10], cleanSweep: true }))).toEqual([]);
   });
 });

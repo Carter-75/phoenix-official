@@ -108,6 +108,11 @@ export class AutoplayService {
   private tut: any = null;
   private visited = new Set<string>();
   private passive = false;
+  /** Guidance, not a rule: the AI decides whether the locked realm makes the goal impossible now. */
+  private lockedNote(r: number | undefined): string {
+    const u = this.gs.unlockedWorlds().map((i: number) => i + 1);
+    return `realm ${r} is locked (unlocked: ${u.join(', ')}). Beating a realm's boss unlocks the next one. If the prompt needs you to START in realm ${r} now, finish impossible with "Realm ${r} is locked; unlocked: ${u.length ? u[0] + '-' + u[u.length - 1] : 'none'}". If realm ${r} is only reached by progressing, start in an unlocked realm and keep playing.`;
+  }
   private ck = { deaths: 0, buys: 0, lastDeathAt: 0, lastBuyAt: 0, runAfterDeath: false, runAfterBuy: false, tutorialDone: false, tutPassed: [] as string[], tutSkipped: [] as string[], runRealms: [] as number[], lifeMs: 0, lastAliveAt: 0, longestLifeMs: 0, cleanSweep: false, abil: {} as Record<string, number>, escapes: {} as Record<string, number> };
 
   /** Screen name for the checklist: overlays (settings, pause, KO) count as their own screens. */
@@ -515,7 +520,7 @@ export class AutoplayService {
         if (gemsAllowedByPrompt(this.prompt) || (a.allowGems && a.gemQuote && gemQuoteValid(a.gemQuote, this.prompt))) this.gemPermitted = true;
         const apTag = el.getAttribute('data-ap');
         // Play taps go through start_run so the requested realm is enforced.
-        if (apTag === 'play' || apTag === 'play-battle') return this.execute({ action: 'start_run', mode: apTag === 'play-battle' ? 'battle' : (this.btn('mode-endless')?.getAttribute('aria-pressed') === 'true' ? 'endless' : 'campaign'), realm: goalRealm(this.prompt) ?? undefined });
+        if (apTag === 'play' || apTag === 'play-battle') return this.execute({ action: 'start_run', mode: apTag === 'play-battle' ? 'battle' : (this.btn('mode-endless')?.getAttribute('aria-pressed') === 'true' ? 'endless' : 'campaign'), realm: this.gs.selectedWorldIndex() + 1 });
         this.clickEl(el);
         await sleep(700);
         const after = this.fingerprint();
@@ -542,7 +547,7 @@ export class AutoplayService {
         if (this.screenName() !== 'menu') await this.toMenu();
         if (this.gs.activeScreen() !== 'menu') return { ok: false, note: `could not reach the menu to select a realm (on ${this.gs.activeScreen()})` };
         const want = a.realm - 1;
-        if (!this.gs.unlockedWorlds().includes(want)) return { ok: false, note: `realm ${a.realm} is locked` };
+        if (!this.gs.unlockedWorlds().includes(want)) return { ok: false, note: this.lockedNote(a.realm) };
         if (!this.btn('world-next') && !this.btn('world-prev')) { this.click('mode-normal'); await sleep(500); }
         const cur = () => (this.pickerRealm() ?? this.gs.selectedWorldIndex() + 1) - 1;
         for (let i = 0; i < 12 && (cur() !== want || this.gs.selectedWorldIndex() !== want); i++) {
@@ -591,7 +596,7 @@ export class AutoplayService {
           if (this.gs.activeScreen() !== 'menu') return { ok: false, note: `start_run could not reach the menu (on ${this.gs.activeScreen()}); try navigate menu` };
         }
         this.click('tutorial-decline'); await sleep(400);
-        const wantRealm = goalRealm(this.prompt) ?? a.realm ?? undefined;
+        const wantRealm = a.realm ?? goalRealm(this.prompt) ?? undefined;
         a = { ...a, realm: wantRealm };
         if (a.mode === 'battle') {
           if (!this.btn('play-battle')) { this.click('mode-battle'); await sleep(500); }
