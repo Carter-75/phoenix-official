@@ -196,17 +196,19 @@ export class AgentApiError extends Error {
  * Safety net for upgrade prompts: a retry after a death with plenty of coins and no buy since
  * that death is sent back once (per death) with a nudge. Never buys for the AI.
  */
-export function upgradeNudge(a: AgentAction, obs: Observation, prompt: string, st: { deathsSeen: number; buysAtDeath: number; nudgedAt: number }): string | null {
+export function upgradeNudge(a: AgentAction, obs: Observation, prompt: string, st: { deathsSeen: number; coinsAtDeath: number; nudges: number }): string | null {
   const c = obs.checklist;
   if (!c) return null;
-  if (c.deaths > st.deathsSeen) { st.deathsSeen = c.deaths; st.buysAtDeath = c.buys; }
-  if (a.action !== 'start_run' || c.deaths < 1 || st.nudgedAt === c.deaths) return null;
+  if (c.deaths > st.deathsSeen) { st.deathsSeen = c.deaths; st.coinsAtDeath = obs.coins; st.nudges = 0; }
+  if (a.action !== 'start_run' || c.deaths < 1 || st.nudges >= 8) return null;
   if (!/upgrad|\bbuy\b|shop|coins?\b/i.test(prompt) || /\b(no|don'?t|without|never)\s+(upgrad|buy|shop|spend)/i.test(prompt)) return null;
-  const cheapest = obs.shop?.cheapest ?? Infinity;
-  if (c.buys > st.buysAtDeath || !(obs.coins >= cheapest * 3)) return null;
-  st.nudgedAt = c.deaths;
-  const best = (obs.shop?.best || []).slice(0, 3).map(b => `${b.id} (${b.cost} coins, ${b.gain})`).join(', ');
-  return `REJECTED once: you died and the prompt allows coin upgrades, but you are retrying with ${obs.coins} coins and no purchase since the death. Spend them first: select_realm the realm you will start in, navigate shop, and tap the best-value buy- buttons (${best || 'see observation.shop'}); damage and attack speed shorten boss fights, health survives them. Then start_run.`;
+  const best = obs.shop?.best || [];
+  const spent = Math.max(0, st.coinsAtDeath - obs.coins);
+  const affordable = best.find(b => b.cost <= obs.coins);
+  if (!affordable || best[0].cost > obs.coins || spent >= st.coinsAtDeath * 0.7) return null;
+  st.nudges++;
+  const list = best.slice(0, 3).map(b => `${b.id} (${b.cost} coins, ${b.gain})`).join(', ');
+  return `REJECTED: you died and the prompt allows coin upgrades, but you have spent only ${spent} of ${st.coinsAtDeath} coins since the death and the best-value upgrade is still affordable. Your choice what to buy, but spend most of it first: select_realm the realm you will start in, navigate shop, tap buy- buttons (${list}); damage and attack speed shorten boss fights, health survives them. Then start_run.`;
 }
 
 const ACTIONS = ['tap_button', 'select_realm', 'navigate', 'start_run', 'play', 'use_ability', 'wait', 'finish'];
@@ -323,7 +325,7 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
   const maxSteps = opt.maxSteps ?? MAX_STEPS;
   const sleep = opt.sleep ?? ((ms: number) => new Promise<void>(r => setTimeout(r, ms)));
   const history: HistoryItem[] = [];
-  const upg = { deathsSeen: 0, buysAtDeath: 0, nudgedAt: -1 };
+  const upg = { deathsSeen: 0, coinsAtDeath: 0, nudges: 0 };
   let badReplies = 0, rateHits = 0, finalCall = false, step = 0, played = false, impossibleRejected = 0, apiRetries = 0;
   let lastKey = env.stateKey?.() ?? '', lastLabel = '', repeat = 0, noProgress = 0;
   while (step < maxSteps) {

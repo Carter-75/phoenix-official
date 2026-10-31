@@ -536,7 +536,7 @@ export class AutoplayService {
             this.ledger.push(`- PROBLEM ${msg}`);
             return { ok: false, note: msg };
           }
-          if (spent) { this.ck.buys++; this.ck.lastBuyAt = Date.now(); }
+          if (spent) { this.ck.buys++; this.ck.lastBuyAt = Date.now(); const last = this.tm.attempts[this.tm.attempts.length - 1]; if (last) last.upgradesAfter.push(a.id); }
           if (spent) this.ledger.push(`- ${a.id}: ${d.join(', ')} (verified by code)`);
           return { ok: true, note: d.join(', ') };
         }
