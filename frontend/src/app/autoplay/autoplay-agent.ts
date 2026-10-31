@@ -186,6 +186,22 @@ export const MAX_STEPS = 80;
 /** Transient AI errors (bad JSON, network, 5xx) retried with backoff before stopping. */
 export const API_RETRIES = 4;
 export const HISTORY_KEEP = 14;
+/** A play that only ran out of seconds (no death, no realm change) is re-issued without an AI call, at most this many times in a row. */
+export const AUTO_CONTINUE_MAX = 2;
+
+/** Cost: the per-screen controls and howTo text go out only when the screen changes; later steps on the same screen keep valid and needs. */
+export function compactObservation(obs: Observation, lastScreen: string): Observation {
+  const g: any = (obs as any).guide;
+  if (!g || obs.screen !== lastScreen) return obs;
+  return { ...obs, guide: { screen: g.screen, realm: g.realm, valid: g.valid, needs: g.needs, note: 'controls and howTo unchanged since this screen opened' } } as unknown as Observation;
+}
+
+/** Nothing changed: the last play just ran out of seconds while the goal still needs the run. */
+export function quietPlay(a: AgentAction, res: StepResult): boolean {
+  if (a.action !== 'play' || !res.ok || ((a as any).until !== 'run_end' && (a as any).until !== 'death')) return false;
+  const n = res.note;
+  return /ended: time up/.test(n) && /deaths \+0/.test(n) && /realms cleared \+0/.test(n) && /realm (\d+) -> \1\b/.test(n) && !/failed \(died\)/.test(n);
+}
 export const MAX_PLAY_SECONDS = 600;
 
 export class AgentApiError extends Error {
@@ -354,7 +370,7 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
   const history: HistoryItem[] = [];
   const upg = { deathsSeen: 0, coinsAtDeath: 0, nudges: 0 };
   let badReplies = 0, rateHits = 0, finalCall = false, step = 0, played = false, impossibleRejected = 0, apiRetries = 0;
-  let lastKey = env.stateKey?.() ?? '', lastLabel = '', repeat = 0, noProgress = 0;
+  let lastKey = env.stateKey?.() ?? '', lastLabel = '', repeat = 0, noProgress = 0, lastScreen = '', autoNext: AgentAction | null = null, autoRuns = 0;
   while (step < maxSteps) {
     step++;
     if (opt.shouldStop?.()) return { report: null, endReason: 'Stopped by tester', steps: step - 1 };
@@ -366,10 +382,14 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
     const obs = env.observe();
     if (opt.deadline !== null) obs.secondsLeft = Math.max(0, Math.round((opt.deadline - env.now()) / 1000));
     let raw: unknown;
-    try {
-      raw = await llm({ prompt, observation: obs, history: history.slice(-HISTORY_KEEP), step,
+    if (autoNext && !finalCall && (opt.deadline === null || opt.deadline - env.now() > 30_000) && obs.screen === 'game') {
+      raw = autoNext; autoRuns++;
+      env.log('plan', `Continued the same play without an AI call (nothing changed; ${autoRuns} of ${AUTO_CONTINUE_MAX}).`);
+    } else try {
+      autoRuns = 0;
+      raw = await llm({ prompt, observation: compactObservation(obs, lastScreen), history: history.slice(-HISTORY_KEEP), step,
         maxSteps: Number.isFinite(maxSteps) ? maxSteps : 0, reportMaxChars: opt.reportMaxChars });
-      rateHits = 0; apiRetries = 0;
+      rateHits = 0; apiRetries = 0; lastScreen = obs.screen;
     } catch (e: any) {
       const code = e instanceof AgentApiError ? e.code : String(e?.message || e || 'request_failed').slice(0, 80);
       if (code !== 'rate_limited' && code !== 'no_key' && apiRetries < API_RETRIES) {
@@ -461,6 +481,7 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
     try { res = await env.execute(a); } catch (e: any) { res = { ok: false, note: `executor error: ${String(e?.message || e).slice(0, 160)}` }; }
     env.log(res.ok ? 'done' : 'failed', `${label} -> ${res.note}`);
     history.push({ step, action: label, ok: res.ok, note: res.note.slice(0, 300) });
+    autoNext = autoRuns < AUTO_CONTINUE_MAX && quietPlay(a, res) ? a : null;
     if (/surviv/i.test(prompt) && codeVerifiedMet(prompt, env.observe().checklist)) {
       env.log('safety', 'Code verified the survival goal; ending as goal_met.');
       return { report: 'Survival goal verified by code (one continuous life long enough).', endReason: 'Goal met (code-verified)', steps: step, success: true };

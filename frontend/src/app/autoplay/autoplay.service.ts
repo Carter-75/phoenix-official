@@ -6,6 +6,11 @@
 // safety rails (no real money, no ads, gems only with a quoted
 // permission from the prompt). Ads stay suppressed by AdGuard.
 import { buildManifest } from './screen-manifest';
+
+/** USD per 1M tokens [input, cached input, output], from OpenAI's pricing page (checked Oct 30, 2026). */
+const PRICE_PER_M: Record<string, [number, number, number]> = {
+  'gpt-5-nano': [0.05, 0.005, 0.40], 'gpt-5-mini': [0.25, 0.025, 2.00], 'gpt-4.1-nano': [0.10, 0.025, 0.40], 'gpt-4o-mini': [0.15, 0.075, 0.60],
+};
 import { highlightPurchase } from './purchase-highlight';
 import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
@@ -193,6 +198,7 @@ export class AutoplayService {
     this.pilotTimer = setInterval(() => this.safePilot(), 60);
     this.status.set('Running (AI deciding)');
     this.steps.set(0);
+    this.usage = { in: 0, cached: 0, out: 0, calls: 0 };
     let outcome: { report: string | null; endReason: string; steps: number; error?: string; success?: boolean };
     try {
       this.agentOpt = {
@@ -220,12 +226,26 @@ export class AutoplayService {
     this.log('safety', `${reason}.`);
   }
 
+  /** Token use from the API usage field, summed over the session (in includes cached). */
+  public usage = { in: 0, cached: 0, out: 0, calls: 0 };
+  private usageLine(): string {
+    const u = this.usage, p = PRICE_PER_M[this.model || ''] || PRICE_PER_M['gpt-5-nano'];
+    const usd = ((u.in - u.cached) * p[0] + u.cached * p[1] + u.out * p[2]) / 1e6;
+    const min = Math.max(1 / 60, (Date.now() - this.tm.startedAt) / 60000);
+    return `AI usage: ${u.calls} calls, ${u.in} input tokens (${u.cached} cached), ${u.out} output tokens, about ${Math.round((u.in + u.out) / min)} tokens/min, est cost $${usd.toFixed(4)}.`;
+  }
+  private postStep(req: LlmRequest): Promise<any> { return firstValueFrom(this.http.post<any>(`${this.api}/step`, req)); }
   private async callLlm(req: LlmRequest): Promise<unknown> {
     let r: any;
-    try { r = await firstValueFrom(this.http.post<any>(`${this.api}/step`, req)); }
+    try { r = await this.postStep(req); }
     catch (e: any) { throw new AgentApiError(e?.error?.errorCode || (e?.status ? `http_${e.status}` : 'network')); }
     if (r?.source !== 'openai' || !r.action) throw new AgentApiError(r?.errorCode || 'no_action');
     if (!this.model) { this.model = r.model || 'OpenAI'; this.log('plan', `Planner: OpenAI (${this.model}).`); }
+    const u = r.usage;
+    if (u) {
+      this.usage.in += +u.in || 0; this.usage.cached += +u.cached || 0; this.usage.out += +u.out || 0; this.usage.calls += +u.calls || 1;
+      if (this.steps() % 5 === 0) this.log('plan', this.usageLine());
+    }
     return r.action;
   }
 
@@ -238,6 +258,7 @@ export class AutoplayService {
     this.releaseFingers();
     if (this.attempt && this.attempt.result === 'running') this.closeAttempt('stopped');
     this.tm.endedAt = Date.now();
+    if (this.usage.calls) { this.log('plan', this.usageLine()); this.ledger.push(this.usageLine()); }
     this.tm.coinsEnd = this.gs.coins(); this.tm.gemsEnd = this.gs.gems();
     if (report !== null) {
       const facts = [`Verified by code: coins ${this.tm.coinsStart} -> ${this.tm.coinsEnd}, gems ${this.tm.gemsStart} -> ${this.tm.gemsEnd}.`, this.checklistLine(), ...this.ledger.slice(-20), ...this.findingLines()].join('\n');
