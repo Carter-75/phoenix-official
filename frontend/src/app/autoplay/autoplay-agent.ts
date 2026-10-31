@@ -235,7 +235,7 @@ export function startRealmCheck(a: AgentAction, obs: Observation, prompt: string
   if (/wherever|any realm|you choose|your choice|whichever/i.test(prompt)) return null;
   const want = goalRealm(prompt);
   if (!want || a.realm === want || cleared.has(want)) return null;
-  if (!(obs.unlockedRealms || []).includes(want)) return null;
+  if (!(obs.unlockedRealms || []).includes(want)) return `REJECTED: the prompt names realm ${want}, which is locked (unlocked: ${(obs.unlockedRealms || []).join(', ')}); playing realm ${a.realm} instead is wrong. Finish with outcome impossible and that reason.`;
   return `REJECTED: the prompt needs realm ${want} first (requested realm ${want}, you chose realm ${a.realm}). Unlocked later realms do not count: start_run in realm ${want} and play it until its boss falls, then move on as the prompt says.`;
 }
 

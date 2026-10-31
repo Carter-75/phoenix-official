@@ -141,3 +141,12 @@ describe('invalidWhy', () => {
     expect(invalidWhy(null)).toBe('not an object');
   });
 });
+
+import { startRealmCheck } from '../src/app/autoplay/autoplay-agent';
+describe('startRealmCheck locked goal realm', () => {
+  it('rejects playing another realm when the named realm is locked', () => {
+    const o: any = { unlockedRealms: [1, 2, 3], checklist: { realmsCleared: [] } };
+    expect(startRealmCheck({ action: 'start_run', mode: 'campaign', realm: 2 } as any, o, 'play realm 5 for 30 seconds')).toContain('locked');
+    expect(startRealmCheck({ action: 'start_run', mode: 'campaign', realm: 3 } as any, o, 'survive 1 minute in realm 3')).toBeNull();
+  });
+});
