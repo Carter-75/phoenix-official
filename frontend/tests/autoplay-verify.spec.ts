@@ -109,6 +109,7 @@ describe('upgradeNudge', () => {
     expect(upgradeNudge(run, obs(1, 5000), 'beat the realm 1 boss so realm 2 opens, then play realm 2', fresh())).toContain('REJECTED');
     st = fresh(); for (let i = 0; i < 8; i++) upgradeNudge(run, obs(1, 5000), P, st);
     expect(upgradeNudge(run, obs(1, 5000), P, st)).toBeNull();
+    st = fresh(); let c = 5000; for (let i = 0; i < 12; i++) { expect(upgradeNudge(run, obs(1, c), P, st)).toContain('REJECTED'); c -= 100; }
   });
 });
 

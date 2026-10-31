@@ -239,10 +239,10 @@ export function startRealmCheck(a: AgentAction, obs: Observation, prompt: string
   return `REJECTED: the prompt needs realm ${want} first (requested realm ${want}, you chose realm ${a.realm}). Unlocked later realms do not count: start_run in realm ${want} and play it until its boss falls, then move on as the prompt says.`;
 }
 
-export function upgradeNudge(a: AgentAction, obs: Observation, prompt: string, st: { deathsSeen: number; coinsAtDeath: number; nudges: number }): string | null {
+export function upgradeNudge(a: AgentAction, obs: Observation, prompt: string, st: { deathsSeen: number; coinsAtDeath: number; nudges: number; spentAtNudge?: number }): string | null {
   const c = obs.checklist;
   if (!c) return null;
-  if (c.deaths > st.deathsSeen) { st.deathsSeen = c.deaths; st.coinsAtDeath = obs.coins; st.nudges = 0; }
+  if (c.deaths > st.deathsSeen) { st.deathsSeen = c.deaths; st.coinsAtDeath = obs.coins; st.nudges = 0; st.spentAtNudge = -1; }
   if (a.action !== 'start_run' || c.deaths < 1 || st.nudges >= 8) return null;
   // Any gameplay goal: retrying after a death with unspent coins wastes the attempt, unless the prompt forbids buying
   // or asked for exactly one purchase that is already done.
@@ -252,7 +252,9 @@ export function upgradeNudge(a: AgentAction, obs: Observation, prompt: string, s
   const spent = Math.max(0, st.coinsAtDeath - obs.coins);
   const affordable = best.find(b => b.cost <= obs.coins);
   if (!affordable || best[0].cost > obs.coins || spent >= st.coinsAtDeath * 0.85) return null;
-  st.nudges++;
+  // Only nudges without a new buy since the last one count toward the cap, so steady buying is never cut short.
+  if ((st.spentAtNudge ?? -1) < 0 || spent <= st.spentAtNudge!) st.nudges++;
+  st.spentAtNudge = spent;
   const list = best.slice(0, 3).map(b => `${b.id} (${b.cost} coins, ${b.gain})`).join(', ');
   return `REJECTED: you died and retrying with unspent coins wastes the attempt: you have spent only ${spent} of ${st.coinsAtDeath} coins since the death and the best-value upgrade is still affordable. Your choice what to buy, but spend most of it first: select_realm the realm you will start in, navigate shop, tap buy- buttons (${list}); damage and attack speed shorten boss fights, health survives them. Then start_run.`;
 }

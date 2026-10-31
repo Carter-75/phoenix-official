@@ -508,7 +508,9 @@ export class AutoplayService {
       // Gem prices are often just the gem icon image: count it as gems.
       const gemImg = b.querySelector('img[src*="gem"]') ? ' gems' : '';
       const currency = classifyCurrency(clean(b.textContent) + ' ' + clean(b.getAttribute('aria-label')) + gemImg, tag || '');
-      const ob: ObsButton = { id, label, enabled: !disabled };
+      // Real-money and ad buttons are always blocked: show them as disabled so the AI does not keep trying them.
+      const blocked = currency === 'money' || currency === 'ad';
+      const ob: ObsButton = { id, label: blocked ? `[blocked: ${currency === 'ad' ? 'ad' : 'real money'}] ${label}` : label, enabled: !disabled && !blocked };
       if (currency) ob.currency = currency;
       const cost = currency === 'coins' || currency === 'gems' ? parseCost(clean(b.textContent)) : undefined;
       if (cost !== undefined) ob.cost = cost;
