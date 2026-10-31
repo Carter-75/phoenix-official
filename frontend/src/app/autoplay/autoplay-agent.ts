@@ -251,10 +251,20 @@ export function upgradeNudge(a: AgentAction, obs: Observation, prompt: string, s
   const best = obs.shop?.best || [];
   const spent = Math.max(0, st.coinsAtDeath - obs.coins);
   const affordable = best.find(b => b.cost <= obs.coins);
-  if (!affordable || best[0].cost > obs.coins || spent >= st.coinsAtDeath * 0.7) return null;
+  if (!affordable || best[0].cost > obs.coins || spent >= st.coinsAtDeath * 0.85) return null;
   st.nudges++;
   const list = best.slice(0, 3).map(b => `${b.id} (${b.cost} coins, ${b.gain})`).join(', ');
   return `REJECTED: you died and retrying with unspent coins wastes the attempt: you have spent only ${spent} of ${st.coinsAtDeath} coins since the death and the best-value upgrade is still affordable. Your choice what to buy, but spend most of it first: select_realm the realm you will start in, navigate shop, tap buy- buttons (${list}); damage and attack speed shorten boss fights, health survives them. Then start_run.`;
+}
+
+/** Short reason a reply failed parseAction, fed back to the AI so it can correct itself. */
+export function invalidWhy(raw: unknown): string {
+  const r: any = raw;
+  if (!r || typeof r !== 'object') return 'not an object';
+  if (!ACTIONS.includes(r.action)) return `unknown action ${JSON.stringify(String(r.action ?? '')).slice(0, 40)}; valid: ${ACTIONS.join(', ')}`;
+  if (r.action === 'tap_button') return 'tap_button needs "id" set to a button id from observation';
+  if (r.action === 'navigate') return `navigate page must be one of ${NAV_PAGES.join(', ')}`;
+  return `bad fields for ${r.action}`;
 }
 
 const ACTIONS = ['tap_button', 'select_realm', 'navigate', 'start_run', 'play', 'use_ability', 'wait', 'finish'];
@@ -415,10 +425,12 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
     const a = parseAction(raw);
     if (!a) {
       badReplies++;
-      history.push({ step, action: 'invalid', ok: false, note: 'reply was not a valid action JSON' });
-      if (badReplies >= 3) { env.log('error', 'AI returned 3 invalid actions; stopping.'); return { report: null, endReason: 'AI returned invalid actions', steps: step }; }
+      env.log('error', `AI reply was not a valid action: ${invalidWhy(raw)} (${JSON.stringify(raw ?? null).slice(0, 160)})`);
+      history.push({ step, action: 'invalid', ok: false, note: `reply was not a valid action JSON (${invalidWhy(raw)}); reply with exactly one action object from the list, e.g. {"action":"tap_button","id":"buy-damage"}` });
+      if (badReplies >= 3) { env.log('error', 'AI returned 3 invalid actions in a row; stopping.'); return { report: null, endReason: 'AI returned invalid actions', steps: step }; }
       continue;
     }
+    badReplies = 0;
     if (a.action === 'finish' && !finalCall && finishIsQuestion(a)) {
       env.log('safety', 'AI tried to finish without meeting the goal (asked the tester instead). Autoplay is autonomous; continuing.');
       history.push({ step, action: 'finish', ok: false, note: 'REJECTED: you are autonomous and must never ask the tester anything. Keep working toward the goal. Only finish with outcome "goal_met", or "impossible" plus a reason.' });

@@ -94,12 +94,13 @@ describe('upgradeNudge', () => {
   const P = 'Start at realm 1 keep going until in 1 run u do 1-10 all without dying, upgrade as you wish with coins.';
   const run: any = { action: 'start_run', mode: 'campaign', realm: 1 };
   const fresh = () => ({ deathsSeen: 0, coinsAtDeath: 0, nudges: 0 });
-  it('keeps nudging until about 70% of the coins are spent', () => {
+  it('keeps nudging until about 85% of the coins are spent', () => {
     const st = fresh();
     expect(upgradeNudge(run, obs(0, 5000), P, st)).toBeNull();
     expect(upgradeNudge(run, obs(1, 5000), P, st)).toContain('spent only 0 of 5000');
     expect(upgradeNudge(run, obs(1, 4700), P, st)).toContain('spent only 300');
-    expect(upgradeNudge(run, obs(1, 1400), P, st)).toBeNull();
+    expect(upgradeNudge(run, obs(1, 1400), P, st)).toContain('spent only 3600');
+    expect(upgradeNudge(run, obs(1, 700), P, st)).toBeNull();
   });
   it('stops when the best upgrade is unaffordable, upgrades are not allowed, or after 8 nudges', () => {
     let st = fresh(); upgradeNudge(run, obs(1, 5000), P, st);
@@ -129,5 +130,14 @@ describe('startRealmCheck', () => {
   });
   it('leaves free-choice prompts without a progression alone', () => {
     expect(startRealmCheck({ action: 'start_run', mode: 'campaign', realm: 2 }, o([]), 'survive 1 minute in any realm you choose')).toBeNull();
+  });
+});
+
+import { invalidWhy } from '../src/app/autoplay/autoplay-agent';
+describe('invalidWhy', () => {
+  it('names what was wrong with a reply', () => {
+    expect(invalidWhy({ action: 'buy', id: 'buy-damage' })).toContain('unknown action');
+    expect(invalidWhy({ action: 'tap_button' })).toContain('needs "id"');
+    expect(invalidWhy(null)).toBe('not an object');
   });
 });
