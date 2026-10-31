@@ -148,7 +148,7 @@ export class AutoplayService {
       try { this.out.setReport(`AUTOPLAY FAILED TO START: ${msg}`); } catch { }
       try { this.log('error', `Start failed: ${msg}`); } catch { this.output.set(`AUTOPLAY FAILED TO START: ${msg}`); }
       try { clearInterval(this.tickTimer); clearInterval(this.pilotTimer); this.cleanup.forEach(f => { try { f(); } catch { } }); this.cleanup = []; } catch { }
-      this.running.set(false); this.paused.set(false); this.finishing = false;
+      this.running.set(false); this.paused.set(false); this.finishing = false; this.gs.aiDriving.set(false);
       this.status.set('Start failed (see output)');
       setTimeout(() => AdGuard.release(AD_REASON), 0);
     }
@@ -170,6 +170,7 @@ export class AutoplayService {
     this.log('start', 'Send received; starting autoplay.');
     this.prompt = prompt;
     this.running.set(true);
+    this.gs.aiDriving.set(true);
     this.paused.set(false);
     this.finishing = false;
     this.stopRequested = false;
@@ -198,7 +199,7 @@ export class AutoplayService {
         deadline: this.deadline, maxSteps: stepCapFor(sliderMs ?? null), reportMaxChars: REPORT_RESERVE_CHARS - 400,
         shouldStop: () => this.stopRequested || !this.running(),
       };
-      outcome = await runAgent(prompt, (req) => { this.steps.update(n => n + 1); return this.callLlm(req); }, this.env(), this.agentOpt);
+      outcome = await runAgent(prompt, async (req) => { await this.whileBackground(); this.steps.update(n => n + 1); return this.callLlm(req); }, this.env(), this.agentOpt);
     } catch (e: any) {
       // Never end silently: any crash in the loop still writes an output entry.
       outcome = { report: null, endReason: `internal error: ${String(e?.message || e).slice(0, 160)}`, steps: this.steps() };
@@ -247,7 +248,7 @@ export class AutoplayService {
     }
     this.publish();
     this.cleanup.forEach(f => { try { f(); } catch { } }); this.cleanup = [];
-    this.running.set(false); this.paused.set(false);
+    this.running.set(false); this.paused.set(false); this.gs.aiDriving.set(false);
     this.status.set(`Done: ${reason} (${steps} steps)`);
     // Ads stay blocked until the bot has fully left the run.
     setTimeout(() => AdGuard.release(AD_REASON), 1500);
@@ -326,6 +327,8 @@ export class AutoplayService {
   }
 
   private bgSince = 0;
+  /** The AI step loop holds while the app is in the background. */
+  private async whileBackground() { while (this.bgSince && this.running() && !this.stopRequested) await new Promise(r => setTimeout(r, 300)); }
   private agentOpt: any = null;
   private bgPause() {
     if (!this.running() || this.finishing || this.bgSince) return;
@@ -342,7 +345,7 @@ export class AutoplayService {
     if (this.deadline) { this.deadline += away; if (this.agentOpt?.deadline) this.agentOpt.deadline += away; } // time away does not count against the session
     this.lastProgressAt = Date.now();
     this.paused.set(false);
-    this.log('safety', `App back in foreground after ${Math.round(away / 1000)} s: AI session resumed. If the game shows its pause screen, the AI presses resume.`);
+    this.log('safety', `App back in foreground after ${Math.round(away / 1000)} s: game and AI session resumed from the same state (no pause popup in AI mode).`);
   }
 
   private manualPause() {
@@ -554,7 +557,7 @@ export class AutoplayService {
   private env(): AgentEnv {
     return {
       observe: () => this.observe(),
-      execute: (a) => this.execute(a),
+      execute: async (a) => { await this.whileBackground(); return this.execute(a); },
       now: () => Date.now(),
       log: (k, t) => this.log(k, t),
       isPaused: () => this.paused(),
@@ -895,7 +898,8 @@ export class AutoplayService {
       this.ck.longestLifeMs = Math.max(this.ck.longestLifeMs, this.ck.lifeMs);
     } else this.ck.lastAliveAt = 0;
     // Only while the AI handed over flight: a pause would stall the pilot.
-    if (this.playing && this.gs.isPaused()) this.click('pause-toggle', 'Game was paused during play; resumed.');
+    // Never while frozen for the background: that unpaused the hidden run and kept its timer and gun running.
+    if (this.playing && this.gs.isPaused() && !this.gs.silentPause() && !this.bgSince && !document.hidden) this.click('pause-toggle', 'Game was paused during play; resumed.');
   }
 
   private endLife() { this.ck.lifeMs = 0; this.ck.lastAliveAt = 0; }
@@ -1108,7 +1112,7 @@ export class AutoplayService {
     if (this.useAbilities && d.aim && d.timeToHit > 0.35 && now >= this.nextAbilityAt && now - this.lastPressAt > 300) {
       const fam = this.pickAbility(g);
       if (fam) {
-        const tgt = d.crowd && fam === 'tap' ? d.crowd : d.aim;
+        const tgt = fam === 'tap' ? (d.chaser || d.crowd || d.aim) : d.aim;
         const chain = synthTapChain(fam, tgt.x, tgt.y);
         if (chainIsValid(chain.steps, fam)) {
           this.count(`${fam} ability`);
@@ -1119,7 +1123,7 @@ export class AutoplayService {
       }
     }
     const crowdHold = !!d.crowd && d.timeToHit > 0.6;
-    if (this.useAbilities && (d.safeForHold || crowdHold) && g.holdCooldown() <= 0 && now >= this.nextAbilityAt && s.foes.length && now - this.lastPressAt > 400 && (crowdHold || Math.random() < (s.foes.some(f => f.boss) ? 0.3 : 0.05))) {
+    if (this.useAbilities && (d.safeForHold || crowdHold) && g.holdCooldown() <= 0 && now >= this.nextAbilityAt && s.foes.length && now - this.lastPressAt > 400 && (crowdHold || Math.random() < (s.foes.some(f => f.boss) ? 0.8 : 0.05))) {
       const ms = holdChargeMs(false);
       this.count('hold ability'); this.nextAbilityAt = now + ms + 600;
       this.verifySlot('hold', ms + 500);

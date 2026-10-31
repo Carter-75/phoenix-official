@@ -330,7 +330,7 @@ import { AutoplayService } from '../../autoplay/autoplay.service';
 
       <!-- Pause Screen (Fix Round 1, Part 6: a proper obsidian panel
            with the shared button system, not floating text). -->
-      @if (gameState.isPaused()) {
+      @if (gameState.isPaused() && !gameState.silentPause()) {
         <div data-ui class="backdrop-in absolute inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center pointer-events-auto z-40 px-6">
           <div class="panel-in w-full max-w-xs bg-zinc-950/90 border border-white/10 rounded-3xl p-6 flex flex-col items-center shadow-2xl">
             <h2 (click)="onPauseTextClick()"
@@ -1211,6 +1211,8 @@ export class GameComponent implements OnInit, OnDestroy {
     window.addEventListener('keyup', this.boundKeyUp);
     window.addEventListener('contextmenu', this.boundContextMenu);
     document.addEventListener('visibilitychange', this.boundVisibility);
+    // Native backgrounding does not always flip document.hidden first.
+    import('@capacitor/core').then(({ Capacitor }) => Capacitor.isNativePlatform() ? import('@capacitor/app').then(m => m.App.addListener('appStateChange', ({ isActive }) => isActive ? this.onAppVisible() : this.onAppHidden())).then(h => { this.capAppSub = h; }) : null).catch(() => { });
 
     // Fresh stamina pools for the new run (spec Section 2.5: stamina
     // is run-local).
@@ -4571,7 +4573,28 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
       if (event.code === 'Space') this.rawBrakeHeld = false;
   }
 
-  private onVisibilityChange() { if (document.hidden && !this.gameState.isPaused() && !this.gameEnded() && !this.isDead()) this.togglePause(); }
+  private onVisibilityChange() { if (document.hidden) this.onAppHidden(); else this.onAppVisible(); }
+  /** Background: freeze the whole run (physics, timers, firing, audio). AI mode freezes silently; normal play shows the pause popup. */
+  private onAppHidden() {
+    this.audioService.suspendForBackground();
+    if (this.gameState.isPaused() || this.gameEnded() || this.isDead()) return;
+    if (this.gameState.aiDriving()) {
+      this.gameState.silentPause.set(true);
+      this.gameState.isPaused.set(true);
+      this.stopPhysics();
+      this.audioService.pauseCurrentBgm();
+    } else this.togglePause();
+  }
+  /** Return: in AI mode the run resumes from the exact state with no popup; normal play keeps its pause popup. */
+  private onAppVisible() {
+    if (!this.gameState.silentPause()) return;
+    this.gameState.silentPause.set(false);
+    if (this.gameEnded() || this.isDead()) { this.gameState.isPaused.set(false); return; }
+    this.gameState.isPaused.set(false);
+    this.startPhysics();
+    this.audioService.resumeCurrentBgm();
+  }
+  private capAppSub: { remove: () => void } | null = null;
 
   public onPauseTextClick() {
       this.pauseClickCount++;
@@ -5091,6 +5114,8 @@ const uniqueEntities = Array.from(new Map(entities.map(e => [e.id, e])).values()
     window.removeEventListener('keyup', this.boundKeyUp);
     window.removeEventListener('contextmenu', this.boundContextMenu);
     document.removeEventListener('visibilitychange', this.boundVisibility);
+    try { this.capAppSub?.remove(); } catch { }
+    this.gameState.silentPause.set(false);
     
     this.gameState.phoenixOverridePosition.set(null);
     this.gameState.activeEntities.set([]);

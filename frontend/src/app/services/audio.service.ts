@@ -167,7 +167,9 @@ export class AudioService {
   // Hard-stop everything audible. Unlike pauseCurrentBgm (a 300 ms
   // fade for the pause menu), backgrounding must be silent at once:
   // the OS can freeze the WebView before a fade would finish.
+  private inBackground = false;
   public suspendForBackground() {
+      this.inBackground = true;
       if (this.fadeInterval) {
           clearInterval(this.fadeInterval);
           this.fadeInterval = null;
@@ -199,6 +201,7 @@ export class AudioService {
   // resumes from the pause menu (togglePause -> resumeCurrentBgm),
   // or never if the run ended while away (currentBgm has moved on).
   public resumeFromBackground() {
+      this.inBackground = false;
       if (this.audioCtx && this.audioCtx.state === 'suspended') {
           this.audioCtx.resume().catch(() => {});
       }
@@ -454,7 +457,7 @@ export class AudioService {
   private lastDropTime = 0;
 
   playSFX(type: 'shoot' | 'hit' | 'explosion' | 'heal' | 'buy' | 'click' | 'boss' | 'drop') {
-    if (this.isMuted()) return;
+    if (this.isMuted() || this.inBackground || document.hidden) return;
 
     const now = Date.now();
 

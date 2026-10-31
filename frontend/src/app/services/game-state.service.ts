@@ -260,6 +260,10 @@ export class GameStateService {
   public playerSingularityPull = signal<{ x: number, y: number, radius: number, until: number } | null>(null);
 
   public isPaused = signal<boolean>(false);
+  // AI autoplay is driving: backgrounding freezes the run silently (no pause popup) and returning resumes it.
+  public aiDriving = signal<boolean>(false);
+  // True while a run is frozen for the background in AI mode; isPaused is also true so every loop holds.
+  public silentPause = signal<boolean>(false);
   public isRebirthing = signal<boolean>(false);
   public isDrilling = signal<boolean>(false);
   // S2: Meteor Rush state (mirrors isDrilling; visual flash reads it).

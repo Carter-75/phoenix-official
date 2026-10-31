@@ -39,6 +39,8 @@ export interface Snapshot {
 export interface Decision {
   /** Minions crowding the bird (centroid within 220 px), worth clearing with TAP or HOLD. */
   crowd?: { x: number; y: number; n: number } | null;
+  /** At a boss: the nearest minion closing in (bats chase), worth a TAP before it lands a hit. */
+  chaser?: Pt | null;
   target: Pt; danger: number; dash: Pt | null; roll: boolean; brake: boolean;
   aim: Foe | null; safeForHold: boolean; timeToHit: number;
   /** Why an escape verb fired: 'boxed', 'stuck', 'corner', or null. */
@@ -77,7 +79,7 @@ export function dangerAt(q: Pt, s: Snapshot): number {
   for (const f of s.foes) {
     const dist = Math.hypot(f.x - q.x, f.y - q.y) - f.r - s.birdR;
     const keep = f.boss ? 190 : bossOn ? 75 + Math.min(120, (f.spd ?? 0) * 0.4) : 40;
-    if (dist < keep) d += (keep - dist) / keep * (f.boss ? 14 : bossOn ? 8 : 6);
+    if (dist < keep) d += (keep - dist) / keep * (f.boss ? 14 : bossOn ? 11 : 6);
   }
   if (s.hazard) d += s.hazard(q) * 6;
   d += wallPenalty(q, s) + densityAt(q, s);
@@ -161,7 +163,10 @@ export function decide(s: Snapshot, rng: () => number = Math.random): Decision {
     }
     // Against a boss, closing on the ideal spot matters more than travel cost.
     const idealW = 1.4;
-    const score = danger * (s.telegraph ? 1.6 : 1) * (1 + 1.5 * hurt) + pathDanger(s.p, c, s) + travel * 0.6 + toIdeal * idealW - Math.min(4, pick) * 0.5 + rng() * 0.05;
+    // Keep the boss in the firing line: auto-fire only hits inside the 45 degree cone above a bird facing up, within reach.
+    let fire = 0;
+    if (boss) { const dy = c.y - boss.y, dx = Math.abs(c.x - boss.x); if (dy > 0 && dx < dy * 0.75 && Math.hypot(dx, dy) - boss.r < reach * 0.95) fire = 0.9; }
+    const score = -fire + danger * (s.telegraph ? 1.6 : 1) * (1 + 1.5 * hurt) + pathDanger(s.p, c, s) + travel * 0.6 + toIdeal * idealW - Math.min(4, pick) * 0.5 + rng() * 0.05;
     if (score < bestScore) { bestScore = score; best = c; bestDanger = danger; }
   }
 
@@ -201,8 +206,9 @@ export function decide(s: Snapshot, rng: () => number = Math.random): Decision {
   if (boss && !dash && !roll && tth < 0.3 && s.stamina >= s.rollCost) roll = true;
   const speed = Math.hypot(s.v.x, s.v.y);
   const brake = !dash && speed > 900 && Math.hypot(best.x - s.p.x, best.y - s.p.y) < 40;
-  const safeForHold = tth === Infinity && dangerAt(s.p, s) < 0.4 && !s.telegraph;
+  const safeForHold = tth === Infinity && dangerAt(s.p, s) < (boss ? 1.5 : 0.4) && !s.telegraph;
   const near = s.foes.filter(f => !f.boss && Math.hypot(f.x - s.p.x, f.y - s.p.y) < 220);
-  const crowd = near.length >= 3 ? { x: near.reduce((a, f) => a + f.x, 0) / near.length, y: near.reduce((a, f) => a + f.y, 0) / near.length, n: near.length } : null;
-  return { crowd, target: best, danger: bestDanger, dash, roll, brake, aim, safeForHold, timeToHit: tth, escape };
+  const crowd = near.length >= (boss ? 4 : 3) ? { x: near.reduce((a, f) => a + f.x, 0) / near.length, y: near.reduce((a, f) => a + f.y, 0) / near.length, n: near.length } : null;
+  const chaser = boss && near.length ? near.reduce((a, b) => Math.hypot(a.x - s.p.x, a.y - s.p.y) <= Math.hypot(b.x - s.p.x, b.y - s.p.y) ? a : b) : null;
+  return { crowd, chaser: chaser && Math.hypot(chaser.x - s.p.x, chaser.y - s.p.y) < 200 ? { x: chaser.x, y: chaser.y } : null, target: best, danger: bestDanger, dash, roll, brake, aim, safeForHold, timeToHit: tth, escape };
 }
