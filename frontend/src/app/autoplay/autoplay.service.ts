@@ -968,8 +968,8 @@ export class AutoplayService {
     for (const e of g.enemies || []) {
       const d = e.plugin?.data; if (!d) continue;
       const r = e.circleRadius || 20;
-      foes.push({ x: e.position.x, y: e.position.y, r, boss: d.type === 'boss' || d.type === 'enemy_phoenix', hp: d.health });
       const vx = (e.velocity?.x || 0) * 60, vy = (e.velocity?.y || 0) * 60;
+      foes.push({ x: e.position.x, y: e.position.y, r, boss: d.type === 'boss' || d.type === 'enemy_phoenix', hp: d.health, spd: Math.hypot(vx, vy) });
       threats.push({ x: e.position.x, y: e.position.y, vx, vy, r, dmg: 15 });
     }
     const mv: any = this.gs.playerMovement;
@@ -1059,7 +1059,8 @@ export class AutoplayService {
     if (this.useAbilities && d.aim && d.timeToHit > 0.35 && now >= this.nextAbilityAt && now - this.lastPressAt > 300) {
       const fam = this.pickAbility(g);
       if (fam) {
-        const chain = synthTapChain(fam, d.aim.x, d.aim.y);
+        const tgt = d.crowd && fam === 'tap' ? d.crowd : d.aim;
+        const chain = synthTapChain(fam, tgt.x, tgt.y);
         if (chainIsValid(chain.steps, fam)) {
           this.count(`${fam} ability`);
           this.nextAbilityAt = now + chain.durationMs + chain.quietMs + 150;
@@ -1068,7 +1069,8 @@ export class AutoplayService {
         }
       }
     }
-    if (this.useAbilities && d.safeForHold && g.holdCooldown() <= 0 && now >= this.nextAbilityAt && s.foes.length && now - this.lastPressAt > 400 && Math.random() < (s.foes.some(f => f.boss) ? 0.3 : 0.05)) {
+    const crowdHold = !!d.crowd && d.timeToHit > 0.6;
+    if (this.useAbilities && (d.safeForHold || crowdHold) && g.holdCooldown() <= 0 && now >= this.nextAbilityAt && s.foes.length && now - this.lastPressAt > 400 && (crowdHold || Math.random() < (s.foes.some(f => f.boss) ? 0.3 : 0.05))) {
       const ms = holdChargeMs(false);
       this.count('hold ability'); this.nextAbilityAt = now + ms + 600;
       this.verifySlot('hold', ms + 500);

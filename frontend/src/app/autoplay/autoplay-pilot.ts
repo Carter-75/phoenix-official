@@ -4,7 +4,7 @@
 // then names the best spot and any emergency verb (dash, roll).
 export interface Pt { x: number; y: number; }
 export interface Threat extends Pt { vx: number; vy: number; r: number; dmg: number; }
-export interface Foe extends Pt { r: number; boss: boolean; hp: number; }
+export interface Foe extends Pt { r: number; boss: boolean; hp: number; /** px/s; fast minions (bats) chase, so they get room in proportion. */ spd?: number; }
 export type PickupKind = 'coin' | 'xp_orb' | 'heart' | 'gem' | 'spark_cell' | 'overcharge' | string;
 export interface Pickup extends Pt { kind?: PickupKind; }
 
@@ -37,6 +37,8 @@ export interface Snapshot {
   hazard?: (q: Pt) => number;
 }
 export interface Decision {
+  /** Minions crowding the bird (centroid within 220 px), worth clearing with TAP or HOLD. */
+  crowd?: { x: number; y: number; n: number } | null;
   target: Pt; danger: number; dash: Pt | null; roll: boolean; brake: boolean;
   aim: Foe | null; safeForHold: boolean; timeToHit: number;
   /** Why an escape verb fired: 'boxed', 'stuck', 'corner', or null. */
@@ -62,8 +64,10 @@ export function timeToHit(q: Pt, th: Threat, birdR: number, margin = 10): number
 
 export function dangerAt(q: Pt, s: Snapshot): number {
   let d = 0;
+  const bossOn = s.foes.some(f => f.boss);
   for (const th of s.threats) {
-    const t = timeToHit(q, th, s.birdR);
+    // Boss fights fill the air with stray shots: give predicted paths a wider berth.
+    const t = timeToHit(q, th, s.birdR, bossOn ? 18 : 10);
     if (t !== Infinity) d += (1.5 - t) * 10 * Math.max(0.5, th.dmg / 10);
     else {
       const dist = Math.hypot(th.x - q.x, th.y - q.y);
@@ -72,8 +76,8 @@ export function dangerAt(q: Pt, s: Snapshot): number {
   }
   for (const f of s.foes) {
     const dist = Math.hypot(f.x - q.x, f.y - q.y) - f.r - s.birdR;
-    const keep = f.boss ? 190 : 40;
-    if (dist < keep) d += (keep - dist) / keep * (f.boss ? 14 : 6);
+    const keep = f.boss ? 190 : bossOn ? 75 + Math.min(120, (f.spd ?? 0) * 0.4) : 40;
+    if (dist < keep) d += (keep - dist) / keep * (f.boss ? 14 : bossOn ? 8 : 6);
   }
   if (s.hazard) d += s.hazard(q) * 6;
   d += wallPenalty(q, s) + densityAt(q, s);
@@ -198,5 +202,7 @@ export function decide(s: Snapshot, rng: () => number = Math.random): Decision {
   const speed = Math.hypot(s.v.x, s.v.y);
   const brake = !dash && speed > 900 && Math.hypot(best.x - s.p.x, best.y - s.p.y) < 40;
   const safeForHold = tth === Infinity && dangerAt(s.p, s) < 0.4 && !s.telegraph;
-  return { target: best, danger: bestDanger, dash, roll, brake, aim, safeForHold, timeToHit: tth, escape };
+  const near = s.foes.filter(f => !f.boss && Math.hypot(f.x - s.p.x, f.y - s.p.y) < 220);
+  const crowd = near.length >= 3 ? { x: near.reduce((a, f) => a + f.x, 0) / near.length, y: near.reduce((a, f) => a + f.y, 0) / near.length, n: near.length } : null;
+  return { crowd, target: best, danger: bestDanger, dash, roll, brake, aim, safeForHold, timeToHit: tth, escape };
 }
