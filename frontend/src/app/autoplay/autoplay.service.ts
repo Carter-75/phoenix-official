@@ -140,11 +140,34 @@ export class AutoplayService {
   detachGame(g: any) { if (this.game === g) { this.endLife(); this.releaseFingers(); this.game = null; } }
 
   // ---------- lifecycle ----------
+  /** Entry point for Send: any failure before or during start is written to the output box. */
   async start(prompt: string, sliderMs: number | null) {
-    if (this.running()) return;
-    if (!this.allowed()) { this.log('gate', 'Autoplay is owner only; refusing to start.'); return; }
+    try { await this.startInner(prompt, sliderMs); }
+    catch (e: any) {
+      const msg = String(e?.stack || e?.message || e).slice(0, 600);
+      try { this.out.setReport(`AUTOPLAY FAILED TO START: ${msg}`); } catch { }
+      try { this.log('error', `Start failed: ${msg}`); } catch { this.output.set(`AUTOPLAY FAILED TO START: ${msg}`); }
+      try { clearInterval(this.tickTimer); clearInterval(this.pilotTimer); this.cleanup.forEach(f => { try { f(); } catch { } }); this.cleanup = []; } catch { }
+      this.running.set(false); this.paused.set(false); this.finishing = false;
+      this.status.set('Start failed (see output)');
+      setTimeout(() => AdGuard.release(AD_REASON), 0);
+    }
+  }
+
+  private async startInner(prompt: string, sliderMs: number | null) {
+    if (this.running()) { this.log('gate', 'Send ignored: a run is already active (press Stop first).'); return; }
+    if (!this.allowed()) {
+      this.log('gate', 'Checking owner access...');
+      await this.refreshFlags();
+      if (!this.allowed()) {
+        const u: any = this.auth.currentUser();
+        this.log('gate', `Autoplay is owner only; refusing to start (signed in: ${u?.email ? 'yes' : 'no'}, server flags: ${JSON.stringify(this.flags() ?? null)}).`);
+        return;
+      }
+    }
     AdGuard.suppress(AD_REASON);
     this.out.clear();
+    this.log('start', 'Send received; starting autoplay.');
     this.prompt = prompt;
     this.running.set(true);
     this.paused.set(false);

@@ -382,8 +382,9 @@ export class SettingsComponent {
 
   sendAutoplay() {
     const d = this.apDurations[this.apDurIdx()];
+    const prompt = this.apPrompt();
     this.close.emit();
-    void this.ap.start(this.apPrompt(), d.ms);
+    this.ap.start(prompt, d?.ms ?? null).catch(() => { });
   }
 
   /** Auto-grow the prompt box between its CSS min and max height. */
