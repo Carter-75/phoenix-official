@@ -1692,7 +1692,7 @@ export class GameComponent implements OnInit, OnDestroy {
             // then the player must separate and re-touch (or half a
             // second of honest contact pass) for the next.
             const nowContact = Date.now();
-            if (data.lastContactAt && nowContact - data.lastContactAt < 500) continue;
+            if (data.lastContactAt && nowContact - data.lastContactAt < ((data as any).contactCadenceMs || 500)) continue;
             data.lastContactAt = nowContact;
             // A rushing rival deals its rush damage to the player once
             // per cast, in place of the standard phoenix contact hit

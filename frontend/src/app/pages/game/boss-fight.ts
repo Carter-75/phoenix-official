@@ -402,7 +402,9 @@ summonBossMinions(boss: Matter.Body) {
           bossData.summonAlt = true;
       }
       if (def.minionType === 'bat') {
+          const bats = this.host.enemies.filter(e => e.plugin['data']?.type === 'bat').length;
           for (let i = 0; i < def.minionsPerSummon; i++) {
+              if (def.minionCap > 0 && bats + i >= def.minionCap) break;
               this.host.spawner.spawnMinion(boss.position.x, boss.position.y, ctx);
           }
           return;

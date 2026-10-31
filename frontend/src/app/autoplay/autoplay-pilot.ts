@@ -149,8 +149,12 @@ export function decide(s: Snapshot, rng: () => number = Math.random): Decision {
     const a = (k / 16) * Math.PI * 2;
     cands.push({ x: Math.max(4, Math.min(s.w - 4, s.p.x + Math.cos(a) * r)), y: Math.max(4, Math.min(s.h - 4, s.p.y + Math.sin(a) * r)) });
   }
+  // Bats outrun the bird, so fleeing only turns its head away. With a bat closing and no shot or telegraph due,
+  // hold nearly still: the head then turns to the nearest foe and auto-fire drops the bat before contact.
+  const batNear = !!boss && !s.telegraph && tth >= 0.6 && s.hpFrac > 0.15 && s.foes.some(f => !f.boss && Math.hypot(f.x - s.p.x, f.y - s.p.y) < 240);
   let best = s.p, bestScore = Infinity, bestDanger = 0;
   for (const c of cands) {
+    if (batNear && Math.hypot(c.x - s.p.x, c.y - s.p.y) > 60) continue;
     const danger = dangerAt(c, s);
     const travel = Math.hypot(c.x - s.p.x, c.y - s.p.y) / Math.max(s.w, s.h);
     const toIdeal = Math.hypot(c.x - ideal.x, c.y - ideal.y) / Math.max(s.w, s.h);
@@ -166,7 +170,7 @@ export function decide(s: Snapshot, rng: () => number = Math.random): Decision {
     // Keep the boss in the firing line: auto-fire only hits inside the 45 degree cone above a bird facing up, within reach.
     let fire = 0;
     if (boss) { const dy = c.y - boss.y, dx = Math.abs(c.x - boss.x); if (dy > 0 && dx < dy * 0.75 && Math.hypot(dx, dy) - boss.r < reach * 0.95) fire = 0.9; }
-    const score = -fire + danger * (s.telegraph ? 1.6 : 1) * (1 + 1.5 * hurt) + pathDanger(s.p, c, s) + travel * 0.6 + toIdeal * idealW - Math.min(4, pick) * 0.5 + rng() * 0.05;
+        const score = -fire + danger * (s.telegraph ? 1.6 : 1) * (1 + 1.5 * hurt) + pathDanger(s.p, c, s) + travel * 0.6 + toIdeal * idealW - Math.min(4, pick) * 0.5 + rng() * 0.05;
     if (score < bestScore) { bestScore = score; best = c; bestDanger = danger; }
   }
 
@@ -174,7 +178,7 @@ export function decide(s: Snapshot, rng: () => number = Math.random): Decision {
   let escape: Decision['escape'] = null;
   const boxed = boxedIn(s);
   const corner = wallPenalty(s.p, s) > 6;
-  if ((boxed || s.stuck || corner) && tth >= 0.3) {
+  if ((boxed || s.stuck || corner) && tth >= 0.3 && !(batNear && !corner)) {
     escape = s.stuck ? 'stuck' : boxed ? 'boxed' : 'corner';
     // Break out toward the far, open side: the best far candidate.
     let far = best, fs = Infinity;
@@ -205,7 +209,7 @@ export function decide(s: Snapshot, rng: () => number = Math.random): Decision {
   // At a boss, roll through an imminent hit when no dash is possible.
   if (boss && !dash && !roll && tth < 0.3 && s.stamina >= s.rollCost) roll = true;
   const speed = Math.hypot(s.v.x, s.v.y);
-  const brake = !dash && speed > 900 && Math.hypot(best.x - s.p.x, best.y - s.p.y) < 40;
+  const brake = !dash && speed > (batNear ? 350 : 900) && Math.hypot(best.x - s.p.x, best.y - s.p.y) < 40;
   const safeForHold = tth === Infinity && dangerAt(s.p, s) < (boss ? 1.5 : 0.4) && !s.telegraph;
   const near = s.foes.filter(f => !f.boss && Math.hypot(f.x - s.p.x, f.y - s.p.y) < 220);
   const crowd = near.length >= (boss ? 4 : 3) ? { x: near.reduce((a, f) => a + f.x, 0) / near.length, y: near.reduce((a, f) => a + f.y, 0) / near.length, n: near.length } : null;

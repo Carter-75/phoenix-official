@@ -53,7 +53,7 @@ export interface BossDef {
   // summons use the legacy boss-minion law (5 HP base); the other
   // types spawn through the roster factory at world HP.
   minionType: 'bat' | 'sentry_shard' | 'imp' | 'phantom' | 'pyre_moth' | 'mite';
-  minionCap: number; // alive cap for non-bat minions; 0 = uncapped
+  minionCap: number; // alive cap for minions; 0 = uncapped
   minionsPerSummon: number;
   // Movement style: 'chase' is the shipped slow creep toward the
   // player; 'patrolTop' flies wide arcs across the top band (the
@@ -118,7 +118,8 @@ function def(worldIndex: number, signature: BossSignatureId, extra: Partial<Boss
 }
 
 export const BOSS_DEFS: Record<number, BossDef> = {
-  0: def(0, 'magma_geysers', { shieldColor: [1.0, 0.62, 0.15], shieldColorHex: '#ff9e26' }),
+  // Realm 1: 2 bats per summon, at most 2 alive, in line with the later bosses' minion caps (was 3 per summon, uncapped; Oct 30, 2026).
+  0: def(0, 'magma_geysers', { minionCap: 2, minionsPerSummon: 2, shieldColor: [1.0, 0.62, 0.15], shieldColorHex: '#ff9e26' }),
   1: def(1, 'eclipse_lances', { minionType: 'phantom', minionCap: 2, minionsPerSummon: 1, shieldColor: [0.35, 0.75, 1.0], shieldColorHex: '#59bfff' }),
   2: def(2, 'refraction_beams', { minionType: 'sentry_shard', minionCap: 2, minionsPerSummon: 1, shieldColor: [0.72, 0.45, 1.0], shieldColorHex: '#b873ff' }),
   3: def(3, 'thunder_march', { minionType: 'imp', minionsPerSummon: 2, movement: 'patrolTop', shieldColor: [0.45, 1.0, 0.55], shieldColorHex: '#73ff8c' }),

@@ -415,7 +415,9 @@ export class EntitySpawnerService {
     public spawnMinion(x: number, y: number, ctx: SpawnerContext) {
         const worldIndex = ctx.gameState.selectedWorldIndex();
         const hp = Math.floor(5 * Math.pow(1.5, worldIndex));
-        const data = { id: Math.random().toString(), type: 'bat', health: hp, maxHealth: hp } as EnemyData;
+        // Boss-summoned bats hit and run: one contact hit per bat each 1.2 s (wave bats keep 0.5 s),
+        // so a swarm of chasers cannot stack hits faster than a player can turn and shoot (Oct 30, 2026).
+        const data = { id: Math.random().toString(), type: 'bat', health: hp, maxHealth: hp, contactCadenceMs: 1200 } as EnemyData;
         const minion = this.createEnemyBody(x, y, 10, 'bat', data);
         Matter.Body.setVelocity(minion, { x: (Math.random()-0.5)*5*this.speedScale, y: (Math.random()-0.5)*5*this.speedScale });
         ctx.enemies.push(minion);
