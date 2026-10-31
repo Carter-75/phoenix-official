@@ -11,6 +11,7 @@ const { isOwnerUser } = require('../config/owner');
 const router = express.Router();
 const MODEL = () => process.env.OPENAI_MODEL || 'gpt-5-mini';
 const hasKey = () => !!process.env.OPENAI_API_KEY;
+if (process.env.NODE_ENV !== 'test') console.log(`[autoplay] planner model ${MODEL()}`);
 
 // Simple in-memory per-user rate limit.
 const WINDOW_MS = 60 * 1000;
@@ -115,6 +116,7 @@ router.post('/step', jwt, requireOwner, async (req, res) => {
   if (!rateOk(String(req.user._id), 'step')) return res.status(429).json({ source: 'none', errorCode: 'rate_limited' });
   try {
     const out = await step(req.body || {});
+    console.log(`[autoplay] step model=${MODEL()} in=${out.usage.in} cached=${out.usage.cached} out=${out.usage.out}`);
     res.json({ source: 'openai', model: MODEL(), action: out.action, usage: out.usage });
   } catch (e) {
     const errorCode = e && e.code ? String(e.code) : (e && e.name === 'AbortError' ? 'timeout' : (e instanceof SyntaxError ? 'bad_json' : 'request_failed'));
