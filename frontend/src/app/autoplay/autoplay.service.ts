@@ -1008,7 +1008,7 @@ export class AutoplayService {
     if (!d) return undefined;
     const t = st.fightSec, m = 30;
     const hz = (d.hazards || []).filter((h: any) => h.until >= t && h.teleAt <= t + 1.2);
-    const lanes = (d.dashes || []).filter((x: any) => x.until >= t).map((x: any) => ({ x0: boss.position.x, y0: boss.position.y, x1: x.tx, y1: x.ty, w: (boss.circleRadius || 40) + 40 }));
+    const lanes = (d.dashes || []).filter((x: any) => x.until >= t).map((x: any) => ({ x0: boss.position.x, y0: boss.position.y, x1: x.tx, y1: x.ty, w: (boss.circleRadius || 40) + 60 }));
     if (!hz.length && !lanes.length) return undefined;
     const offs = [[0, 0], [m, 0], [-m, 0], [0, m], [0, -m]];
     return (q) => {

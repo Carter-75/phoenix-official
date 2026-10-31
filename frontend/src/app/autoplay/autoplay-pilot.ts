@@ -72,7 +72,7 @@ export function dangerAt(q: Pt, s: Snapshot): number {
   }
   for (const f of s.foes) {
     const dist = Math.hypot(f.x - q.x, f.y - q.y) - f.r - s.birdR;
-    const keep = f.boss ? 150 : 40;
+    const keep = f.boss ? 190 : 40;
     if (dist < keep) d += (keep - dist) / keep * (f.boss ? 14 : 6);
   }
   if (s.hazard) d += s.hazard(q) * 6;
@@ -129,10 +129,12 @@ export function decide(s: Snapshot, rng: () => number = Math.random): Decision {
   if (!aim && s.foes.length) {
     aim = s.foes.reduce((a, b) => Math.hypot(a.x - s.p.x, a.y - s.p.y) <= Math.hypot(b.x - s.p.x, b.y - s.p.y) ? a : b);
   }
+  // HP-aware: the lower the health at a boss, the further back and the more cautious.
+  const hurt = boss ? Math.max(0, Math.min(1, 1 - s.hpFrac)) : 0;
   // Boss: sit straight below it inside auto-fire reach (a parked bird faces up, so it fires at the boss).
   const reach = s.fireRange ?? 400;
   const ideal: Pt = boss
-    ? { x: boss.x, y: Math.min(s.h * 0.86, boss.y + Math.max(boss.r + 160, reach * 0.7)) }
+    ? { x: boss.x, y: Math.min(s.h * 0.88, boss.y + Math.max(boss.r + 160, reach * (0.7 + 0.25 * hurt))) }
     : aim ? { x: aim.x, y: Math.min(s.h * 0.85, aim.y + s.h * 0.28) } : { x: s.w / 2, y: s.h * 0.66 };
 
   const cands: Pt[] = [s.p];
@@ -150,11 +152,12 @@ export function decide(s: Snapshot, rng: () => number = Math.random): Decision {
     const stamFrac = s.stamina / Math.max(1, s.staminaMax ?? 100);
     for (const p of s.pickups) {
       const dd = Math.hypot(c.x - p.x, c.y - p.y);
-      if (dd < 220) pick += ((220 - dd) / 220) * pickupWeight(p.kind, stamFrac, s.hpFrac);
+      const pr = boss && p.kind === 'heart' ? 340 : 220;
+      if (dd < pr) pick += ((pr - dd) / pr) * pickupWeight(p.kind, stamFrac, s.hpFrac) * (boss && p.kind === 'heart' ? 1.5 : 1);
     }
     // Against a boss, closing on the ideal spot matters more than travel cost.
     const idealW = 1.4;
-    const score = danger * (s.telegraph ? 1.6 : 1) + pathDanger(s.p, c, s) + travel * 0.6 + toIdeal * idealW - Math.min(4, pick) * 0.5 + rng() * 0.05;
+    const score = danger * (s.telegraph ? 1.6 : 1) * (1 + 1.5 * hurt) + pathDanger(s.p, c, s) + travel * 0.6 + toIdeal * idealW - Math.min(4, pick) * 0.5 + rng() * 0.05;
     if (score < bestScore) { bestScore = score; best = c; bestDanger = danger; }
   }
 
@@ -182,6 +185,16 @@ export function decide(s: Snapshot, rng: () => number = Math.random): Decision {
       roll = true;
     }
   }
+  // Hazard prediction: standing in a telegraphed zone that is about to go live means leave now.
+  if (!dash && !roll && s.hazard) {
+    const here = s.hazard(s.p);
+    if (here > 0.3 && s.hazard(best) < here * 0.5) {
+      if (s.stamina >= s.dashCost && Math.hypot(best.x - s.p.x, best.y - s.p.y) > 30) dash = { x: best.x - s.p.x, y: best.y - s.p.y };
+      else if (s.stamina >= s.rollCost) roll = true;
+    }
+  }
+  // At a boss, roll through an imminent hit when no dash is possible.
+  if (boss && !dash && !roll && tth < 0.3 && s.stamina >= s.rollCost) roll = true;
   const speed = Math.hypot(s.v.x, s.v.y);
   const brake = !dash && speed > 900 && Math.hypot(best.x - s.p.x, best.y - s.p.y) < 40;
   const safeForHold = tth === Infinity && dangerAt(s.p, s) < 0.4 && !s.telegraph;
