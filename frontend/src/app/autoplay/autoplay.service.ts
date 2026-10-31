@@ -543,6 +543,19 @@ export class AutoplayService {
     };
   }
 
+  /** After a verified buy: the guest save on disk must hold the new coins and loadout. Null when saved (or saved in the cloud). */
+  private buySaved(after: { coins: number; loadout: string; realm: number }): string | null {
+    let raw: string | null = null;
+    try { if (localStorage.getItem('auth_token')) return null; raw = localStorage.getItem('phoenix_guest_data'); } catch { return null; }
+    if (!raw) return null;
+    try {
+      const d = JSON.parse(raw);
+      if (d.coins !== after.coins) return `the save still has ${d.coins} coins (live ${after.coins})`;
+      if (JSON.stringify(d.worldUpgrades?.[after.realm - 1] || {}) !== after.loadout) return 'the saved loadout does not match the live one';
+      return null;
+    } catch { return 'the save could not be read'; }
+  }
+
   private fingerprint() {
     const sel = this.gs.selectedWorldIndex();
     return { coins: this.gs.coins(), gems: this.gs.gems(), screen: this.screenName(), realm: sel + 1, loadout: JSON.stringify(this.gs.worldUpgrades()[sel] || {}), mode: String(this.gs.currentGameMode()), paused: this.gs.isPaused() };
@@ -608,6 +621,11 @@ export class AutoplayService {
             const msg = `${a.id}: balance dropped (${d.join(', ')}) but the upgrade level did not change`;
             this.ledger.push(`- PROBLEM ${msg}`);
             return { ok: false, note: msg };
+          }
+          if (spent && el.getAttribute('data-ap')?.startsWith('buy-')) {
+            const sv = this.buySaved(after);
+            if (sv) { const msg = `${a.id}: level rose but ${sv}`; this.ledger.push(`- PROBLEM ${msg}`); return { ok: false, note: msg }; }
+            d.push('saved');
           }
           if (spent) { this.ck.buys++; this.ck.lastBuyAt = Date.now(); const last = this.tm.attempts[this.tm.attempts.length - 1]; if (last) last.upgradesAfter.push(a.id); }
           if (spent) this.ledger.push(`- ${a.id}: ${d.join(', ')} (verified by code)`);
