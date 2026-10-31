@@ -194,10 +194,11 @@ export class AutoplayService {
     this.steps.set(0);
     let outcome: { report: string | null; endReason: string; steps: number; error?: string; success?: boolean };
     try {
-      outcome = await runAgent(prompt, (req) => { this.steps.update(n => n + 1); return this.callLlm(req); }, this.env(), {
+      this.agentOpt = {
         deadline: this.deadline, maxSteps: stepCapFor(sliderMs ?? null), reportMaxChars: REPORT_RESERVE_CHARS - 400,
         shouldStop: () => this.stopRequested || !this.running(),
-      });
+      };
+      outcome = await runAgent(prompt, (req) => { this.steps.update(n => n + 1); return this.callLlm(req); }, this.env(), this.agentOpt);
     } catch (e: any) {
       // Never end silently: any crash in the loop still writes an output entry.
       outcome = { report: null, endReason: `internal error: ${String(e?.message || e).slice(0, 160)}`, steps: this.steps() };
@@ -274,8 +275,13 @@ export class AutoplayService {
     window.addEventListener('unhandledrejection', onRej);
     const origErr = console.error;
     console.error = (...a: any[]) => { try { addFinding(this.tm.bugs, 'console.error', a.map(x => x?.message || String(x)).join(' ').slice(0, 300), this.where()); } catch { } origErr.apply(console, a); };
-    const onVis = () => { if (document.hidden) this.stop('App went to background'); };
+    // Background pauses the session (never stops it); on return the game
+    // shows its pause screen and the AI presses resume itself.
+    const onVis = () => { if (document.hidden) this.bgPause(); else this.bgResume(); };
     document.addEventListener('visibilitychange', onVis);
+    let capSub: any = null;
+    import('@capacitor/app').then(m => m.App.addListener('appStateChange', ({ isActive }) => { if (isActive) this.bgResume(); else this.bgPause(); })).then(h => { capSub = h; if (!this.running()) h?.remove?.(); }).catch(() => { });
+    this.cleanup.push(() => { try { capSub?.remove?.(); } catch { } });
     // While the AI runs, real (trusted) touches never reach gameplay: they
     // are stopped in the capture phase before the game's window listeners.
     // The only effect of a real touch is pausing the AI (tap-to-pause),
@@ -317,6 +323,26 @@ export class AutoplayService {
       for (const ty of BLOCK) window.removeEventListener(ty, onManual, true);
       cancelAnimationFrame(this.rafId);
     });
+  }
+
+  private bgSince = 0;
+  private agentOpt: any = null;
+  private bgPause() {
+    if (!this.running() || this.finishing || this.bgSince) return;
+    this.bgSince = Date.now();
+    clearTimeout(this.resumeTimer);
+    this.paused.set(true);
+    this.releaseFingers();
+    this.tm.manualPauses++;
+    this.log('safety', 'App went to background: AI session paused (not stopped). Goal, attempts and counters are kept.');
+  }
+  private bgResume() {
+    if (!this.running() || this.finishing || !this.bgSince) return;
+    const away = Date.now() - this.bgSince; this.bgSince = 0;
+    if (this.deadline) { this.deadline += away; if (this.agentOpt?.deadline) this.agentOpt.deadline += away; } // time away does not count against the session
+    this.lastProgressAt = Date.now();
+    this.paused.set(false);
+    this.log('safety', `App back in foreground after ${Math.round(away / 1000)} s: AI session resumed. If the game shows its pause screen, the AI presses resume.`);
   }
 
   private manualPause() {

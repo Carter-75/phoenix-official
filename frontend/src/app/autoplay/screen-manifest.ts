@@ -47,7 +47,9 @@ export function validActionsFor(screen: string): AgentActionName[] {
 export function buildManifest(screen: string, realm: number, tags: string[]): ScreenManifest {
   const controls: Record<string, string> = {};
   for (const t of tags) if (CONTROL_HELP[t]) controls[t] = CONTROL_HELP[t];
-  const needs = screen === 'game' || screen === 'pause' || screen === 'ko'
+  const needs = screen === 'pause'
+    ? 'pause screen: the run is paused (the game shows this after the app returns from the background, or after pause-toggle). To continue the same run and goal, tap_button pause-toggle (Resume), then keep using play. Only use quit-pause if the goal is done or impossible.'
+    : screen === 'game' || screen === 'ko'
     ? 'live run: use play until run_end. Do not quit a live run unless the goal is done or impossible. Shop is reachable only after the run ends. If play says the phoenix is down (KO), call start_run to retry (it gives up the KO run), or revive-gems if allowed: a death is never "impossible". To die on purpose: play until "death" with aggression 0 (the pilot stops dodging).'
     : screen === 'tutorial'
       ? 'tutorial: call play (seconds 240) and the app performs each step\'s gesture, taps Next on info steps and Back to menu at the end; it returns when the tutorial is done. Then report what worked and what was skipped.'
