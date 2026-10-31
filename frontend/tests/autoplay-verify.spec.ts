@@ -104,7 +104,8 @@ describe('upgradeNudge', () => {
   it('stops when the best upgrade is unaffordable, upgrades are not allowed, or after 8 nudges', () => {
     let st = fresh(); upgradeNudge(run, obs(1, 5000), P, st);
     expect(upgradeNudge(run, obs(1, 200), P, st)).toBeNull();
-    expect(upgradeNudge(run, obs(1, 5000), 'survive 1 minute in realm 3', fresh())).toBeNull();
+    expect(upgradeNudge(run, obs(1, 5000), 'survive 1 minute in realm 3 without upgrades', fresh())).toBeNull();
+    expect(upgradeNudge(run, obs(1, 5000), 'beat the realm 1 boss so realm 2 opens, then play realm 2', fresh())).toContain('REJECTED');
     st = fresh(); for (let i = 0; i < 8; i++) upgradeNudge(run, obs(1, 5000), P, st);
     expect(upgradeNudge(run, obs(1, 5000), P, st)).toBeNull();
   });

@@ -244,14 +244,17 @@ export function upgradeNudge(a: AgentAction, obs: Observation, prompt: string, s
   if (!c) return null;
   if (c.deaths > st.deathsSeen) { st.deathsSeen = c.deaths; st.coinsAtDeath = obs.coins; st.nudges = 0; }
   if (a.action !== 'start_run' || c.deaths < 1 || st.nudges >= 8) return null;
-  if (!/upgrad|\bbuy\b|shop|coins?\b/i.test(prompt) || /\b(no|don'?t|without|never)\s+(upgrad|buy|shop|spend)/i.test(prompt)) return null;
+  // Any gameplay goal: retrying after a death with unspent coins wastes the attempt, unless the prompt forbids buying
+  // or asked for exactly one purchase that is already done.
+  if (/\b(no|don'?t|do not|without|never)\s+(upgrad|buy|shop|spend|coins)/i.test(prompt)) return null;
+  if (/\b(an|one|a single)\s+upgrade\b/i.test(prompt) && c.buys >= 1) return null;
   const best = obs.shop?.best || [];
   const spent = Math.max(0, st.coinsAtDeath - obs.coins);
   const affordable = best.find(b => b.cost <= obs.coins);
   if (!affordable || best[0].cost > obs.coins || spent >= st.coinsAtDeath * 0.7) return null;
   st.nudges++;
   const list = best.slice(0, 3).map(b => `${b.id} (${b.cost} coins, ${b.gain})`).join(', ');
-  return `REJECTED: you died and the prompt allows coin upgrades, but you have spent only ${spent} of ${st.coinsAtDeath} coins since the death and the best-value upgrade is still affordable. Your choice what to buy, but spend most of it first: select_realm the realm you will start in, navigate shop, tap buy- buttons (${list}); damage and attack speed shorten boss fights, health survives them. Then start_run.`;
+  return `REJECTED: you died and retrying with unspent coins wastes the attempt: you have spent only ${spent} of ${st.coinsAtDeath} coins since the death and the best-value upgrade is still affordable. Your choice what to buy, but spend most of it first: select_realm the realm you will start in, navigate shop, tap buy- buttons (${list}); damage and attack speed shorten boss fights, health survives them. Then start_run.`;
 }
 
 const ACTIONS = ['tap_button', 'select_realm', 'navigate', 'start_run', 'play', 'use_ability', 'wait', 'finish'];
@@ -466,7 +469,7 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
     const label = describeAction(a);
     const nudge = blocked ? null : startRealmCheck(a, obs, prompt) ?? upgradeNudge(a, obs, prompt, upg);
     if (nudge) {
-      env.log('safety', `Sent back ${label}: ${nudge.startsWith('REJECTED: the prompt needs realm') ? 'wrong start realm' : 'retry with unspent coins after a death'}.`);
+      env.log('safety', `Sent back ${label}: ${/^REJECTED: (the prompt needs realm|this goal progresses)/.test(nudge) ? 'wrong start realm' : 'retry with unspent coins after a death'}.`);
       history.push({ step, action: label, ok: false, note: nudge });
       continue;
     }

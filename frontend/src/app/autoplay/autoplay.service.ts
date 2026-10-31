@@ -660,7 +660,7 @@ export class AutoplayService {
       }
       case 'start_run': {
         if (this.gs.activeScreen() === 'game') {
-          if (!this.isDown() && !this.game?.gameEnded?.()) return { ok: false, note: 'already in a run; use play, or navigate menu to quit it first' };
+          if (!this.isDown() && !this.game?.gameEnded?.()) return { ok: false, note: 'a run is already live and started fresh: do NOT call start_run again; call play now (until run_end) to keep playing it' };
           // KO or finished run: leave it so the retry the AI asked for can start.
           if (this.click('give-up')) await sleep(900);
           if (this.click('quit-game')) await sleep(900);
@@ -834,7 +834,10 @@ export class AutoplayService {
     const abil0 = { ...this.ck.abil };
     this.playing = true; this.useAbilities = abilities;
     // Die on purpose: until death with aggression 0 hands the phoenix no pilot, so it stops dodging.
-    this.passive = until === 'death' && aggression <= 0.05;
+    // Only a goal that asks to die may switch the pilot off; otherwise a low aggression still dodges.
+    const dieGoal = /\bdie\b|get killed|on purpose/i.test(this.prompt) && !/without dying|don.t die|no deaths?/i.test(this.prompt);
+    if (!dieGoal) aggression = Math.max(aggression, 0.2);
+    this.passive = dieGoal && until === 'death' && aggression <= 0.05;
     if (this.passive) { this.useAbilities = false; this.releaseFingers(); }
     let why = 'time up';
     while (true) {

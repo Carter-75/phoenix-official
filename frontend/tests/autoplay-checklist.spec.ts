@@ -58,7 +58,7 @@ describe('navigate pages and tags', () => {
   });
   it('die on purpose makes the pilot passive and the tutorial has a gesture driver', () => {
     const svc = read('autoplay/autoplay.service.ts');
-    expect(svc).toMatch(/this\.passive = until === 'death' && aggression <= 0\.05/);
+    expect(svc).toMatch(/this\.passive = dieGoal && until === 'death' && aggression <= 0\.05/);
     expect(svc).toMatch(/!this\.playing \|\| this\.passive\) return/);
     for (const g of ['steer', 'slot-tap', 'hold', 'dash', 'roll', 'brake', 'glide', 'spark', 'pickups']) expect(svc).toContain(`case '${g}'`);
   });
