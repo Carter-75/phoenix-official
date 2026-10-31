@@ -9,7 +9,7 @@ const passport = require('passport');
 const { isOwnerUser } = require('../config/owner');
 
 const router = express.Router();
-const MODEL = () => process.env.OPENAI_MODEL || 'gpt-5-nano';
+const MODEL = () => process.env.OPENAI_MODEL || 'gpt-5-mini';
 const hasKey = () => !!process.env.OPENAI_API_KEY;
 
 // Simple in-memory per-user rate limit.
