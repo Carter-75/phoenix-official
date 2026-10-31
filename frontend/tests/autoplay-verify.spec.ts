@@ -109,3 +109,17 @@ describe('upgradeNudge', () => {
     expect(upgradeNudge(run, obs(1, 5000), P, st)).toBeNull();
   });
 });
+
+import { startRealmCheck } from '../src/app/autoplay/autoplay-agent';
+describe('startRealmCheck', () => {
+  const o = (cleared: number[]): any => ({ unlockedRealms: [1, 2, 3], checklist: { realmsCleared: cleared } });
+  const T = 'beat the realm 1 boss so realm 2 opens, then play realm 2';
+  it('sends a later-realm start back until the named realm is cleared', () => {
+    expect(startRealmCheck({ action: 'start_run', mode: 'campaign', realm: 2 }, o([]), T)).toContain('requested realm 1, you chose realm 2');
+    expect(startRealmCheck({ action: 'start_run', mode: 'campaign', realm: 1 }, o([]), T)).toBeNull();
+    expect(startRealmCheck({ action: 'start_run', mode: 'campaign', realm: 2 }, o([1]), T)).toBeNull();
+  });
+  it('leaves free-choice prompts alone', () => {
+    expect(startRealmCheck({ action: 'start_run', mode: 'campaign', realm: 2 }, o([]), 'progress through realms 1-10, starting wherever makes sense')).toBeNull();
+  });
+});

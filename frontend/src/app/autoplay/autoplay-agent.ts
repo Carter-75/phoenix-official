@@ -196,6 +196,20 @@ export class AgentApiError extends Error {
  * Safety net for upgrade prompts: a retry after a death with plenty of coins and no buy since
  * that death is sent back once (per death) with a nudge. Never buys for the AI.
  */
+/**
+ * Verifies the requested start realm: when the prompt names a realm to start in (e.g. "beat the realm 1
+ * boss so realm 2 opens"), a start_run in a different realm before that realm is cleared this session is
+ * sent back. Later realms are fine once the named realm's boss has fallen.
+ */
+export function startRealmCheck(a: AgentAction, obs: Observation, prompt: string): string | null {
+  if (a.action !== 'start_run' || a.realm === undefined) return null;
+  if (/wherever|any realm|you choose|your choice|whichever/i.test(prompt)) return null;
+  const want = goalRealm(prompt);
+  if (!want || a.realm === want || (obs.checklist?.realmsCleared || []).includes(want)) return null;
+  if (!(obs.unlockedRealms || []).includes(want)) return null;
+  return `REJECTED: the prompt needs realm ${want} first (requested realm ${want}, you chose realm ${a.realm}). Unlocked later realms do not count: start_run in realm ${want} and play it until its boss falls, then move on as the prompt says.`;
+}
+
 export function upgradeNudge(a: AgentAction, obs: Observation, prompt: string, st: { deathsSeen: number; coinsAtDeath: number; nudges: number }): string | null {
   const c = obs.checklist;
   if (!c) return null;
@@ -417,9 +431,9 @@ export async function runAgent(prompt: string, llm: LlmCall, env: AgentEnv, opt:
     }
     const blocked = railCheck(a, obs, prompt);
     const label = describeAction(a);
-    const nudge = blocked ? null : upgradeNudge(a, obs, prompt, upg);
+    const nudge = blocked ? null : startRealmCheck(a, obs, prompt) ?? upgradeNudge(a, obs, prompt, upg);
     if (nudge) {
-      env.log('safety', `Sent back ${label}: retry with unspent coins after a death.`);
+      env.log('safety', `Sent back ${label}: ${nudge.startsWith('REJECTED: the prompt needs realm') ? 'wrong start realm' : 'retry with unspent coins after a death'}.`);
       history.push({ step, action: label, ok: false, note: nudge });
       continue;
     }
