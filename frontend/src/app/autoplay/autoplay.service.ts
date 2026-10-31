@@ -112,7 +112,7 @@ export class AutoplayService {
   /** Guidance, not a rule: the AI decides whether the locked realm makes the goal impossible now. */
   private lockedNote(r: number | undefined): string {
     const u = this.gs.unlockedWorlds().map((i: number) => i + 1);
-    return `realm ${r} is locked (unlocked: ${u.join(', ')}). Beating a realm's boss unlocks the next one. If the prompt needs you to START in realm ${r} now, finish impossible with "Realm ${r} is locked; unlocked: ${u.length ? u[0] + '-' + u[u.length - 1] : 'none'}". If realm ${r} is only reached by progressing, start in an unlocked realm and keep playing.`;
+    return `realm ${r} is locked (unlocked: ${u.join(', ')}). Beating a realm's boss unlocks the next one. If the prompt needs you to START or PLAY in realm ${r} now (e.g. "play realm ${r} for 30 seconds"), playing a different realm does not satisfy it, so finish impossible with "Realm ${r} is locked; unlocked: ${u.length ? u[0] + '-' + u[u.length - 1] : 'none'}". If realm ${r} is only reached by progressing, start in an unlocked realm and keep playing.`;
   }
   private ck = { deaths: 0, buys: 0, lastDeathAt: 0, lastBuyAt: 0, runAfterDeath: false, runAfterBuy: false, tutorialDone: false, tutPassed: [] as string[], tutSkipped: [] as string[], runRealms: [] as number[], lifeMs: 0, lastAliveAt: 0, longestLifeMs: 0, cleanSweep: false, abil: {} as Record<string, number>, escapes: {} as Record<string, number> };
 
