@@ -229,7 +229,7 @@ export class AutoplayService {
   /** Token use from the API usage field, summed over the session (in includes cached). */
   public usage = { in: 0, cached: 0, out: 0, calls: 0 };
   private usageLine(): string {
-    const u = this.usage, p = PRICE_PER_M[this.model || ''] || PRICE_PER_M['gpt-5-nano'];
+    const u = this.usage, p = PRICE_PER_M[this.model || ''] || PRICE_PER_M['gpt-5-mini'];
     const usd = ((u.in - u.cached) * p[0] + u.cached * p[1] + u.out * p[2]) / 1e6;
     const min = Math.max(1 / 60, (Date.now() - this.tm.startedAt) / 60000);
     return `AI usage: ${u.calls} calls, ${u.in} input tokens (${u.cached} cached), ${u.out} output tokens, about ${Math.round((u.in + u.out) / min)} tokens/min, est cost $${usd.toFixed(4)}.`;
