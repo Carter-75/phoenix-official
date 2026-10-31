@@ -115,11 +115,18 @@ describe('startRealmCheck', () => {
   const o = (cleared: number[]): any => ({ unlockedRealms: [1, 2, 3], checklist: { realmsCleared: cleared } });
   const T = 'beat the realm 1 boss so realm 2 opens, then play realm 2';
   it('sends a later-realm start back until the named realm is cleared', () => {
-    expect(startRealmCheck({ action: 'start_run', mode: 'campaign', realm: 2 }, o([]), T)).toContain('requested realm 1, you chose realm 2');
+    expect(startRealmCheck({ action: 'start_run', mode: 'campaign', realm: 2 }, o([]), T)).toContain('start_run realm 1');
     expect(startRealmCheck({ action: 'start_run', mode: 'campaign', realm: 1 }, o([]), T)).toBeNull();
     expect(startRealmCheck({ action: 'start_run', mode: 'campaign', realm: 2 }, o([1]), T)).toBeNull();
   });
-  it('leaves free-choice prompts alone', () => {
-    expect(startRealmCheck({ action: 'start_run', mode: 'campaign', realm: 2 }, o([]), 'progress through realms 1-10, starting wherever makes sense')).toBeNull();
+  it('progression goals start at realm 1 even with free wording, and advance only after the boss', () => {
+    const P = 'progress through realms 1-10, starting wherever makes sense';
+    expect(startRealmCheck({ action: 'start_run', mode: 'campaign', realm: 2 }, o([]), P)).toContain('start_run realm 1');
+    expect(startRealmCheck({ action: 'start_run', mode: 'campaign', realm: 1 }, o([]), P)).toBeNull();
+    expect(startRealmCheck({ action: 'start_run', mode: 'campaign', realm: 3 }, o([1]), P)).toContain('start_run realm 2');
+    expect(startRealmCheck({ action: 'start_run', mode: 'campaign', realm: 2 }, o([1]), P)).toBeNull();
+  });
+  it('leaves free-choice prompts without a progression alone', () => {
+    expect(startRealmCheck({ action: 'start_run', mode: 'campaign', realm: 2 }, o([]), 'survive 1 minute in any realm you choose')).toBeNull();
   });
 });

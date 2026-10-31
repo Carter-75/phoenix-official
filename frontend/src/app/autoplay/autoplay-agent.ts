@@ -114,7 +114,7 @@ export function promptRealm(prompt: string): number | null {
 export function goalRealm(prompt: string): number | null {
   const r = promptRealm(prompt);
   if (r) return r;
-  return /\ball (?:10 |ten )?realms\b|\bevery realm\b|realms? 1\s*(?:-|to|through)\s*10/i.test(prompt) ? 1 : null;
+  return /\ball (?:10 |ten )?realms\b|\bevery realm\b|realms? 1\s*(?:-|to|through)\s*10/i.test(prompt) || progressionGoal(prompt) ? 1 : null;
 }
 
 const ranges = (xs: number[]) => {
@@ -201,11 +201,24 @@ export class AgentApiError extends Error {
  * boss so realm 2 opens"), a start_run in a different realm before that realm is cleared this session is
  * sent back. Later realms are fine once the named realm's boss has fallen.
  */
+/** A goal that walks the realms in order from realm 1 (e.g. "progress through realms 1-10", "all realms", "realm 1 boss first"). */
+export function progressionGoal(prompt: string): boolean {
+  return /\b(?:all (?:10 |ten )?realms|every realm|realms? 1\s*(?:-|to|through)\s*\d+|progress(?:ion)? through (?:the )?realms|from realm 1|realm 1(?:'s)? boss)/i.test(prompt);
+}
+
 export function startRealmCheck(a: AgentAction, obs: Observation, prompt: string): string | null {
   if (a.action !== 'start_run' || a.realm === undefined) return null;
+  const cleared = new Set(obs.checklist?.realmsCleared || []);
+  if (progressionGoal(prompt)) {
+    // Realm 1 first, and the next realm only after this session beat the boss before it.
+    let next = 1; while (cleared.has(next)) next++;
+    if (a.realm <= next) return null;
+    if (!(obs.unlockedRealms || []).includes(next)) return null;
+    return `REJECTED: this goal progresses through the realms in order from realm 1 (you chose realm ${a.realm}). Unlocked later realms and earlier saves do not count: in this session you have beaten the bosses of ${cleared.size ? [...cleared].sort((x, y) => x - y).join(', ') : 'no realm yet'}, so start_run realm ${next} and advance only after its boss falls.`;
+  }
   if (/wherever|any realm|you choose|your choice|whichever/i.test(prompt)) return null;
   const want = goalRealm(prompt);
-  if (!want || a.realm === want || (obs.checklist?.realmsCleared || []).includes(want)) return null;
+  if (!want || a.realm === want || cleared.has(want)) return null;
   if (!(obs.unlockedRealms || []).includes(want)) return null;
   return `REJECTED: the prompt needs realm ${want} first (requested realm ${want}, you chose realm ${a.realm}). Unlocked later realms do not count: start_run in realm ${want} and play it until its boss falls, then move on as the prompt says.`;
 }
